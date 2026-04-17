@@ -205,3 +205,32 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ==========================================
+# SCANOPS - REGLAS ESPECÍFICAS DE SEGURIDAD
+# ==========================================
+
+# No subir reportes de vulnerabilidades reales al repositorio
+/reports/
+/results/
+/scans/
+*.pdf
+*.html
+*.json_report
+
+# Evitar logs de escaneo pesados o sensibles
+/logs/
+*.log
+
+# Secretos y Configuración local (ENS)
+.env
+.env.local
+config/secrets.yaml
+keys/
+*.pem
+*.crt
+
+# Archivos temporales de herramientas de terceros (si las usas)
+.nmap/
+.nuclei/
+.openvas/
