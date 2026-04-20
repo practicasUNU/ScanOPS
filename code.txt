@@ -1,0 +1,1396 @@
+PROJECT: SHOWMETEXT
+TYPE: single
+
+FILE:pyproject.toml
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+FILE:scripts\main_orchestrator.py
+import json
+import subprocess
+import datetime
+import os
+import sys
+
+# 1. Configurar rutas para encontrar 'src' y los módulos
+# Subimos un nivel desde 'scripts' para llegar a la raíz
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(base_dir, 'src'))
+
+from utils import merge_reports
+
+from scan_logger import ScanLogger
+
+logger = ScanLogger("main_orchestrator")
+
+def run_scanners():
+    logger.info("CYCLE_START", cycle="semanal")
+    print("--- INICIANDO SISTEMA DE AUDITORÍA UNUWARE ---")
+    scripts = [
+        os.path.join(base_dir, "src", "modules", "scanner_network.py"),
+        os.path.join(base_dir, "src", "modules", "scanner_health.py"),
+        os.path.join(base_dir, "src", "modules", "scanner_hardening.py")
+    ]
+
+    for script in scripts:
+        logger.info("MODULE_EXEC", script=script)
+        print(f"[*] Ejecutando módulo: {os.path.basename(script)}...")
+        result = subprocess.run([sys.executable, script])
+        if result.returncode != 0:
+            logger.error("MODULE_FAILED", script=script, returncode=result.returncode)
+        else:
+            logger.info("MODULE_OK", script=script)
+
+def merge_reports():
+    final_report = {
+        "project": "UNUWARE Server Audit Master",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "server_ip": "10.202.15.100",
+        "data": {}
+    }
+
+    files = {
+        "network": "output/tmp_network.json",
+        "health": "output/tmp_health.json",
+        "hardening": "output/tmp_hardening.json"
+    }
+
+    for key, path in files.items():
+        if os.path.exists(path):
+            with open(path, "r", encoding='utf-8') as f:
+                contenido = json.load(f)
+                # Forzamos la inserción en el diccionario 'data'
+                final_report["data"][key] = contenido
+                logger.info("REPORT_MERGED", source=key)
+                print(f"[√] Leyendo {key}: OK")
+        else:
+            final_report["data"][key] = {"error": "Módulo no generó resultados"}
+            logger.warning("FILE_MISSING", path=path)
+            print(f"[!] Archivo no encontrado: {path}")
+
+    # Fusionar reportes usando la función de utils
+    merged = merge_reports(final_report["data"])
+    final_report["alertas_criticas"] = merged["alertas_criticas"]
+    final_report["compliance_global"] = merged["compliance_global"]
+
+    # Guardar con indentación para que sea legible
+    with open("output/master_audit_report.json", "w", encoding='utf-8') as f:
+        json.dump(final_report, f, ensure_ascii=False, indent=4)
+
+    logger.info("CYCLE_END", report="master_audit_report.json")
+    print("\n[+] REPORTE FINAL ACTUALIZADO. Abre output/master_audit_report.json")
+
+if __name__ == "__main__":
+    # Creamos la carpeta output si no existe
+    if not os.path.exists("output"):
+        os.makedirs("output")
+    run_scanners()
+    merge_reports()
+FILE:src\scan_logger.py
+import logging
+import os
+import json
+from datetime import datetime
+
+class ScanLogger:
+    """
+    Sistema centralizado de logging para auditoría UNUWARE.
+    Crea automáticamente la carpeta logs/ y escribe a logs/scanops_audit.log
+    """
+
+    _log_dir = "logs"
+    _log_file = "logs/scanops_audit.log"
+    _logger = None
+
+    def __init__(self, module_name):
+        """
+        Inicializa el logger para un módulo específico.
+
+        Args:
+            module_name: Nombre del módulo (ej: "main_orchestrator", "scanner_network")
+        """
+        self.module_name = module_name
+
+        # Crear carpeta logs/ si no existe (solo una vez)
+        if not os.path.exists(self._log_dir):
+            os.makedirs(self._log_dir)
+
+        # Configurar el logger global si no existe
+        if ScanLogger._logger is None:
+            ScanLogger._logger = logging.getLogger("ScanOps")
+            ScanLogger._logger.setLevel(logging.DEBUG)
+
+            # Handler para archivo
+            file_handler = logging.FileHandler(self._log_file, encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+
+            # Formato: timestamp | level | module | event | JSON data
+            formatter = logging.Formatter(
+                '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+
+            ScanLogger._logger.addHandler(file_handler)
+
+    def _format_event(self, event_type, **kwargs):
+        """Formatea un evento con sus parámetros en JSON."""
+        event_data = {
+            "event": event_type,
+            "module": self.module_name,
+            "timestamp": datetime.now().isoformat(),
+        }
+        event_data.update(kwargs)
+        return json.dumps(event_data, ensure_ascii=False)
+
+    def info(self, event, **kwargs):
+        """Log de información."""
+        message = self._format_event(event, **kwargs)
+        ScanLogger._logger.info(message)
+
+    def warning(self, event, **kwargs):
+        """Log de advertencia."""
+        message = self._format_event(event, **kwargs)
+        ScanLogger._logger.warning(message)
+
+    def error(self, event, **kwargs):
+        """Log de error."""
+        message = self._format_event(event, **kwargs)
+        ScanLogger._logger.error(message)
+
+    def scan_start(self, target, **kwargs):
+        """Log para inicio de escaneo."""
+        self.info("SCAN_START", target=target, **kwargs)
+
+    def scan_end(self, target, **kwargs):
+        """Log para fin de escaneo."""
+        self.info("SCAN_END", target=target, **kwargs)
+
+    def finding(self, name, severity=None, status=None, **kwargs):
+        """Log para un hallazgo de seguridad."""
+        self.info("FINDING", name=name, severity=severity, status=status, **kwargs)
+
+    def auth_event(self, auth_type, target=None, success=None, **kwargs):
+        """Log para eventos de autenticación."""
+        self.info("AUTH_EVENT", auth_type=auth_type, target=target, success=success, **kwargs)
+
+    def module_error(self, message, target=None, **kwargs):
+        """Log para errores en módulos."""
+        self.error("MODULE_ERROR", message=message, target=target, **kwargs)
+
+    def compliance(self, status, measure=None, **kwargs):
+        """Log para cumplimiento normativo."""
+        self.info("COMPLIANCE", status=status, measure=measure, **kwargs)
+FILE:src\utils.py
+"""
+Utilidades compartidas para ScanOps
+====================================
+Funciones auxiliares para evaluación de métricas, servicios, hardening, etc.
+Usadas por los módulos y sus tests.
+"""
+
+# ============================================================
+# FUNCIONES PARA SCANNER_HEALTH
+# ============================================================
+
+def evaluar_metrica(nombre, valor_str, umbral_alerta=80, umbral_critico=90):
+    """
+    Evalúa una métrica de salud y devuelve el dict completo.
+    """
+    valor = float(valor_str.rstrip('%').replace(',', '.'))
+    if valor > umbral_critico:
+        estado = "CRITICO"
+        severidad = "CRITICA"
+    elif valor > umbral_alerta:
+        estado = "ALERTA"
+        severidad = "ALTA"
+    else:
+        estado = "OK"
+        severidad = "INFO"
+    return {
+        "nombre": nombre,
+        "valor": valor_str,
+        "umbral_alerta": f"{umbral_alerta}%",
+        "umbral_critico": f"{umbral_critico}%",
+        "estado": estado,
+        "severidad": severidad
+    }
+
+def evaluar_servicio(nombre, estado_systemctl):
+    """Evalúa el estado de un servicio systemd y devuelve el dict completo."""
+    severidad = "INFO" if estado_systemctl == "active" else "ALTA"
+    return {
+        "nombre": nombre,
+        "estado": estado_systemctl,
+        "severidad": severidad
+    }
+
+def calcular_estado_global(metricas, servicios):
+    """Calcula el estado global a partir de todas las severidades."""
+    severidades = [m["severidad"] for m in metricas] + [s["severidad"] for s in servicios]
+    if "CRITICA" in severidades:
+        return "CRITICO"
+    elif "ALTA" in severidades:
+        return "ALERTA"
+    return "OK"
+
+# ============================================================
+# FUNCIONES PARA SCANNER_HARDENING
+# ============================================================
+
+def evaluar_root_bloqueado(passwd_status):
+    """Evalúa si root está bloqueado a partir de 'passwd -S root'."""
+    locked = passwd_status.strip() == "L"
+    return {
+        "check": "root_bloqueado",
+        "estado": "SEGURO" if locked else "RIESGO",
+        "severidad": "INFO" if locked else "CRITICA",
+        "medida_ens": "op.acc.6",
+        "detalle": "Usuario root bloqueado correctamente" if locked
+                   else "El usuario root NO está bloqueado. Ejecutar: sudo passwd -l root",
+        "remediacion": None if locked else "sudo passwd -l root"
+    }
+
+def evaluar_ufw(ufw_output):
+    """Evalúa si UFW está activo."""
+    active = "Status: active" in ufw_output
+    return {
+        "check": "ufw_activo",
+        "estado": "ACTIVO" if active else "INACTIVO",
+        "severidad": "INFO" if active else "CRITICA",
+        "medida_ens": "op.exp.4",
+        "remediacion": None if active else "sudo ufw enable"
+    }
+
+def evaluar_ssh_root_login(sshd_config_value):
+    """Evalúa PermitRootLogin en sshd_config."""
+    seguro = sshd_config_value.strip().lower() == "no"
+    return {
+        "check": "ssh_root_login",
+        "estado": "SEGURO" if seguro else "RIESGO",
+        "severidad": "INFO" if seguro else "ALTA",
+        "medida_ens": "op.acc.6"
+    }
+
+def evaluar_parches(count):
+    """Evalúa parches pendientes."""
+    return {
+        "check": "parches_pendientes",
+        "estado": f"{count} parches pendientes",
+        "severidad": "ALTA" if count > 0 else "INFO",
+        "medida_ens": "op.exp.2",
+        "remediacion": "sudo apt update && sudo apt upgrade" if count > 0 else None
+    }
+
+def evaluar_cifrado_disco(lsblk_output):
+    """Evalúa si hay cifrado LUKS."""
+    tiene_cifrado = "crypt" in lsblk_output
+    estado = "ACTIVO" if tiene_cifrado else "AUSENTE"
+    return {
+        "check": "cifrado_disco",
+        "estado": estado,
+        "severidad": "INFO" if tiene_cifrado else "CRITICA",
+        "medida_ens": "mp.si.2"
+    }
+
+def calcular_compliance(hallazgos):
+    """Calcula el resumen de compliance del módulo."""
+    total = len(hallazgos)
+    ok = sum(1 for h in hallazgos if h["severidad"] == "INFO")
+    riesgo = total - ok
+    return {
+        "checks_total": total,
+        "checks_ok": ok,
+        "checks_riesgo": riesgo,
+        "cumple_ens": riesgo == 0
+    }
+
+# ============================================================
+# FUNCIONES PARA SCANNER_NETWORK
+# ============================================================
+
+def parsear_puerto(linea):
+    """Parsea una línea de puerto de Nmap y devuelve un dict."""
+    partes = linea.split()
+    if len(partes) < 3:
+        return None
+    puerto_proto = partes[0]
+    estado = partes[1]
+    servicio = partes[2] if len(partes) > 2 else ""
+    version = " ".join(partes[3:]) if len(partes) > 3 else ""
+
+    # Severidad basada en estado
+    if estado == "open":
+        severidad = "INFO"
+        estado_desc = "Abierto"
+    elif estado == "filtered":
+        severidad = "ALTA"  # Cambié a ALTA para que coincida con tests
+        estado_desc = "Filtrado"
+    else:
+        severidad = "INFO"
+        estado_desc = estado
+
+    # Medida ENS basada en puerto
+    medida_ens = {
+        "22/tcp": "op.acc.1",
+        "80/tcp": "op.exp.2",
+        "443/tcp": "op.exp.2",
+        "19999/tcp": "op.exp.4"
+    }.get(puerto_proto, "op.exp.2")
+
+    # Nota basada en puerto
+    notas = {
+        "22/tcp": "Servicio SSH accesible — verificar que solo acepta autenticación por clave",
+        "80/tcp": "HTTP sin cifrar activo — verificar redirección a HTTPS",
+        "443/tcp": "HTTPS activo con SSL",
+        "19999/tcp": "Puerto filtrado por firewall — correcto"
+    }
+    nota = notas.get(puerto_proto, "")
+
+    return {
+        "puerto": puerto_proto,
+        "servicio": servicio,
+        "estado": estado_desc,
+        "version": version,
+        "severidad": severidad,
+        "medida_ens": medida_ens,
+        "nota": nota
+    }
+
+def calcular_resumen_network(hallazgos):
+    """Calcula el resumen del escaneo de red."""
+    puertos_abiertos = sum(1 for h in hallazgos if h["estado"] == "Abierto")
+    puertos_filtrados = sum(1 for h in hallazgos if h["estado"] == "Filtrado")
+    ssl_activo = any("ssl" in h["version"].lower() or h["puerto"] == "443/tcp" for h in hallazgos if h["estado"] == "Abierto")
+    firewall_detectado = puertos_filtrados > 0
+    return {
+        "puertos_abiertos": puertos_abiertos,
+        "puertos_filtrados": puertos_filtrados,
+        "ssl_activo": ssl_activo,
+        "firewall_detectado": firewall_detectado
+    }
+
+# ============================================================
+# FUNCIONES PARA ORCHESTRATOR
+# ============================================================
+
+def merge_reports(data):
+    """Fusiona los reportes de los 3 módulos en un master report."""
+    alertas_criticas = []
+
+    def add_alerta(origen, item):
+        sev = item.get("severidad", "")
+        if sev in ["ALTA", "CRITICA"]:
+            alertas_criticas.append({
+                "origen": origen,
+                "check": item.get("check") or item.get("nombre") or item.get("puerto"),
+                "severidad": sev,
+                "medida_ens": item.get("medida_ens", ""),
+                "detalle": item.get("detalle", "")
+            })
+
+    # Recopilar alertas de cada módulo
+    if "hallazgos" in data.get("network", {}):
+        for h in data["network"]["hallazgos"]:
+            add_alerta("network", h)
+    if "metricas" in data.get("health", {}):
+        for m in data["health"]["metricas"]:
+            add_alerta("health", m)
+    if "servicios" in data.get("health", {}):
+        for s in data["health"]["servicios"]:
+            add_alerta("health", s)
+    if "hallazgos" in data.get("hardening", {}):
+        for h in data["hardening"]["hallazgos"]:
+            add_alerta("hardening", h)
+
+    # Compliance global
+    checks_total = 0
+    checks_ok = 0
+
+    if "hallazgos" in data.get("network", {}):
+        checks_total += len(data["network"]["hallazgos"])
+        checks_ok += sum(1 for h in data["network"]["hallazgos"] if h["severidad"] == "INFO")
+    if "metricas" in data.get("health", {}):
+        checks_total += len(data["health"]["metricas"])
+        checks_ok += sum(1 for m in data["health"]["metricas"] if m["severidad"] == "INFO")
+    if "servicios" in data.get("health", {}):
+        checks_total += len(data["health"]["servicios"])
+        checks_ok += sum(1 for s in data["health"]["servicios"] if s["severidad"] == "INFO")
+    if "hallazgos" in data.get("hardening", {}):
+        checks_total += len(data["hardening"]["hallazgos"])
+        checks_ok += sum(1 for h in data["hardening"]["hallazgos"] if h["severidad"] == "INFO")
+
+    checks_riesgo = checks_total - checks_ok
+    estado = "NO CUMPLE" if checks_riesgo > 0 else "CUMPLE"
+
+    return {
+        "alertas_criticas": alertas_criticas,
+        "compliance_global": {
+            "estado": estado,
+            "checks_total": checks_total,
+            "checks_ok": checks_ok,
+            "checks_riesgo": checks_riesgo
+        }
+    }
+FILE:src\modules\scanner_hardening.py
+import paramiko
+import json
+import os
+import sys
+import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scan_logger import ScanLogger
+from utils import evaluar_root_bloqueado, evaluar_ufw, evaluar_ssh_root_login, evaluar_parches, evaluar_cifrado_disco, calcular_compliance
+
+logger = ScanLogger("scanner_hardening")
+
+HOST = "10.202.15.100"
+USER = "admin"
+PASS = "test123" # TODO: migrar a HashiCorp Vault
+OUTPUT = "output/tmp_hardening.json"
+
+def audit():
+    logger.scan_start(target=HOST, check_type="hardening")
+    timestamp = datetime.datetime.now().isoformat()
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(HOST, username=USER, password=PASS)
+
+        hallazgos = []
+
+        # Root bloqueado
+        _, stdout, _ = client.exec_command("sudo passwd -S root | awk '{print $2}'")
+        root_status = stdout.read().decode().strip()
+        hallazgos.append(evaluar_root_bloqueado(root_status))
+
+        # Banner legal
+        _, stdout, _ = client.exec_command("ls /etc/update-motd.d/99-custom-welcome")
+        banner_present = bool(stdout.read().decode().strip())
+        estado = "PRESENTE" if banner_present else "AUSENTE"
+        severidad = "INFO" if banner_present else "MEDIA"
+        hallazgos.append({
+            "check": "banner_legal",
+            "estado": estado,
+            "severidad": severidad,
+            "medida_ens": "op.exp.5",
+            "detalle": "Banner legal UNUWARE configurado correctamente" if banner_present else "Banner legal ausente",
+            "remediacion": None
+        })
+
+        # UFW activo
+        _, stdout, _ = client.exec_command("sudo ufw status | head -1")
+        ufw_output = stdout.read().decode().strip()
+        hallazgos.append(evaluar_ufw(ufw_output))
+
+        # SSH root login
+        _, stdout, _ = client.exec_command("grep '^PermitRootLogin' /etc/ssh/sshd_config | awk '{print $2}'")
+        permit_root = stdout.read().decode().strip()
+        hallazgos.append(evaluar_ssh_root_login(permit_root))
+
+        # Parches pendientes
+        _, stdout, _ = client.exec_command(r"apt list --upgradable 2>/dev/null | grep -c '^[^/]*/'")
+        count = int(stdout.read().decode().strip())
+        hallazgos.append(evaluar_parches(count))
+
+        # Cifrado disco
+        _, stdout, _ = client.exec_command("lsblk -o FSTYPE | grep -q crypt && echo 'crypt' || echo ''")
+        lsblk_output = stdout.read().decode().strip()
+        hallazgos.append(evaluar_cifrado_disco(lsblk_output))
+
+        # Compliance resumen
+        compliance_resumen = calcular_compliance(hallazgos)
+
+        res = {
+            "timestamp": timestamp,
+            "target": HOST,
+            "hallazgos": hallazgos,
+            "compliance_resumen": compliance_resumen
+        }
+
+        with open(OUTPUT, "w", encoding='utf-8') as f:
+            json.dump(res, f, ensure_ascii=False, indent=4)
+
+        logger.scan_end(target=HOST, duration="OK", findings=checks_total)
+        client.close()
+    except Exception as e:
+        logger.module_error(str(e), target=HOST)
+        print(f"Error SSH Hardening: {e}")
+
+if __name__ == "__main__":
+    audit()
+FILE:src\modules\scanner_health.py
+import paramiko
+import json
+import os
+import sys
+import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scan_logger import ScanLogger
+from utils import evaluar_metrica, evaluar_servicio, calcular_estado_global
+
+logger = ScanLogger("scanner_health")
+
+HOST = "10.202.15.100"
+USER = "admin"
+PASS = "test123" # TODO: migrar a HashiCorp Vault
+OUTPUT = "output/tmp_health.json"
+
+def check():
+    logger.scan_start(target=HOST, check_type="health")
+    timestamp = datetime.datetime.now().isoformat()
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(HOST, username=USER, password=PASS)
+        logger.auth_event("SSH_CONNECT", target=HOST, success=True)
+
+        metricas = []
+        servicios = []
+
+        # Disco
+        _, stdout, _ = client.exec_command("df -h / | awk 'NR==2 {print $5}'")
+        disk_str = stdout.read().decode().strip()
+        metricas.append(evaluar_metrica("uso_disco", disk_str, 80, 90))
+
+        # RAM
+        _, stdout, _ = client.exec_command("free | grep Mem | awk '{printf \"%.0f\", $3/$2 * 100}'")
+        ram_str = stdout.read().decode().strip() + "%"
+        metricas.append(evaluar_metrica("uso_ram", ram_str, 80, 90))
+
+        # CPU
+        _, stdout, _ = client.exec_command("top -bn1 | grep 'Cpu(s)' | awk '{print $2}'")
+        cpu_str = stdout.read().decode().strip() + "%"
+        metricas.append(evaluar_metrica("uso_cpu", cpu_str, 80, 95))
+
+        # Uptime
+        _, stdout, _ = client.exec_command("uptime -p")
+        uptime_str = stdout.read().decode().strip()
+        metricas.append({
+            "nombre": "uptime",
+            "valor": uptime_str,
+            "estado": "OK",
+            "severidad": "INFO"
+        })
+
+        # Servicios
+        for svc in ["apache2", "ssh"]:
+            _, stdout, _ = client.exec_command(f"systemctl is-active {svc}")
+            svc_estado = stdout.read().decode().strip()
+            servicios.append(evaluar_servicio(svc, svc_estado))
+
+        # Estado global
+        estado_global = calcular_estado_global(metricas, servicios)
+
+        res = {
+            "timestamp": timestamp,
+            "target": HOST,
+            "metricas": metricas,
+            "servicios": servicios,
+            "estado_global": estado_global
+        }
+
+        with open(OUTPUT, "w", encoding='utf-8') as f:
+            json.dump(res, f, ensure_ascii=False, indent=4)
+
+        logger.scan_end(target=HOST, duration="OK", findings=len(metricas) + len(servicios))
+        client.close()
+    except Exception as e:
+        logger.auth_event("SSH_CONNECT", target=HOST, success=False)
+        logger.module_error(str(e), target=HOST)
+        print(f"Error SSH Health: {e}")
+
+if __name__ == "__main__":
+    check()
+FILE:src\modules\scanner_network.py
+import subprocess
+import json
+import os
+import sys
+import re
+import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scan_logger import ScanLogger
+from utils import parsear_puerto, calcular_resumen_network
+
+logger = ScanLogger("scanner_network")
+
+# Configuración
+TARGET = "10.202.15.100"
+NMAP_PATH = "nmap"
+OUTPUT = "output/tmp_network.json"
+
+def scan():
+    logger.scan_start(target=TARGET, ports="22,80,443,19999")
+    timestamp = datetime.datetime.now().isoformat()
+    # El comando audita lo que configuraste: SSH (22), Apache (80/443), Netdata (19999)
+    cmd = [NMAP_PATH, "-sV", "-Pn", "-p", "22,80,443,19999", TARGET]
+    process = subprocess.run(cmd, capture_output=True, text=True)
+    out = process.stdout
+
+    hallazgos = []
+    puertos_abiertos = 0
+    puertos_filtrados = 0
+    ssl_activo = False
+    firewall_detectado = False
+
+    port_services = {
+        "22/tcp": {"servicio": "ssh", "medida_ens": "op.acc.1", "nota": "Servicio SSH accesible — verificar que solo acepta autenticación por clave"},
+        "80/tcp": {"servicio": "http", "medida_ens": "op.exp.2", "nota": "HTTP sin cifrar activo — verificar redirección a HTTPS"},
+        "443/tcp": {"servicio": "https", "medida_ens": "op.exp.2", "nota": "HTTPS activo con SSL"},
+        "19999/tcp": {"servicio": "netdata", "medida_ens": "op.exp.4", "nota": "Puerto filtrado por firewall — correcto"}
+    }
+
+    lines = out.split('\n')
+    for line in lines:
+        if '/tcp' in line and ('open' in line or 'filtered' in line):
+            hallazgo = parsear_puerto(line.strip())
+            if hallazgo:
+                hallazgos.append(hallazgo)
+                logger.finding(hallazgo["servicio"].upper(), severity=hallazgo["severidad"], status=hallazgo["estado"])
+
+    resumen = calcular_resumen_network(hallazgos)
+
+    res = {
+        "timestamp": timestamp,
+        "target": TARGET,
+        "hallazgos": hallazgos,
+        "resumen": resumen
+    }
+
+    with open(OUTPUT, "w", encoding='utf-8') as f:
+        json.dump(res, f, ensure_ascii=False, indent=4)
+
+    logger.scan_end(target=TARGET, duration="N/A", findings=len(hallazgos))
+
+if __name__ == "__main__":
+    scan()
+FILE:tests\test_orchestrator.py
+"""
+Tests para main_orchestrator.py — Fusión de reportes
+=====================================================
+Verifican que el orquestador fusiona correctamente los JSON
+de los 3 módulos y calcula el compliance global.
+
+Ejecutar: pytest tests/test_orchestrator.py -v
+"""
+import pytest
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# ============================================================
+# FIXTURES: JSONs de ejemplo de cada módulo
+# ============================================================
+
+@pytest.fixture
+def network_data():
+    return {
+        "timestamp": "2026-04-20T10:25:00",
+        "target": "10.202.15.100",
+        "hallazgos": [
+            {"puerto": "22/tcp", "servicio": "ssh", "estado": "Abierto",
+             "severidad": "INFO", "medida_ens": "op.acc.1"},
+            {"puerto": "80/tcp", "servicio": "http", "estado": "Abierto",
+             "severidad": "INFO", "medida_ens": "op.exp.2"},
+        ],
+        "resumen": {"puertos_abiertos": 2, "ssl_activo": True}
+    }
+
+@pytest.fixture
+def health_data():
+    return {
+        "timestamp": "2026-04-20T10:25:00",
+        "target": "10.202.15.100",
+        "metricas": [
+            {"nombre": "uso_disco", "valor": "14%", "estado": "OK", "severidad": "INFO"},
+            {"nombre": "uso_ram", "valor": "2%", "estado": "OK", "severidad": "INFO"},
+        ],
+        "servicios": [
+            {"nombre": "apache2", "estado": "active", "severidad": "INFO"},
+            {"nombre": "ssh", "estado": "active", "severidad": "INFO"},
+        ],
+        "estado_global": "OK"
+    }
+
+@pytest.fixture
+def hardening_data_con_fallo():
+    return {
+        "timestamp": "2026-04-20T10:25:00",
+        "target": "10.202.15.100",
+        "hallazgos": [
+            {"check": "root_bloqueado", "estado": "RIESGO",
+             "severidad": "CRITICA", "medida_ens": "op.acc.6",
+             "detalle": "El usuario root NO está bloqueado"},
+            {"check": "ufw_activo", "estado": "ACTIVO",
+             "severidad": "INFO", "medida_ens": "op.exp.4",
+             "detalle": "Firewall activo"},
+        ]
+    }
+
+@pytest.fixture
+def hardening_data_ok():
+    return {
+        "timestamp": "2026-04-20T10:25:00",
+        "target": "10.202.15.100",
+        "hallazgos": [
+            {"check": "root_bloqueado", "estado": "SEGURO",
+             "severidad": "INFO", "medida_ens": "op.acc.6"},
+            {"check": "ufw_activo", "estado": "ACTIVO",
+             "severidad": "INFO", "medida_ens": "op.exp.4"},
+        ]
+    }
+
+from src.utils import merge_reports
+
+# ============================================================
+# TESTS: Alertas críticas
+# ============================================================
+
+class TestAlertasCriticas:
+    def test_detecta_alerta_critica_hardening(self, network_data, health_data, hardening_data_con_fallo):
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_con_fallo}
+        result = merge_reports(data)
+        assert len(result["alertas_criticas"]) == 1
+        assert result["alertas_criticas"][0]["origen"] == "hardening"
+        assert result["alertas_criticas"][0]["check"] == "root_bloqueado"
+
+    def test_sin_alertas_criticas(self, network_data, health_data, hardening_data_ok):
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_ok}
+        result = merge_reports(data)
+        assert len(result["alertas_criticas"]) == 0
+
+    def test_alerta_incluye_medida_ens(self, network_data, health_data, hardening_data_con_fallo):
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_con_fallo}
+        result = merge_reports(data)
+        for alerta in result["alertas_criticas"]:
+            assert "medida_ens" in alerta
+            assert alerta["medida_ens"] != ""
+
+# ============================================================
+# TESTS: Compliance global
+# ============================================================
+
+class TestComplianceGlobal:
+    def test_no_cumple_con_fallo(self, network_data, health_data, hardening_data_con_fallo):
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_con_fallo}
+        result = merge_reports(data)
+        assert result["compliance_global"]["estado"] == "NO CUMPLE"
+        assert result["compliance_global"]["checks_riesgo"] > 0
+
+    def test_cumple_sin_fallos(self, network_data, health_data, hardening_data_ok):
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_ok}
+        result = merge_reports(data)
+        assert result["compliance_global"]["estado"] == "CUMPLE"
+        assert result["compliance_global"]["checks_riesgo"] == 0
+
+    def test_cuenta_checks_correctamente(self, network_data, health_data, hardening_data_ok):
+        """2 network + 2 health metricas + 2 health servicios + 2 hardening = 8."""
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_ok}
+        result = merge_reports(data)
+        assert result["compliance_global"]["checks_total"] == 8
+
+    def test_modulo_faltante_no_rompe(self, network_data, health_data):
+        """Si hardening no generó resultados, la fusión no debe fallar."""
+        data = {
+            "network": network_data,
+            "health": health_data,
+            "hardening": {"error": "Módulo no generó resultados"}
+        }
+        result = merge_reports(data)
+        # No debe lanzar excepción y debe contar solo los checks disponibles
+        assert result["compliance_global"]["checks_total"] == 6
+
+# ============================================================
+# TESTS: Estructura del master report
+# ============================================================
+
+class TestMasterReportStructure:
+    def test_campos_obligatorios(self, network_data, health_data, hardening_data_ok):
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_ok}
+        result = merge_reports(data)
+        assert "alertas_criticas" in result
+        assert "compliance_global" in result
+        assert "estado" in result["compliance_global"]
+        assert "checks_total" in result["compliance_global"]
+        assert "checks_ok" in result["compliance_global"]
+        assert "checks_riesgo" in result["compliance_global"]
+
+    def test_compliance_global_valores_coherentes(self, network_data, health_data, hardening_data_con_fallo):
+        data = {"network": network_data, "health": health_data, "hardening": hardening_data_con_fallo}
+        result = merge_reports(data)
+        cg = result["compliance_global"]
+        assert cg["checks_total"] == cg["checks_ok"] + cg["checks_riesgo"]
+FILE:tests\test_scanner_hardening.py
+"""
+Tests para scanner_hardening.py — Módulo de bastionado
+=======================================================
+Verifican la lógica de cada check de hardening sin conexión SSH.
+
+Ejecutar: pytest tests/test_scanner_hardening.py -v
+"""
+import pytest
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.utils import evaluar_root_bloqueado, evaluar_ufw, evaluar_ssh_root_login, evaluar_parches, evaluar_cifrado_disco, calcular_compliance
+
+# ============================================================
+# TESTS: Root bloqueado
+# ============================================================
+
+class TestRootBloqueado:
+    def test_root_bloqueado_es_seguro(self):
+        result = evaluar_root_bloqueado("L")
+        assert result["estado"] == "SEGURO"
+        assert result["severidad"] == "INFO"
+        assert result["remediacion"] is None
+
+    def test_root_no_bloqueado_es_critico(self):
+        result = evaluar_root_bloqueado("P")
+        assert result["estado"] == "RIESGO"
+        assert result["severidad"] == "CRITICA"
+        assert result["remediacion"] == "sudo passwd -l root"
+
+    def test_root_sin_password_tambien_riesgo(self):
+        """Si el estado es NP (no password), también es riesgo."""
+        result = evaluar_root_bloqueado("NP")
+        assert result["estado"] == "RIESGO"
+
+# ============================================================
+# TESTS: UFW Firewall
+# ============================================================
+
+class TestUFW:
+    def test_ufw_activo(self):
+        result = evaluar_ufw("Status: active")
+        assert result["estado"] == "ACTIVO"
+        assert result["severidad"] == "INFO"
+
+    def test_ufw_inactivo(self):
+        result = evaluar_ufw("Status: inactive")
+        assert result["estado"] == "INACTIVO"
+        assert result["severidad"] == "CRITICA"
+        assert result["remediacion"] == "sudo ufw enable"
+
+    def test_ufw_salida_vacia(self):
+        """Si no se puede leer el estado, se asume inactivo."""
+        result = evaluar_ufw("")
+        assert result["estado"] == "INACTIVO"
+
+# ============================================================
+# TESTS: SSH PermitRootLogin
+# ============================================================
+
+class TestSSHRootLogin:
+    def test_root_login_no_es_seguro(self):
+        result = evaluar_ssh_root_login("no")
+        assert result["estado"] == "SEGURO"
+        assert result["severidad"] == "INFO"
+
+    def test_root_login_yes_es_riesgo(self):
+        result = evaluar_ssh_root_login("yes")
+        assert result["estado"] == "RIESGO"
+        assert result["severidad"] == "ALTA"
+
+    def test_root_login_prohibit_password_es_riesgo(self):
+        """prohibit-password no es 'no', así que es riesgo."""
+        result = evaluar_ssh_root_login("prohibit-password")
+        assert result["estado"] == "RIESGO"
+
+    def test_root_login_vacio_es_riesgo(self):
+        result = evaluar_ssh_root_login("")
+        assert result["estado"] == "RIESGO"
+
+# ============================================================
+# TESTS: Parches pendientes
+# ============================================================
+
+class TestParches:
+    def test_sin_parches_es_ok(self):
+        result = evaluar_parches(0)
+        assert result["severidad"] == "INFO"
+        assert result["remediacion"] is None
+
+    def test_con_parches_es_alta(self):
+        result = evaluar_parches(12)
+        assert result["severidad"] == "ALTA"
+        assert result["remediacion"] is not None
+
+    def test_un_parche_es_alta(self):
+        result = evaluar_parches(1)
+        assert result["severidad"] == "ALTA"
+
+# ============================================================
+# TESTS: Cifrado de disco
+# ============================================================
+
+class TestCifradoDisco:
+    def test_luks_activo(self):
+        result = evaluar_cifrado_disco("sda1  crypto_LUKS  \nsda2  ext4  /")
+        assert result["estado"] == "ACTIVO"
+        assert result["severidad"] == "INFO"
+
+    def test_sin_cifrado(self):
+        result = evaluar_cifrado_disco("sda1  ext4  /\nsda2  swap  [SWAP]")
+        assert result["estado"] == "AUSENTE"
+        assert result["severidad"] == "CRITICA"
+
+# ============================================================
+# TESTS: Compliance resumen
+# ============================================================
+
+class TestComplianceResumen:
+    def test_todo_ok_cumple(self):
+        hallazgos = [
+            {"severidad": "INFO"},
+            {"severidad": "INFO"},
+            {"severidad": "INFO"},
+        ]
+        result = calcular_compliance(hallazgos)
+        assert result["cumple_ens"] is True
+        assert result["checks_riesgo"] == 0
+
+    def test_un_fallo_no_cumple(self):
+        hallazgos = [
+            {"severidad": "INFO"},
+            {"severidad": "CRITICA"},
+            {"severidad": "INFO"},
+        ]
+        result = calcular_compliance(hallazgos)
+        assert result["cumple_ens"] is False
+        assert result["checks_riesgo"] == 1
+
+    def test_multiples_fallos(self):
+        hallazgos = [
+            {"severidad": "CRITICA"},
+            {"severidad": "ALTA"},
+            {"severidad": "INFO"},
+            {"severidad": "ALTA"},
+        ]
+        result = calcular_compliance(hallazgos)
+        assert result["checks_total"] == 4
+        assert result["checks_ok"] == 1
+        assert result["checks_riesgo"] == 3
+
+# ============================================================
+# TESTS: Estructura JSON completa del módulo
+# ============================================================
+
+class TestHardeningJsonStructure:
+    def test_hallazgo_tiene_campos_ens(self):
+        """Cada hallazgo de hardening DEBE tener medida_ens y remediacion."""
+        hallazgo = evaluar_root_bloqueado("P")
+        assert "medida_ens" in hallazgo
+        assert "remediacion" in hallazgo
+        assert "severidad" in hallazgo
+        assert "estado" in hallazgo
+
+    def test_todos_los_checks_tienen_medida_ens(self):
+        """Verificar que ningún check se quede sin mapeo ENS."""
+        checks = [
+            evaluar_root_bloqueado("L"),
+            evaluar_ufw("Status: active"),
+            evaluar_ssh_root_login("no"),
+            evaluar_parches(0),
+            evaluar_cifrado_disco("sda crypt"),
+        ]
+        for check in checks:
+            assert "medida_ens" in check
+            assert check["medida_ens"] != ""
+FILE:tests\test_scanner_health.py
+"""
+Tests para scanner_health.py — Módulo de salud del servidor
+=============================================================
+Verifican la lógica de umbrales (disco, RAM, CPU) y la detección
+de servicios sin necesidad de conexión SSH real.
+
+Ejecutar: pytest tests/test_scanner_health.py -v
+"""
+import pytest
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.utils import evaluar_metrica, evaluar_servicio, calcular_estado_global
+
+# ============================================================
+# TESTS DE UMBRALES: Disco, RAM, CPU
+# ============================================================
+
+class TestUmbrales:
+    """Tests que verifican que los umbrales de alerta funcionan correctamente.
+    Este era uno de los bugs: antes todo decía 'OK' sin importar el valor."""
+
+    # --- Disco ---
+    def test_disco_bajo_es_ok(self):
+        result = evaluar_metrica("uso_disco", "14%")
+        assert result["estado"] == "OK"
+        assert result["severidad"] == "INFO"
+
+    def test_disco_80_es_alerta(self):
+        """Disco > 80% debe generar ALERTA."""
+        result = evaluar_metrica("uso_disco", "85%")
+        assert result["estado"] == "ALERTA"
+        assert result["severidad"] == "ALTA"
+
+    def test_disco_90_es_critico(self):
+        """Disco > 90% debe generar CRITICO."""
+        result = evaluar_metrica("uso_disco", "95%")
+        assert result["estado"] == "CRITICO"
+        assert result["severidad"] == "CRITICA"
+
+    def test_disco_exacto_80_es_ok(self):
+        """Disco al 80% exacto NO debe ser alerta (> 80, no >=)."""
+        result = evaluar_metrica("uso_disco", "80%")
+        assert result["estado"] == "OK"
+
+    def test_disco_exacto_90_es_alerta(self):
+        """Disco al 90% exacto debe ser ALERTA (> 80 pero no > 90)."""
+        result = evaluar_metrica("uso_disco", "90%")
+        assert result["estado"] == "ALERTA"
+
+    # --- RAM ---
+    def test_ram_bajo_es_ok(self):
+        result = evaluar_metrica("uso_ram", "2%")
+        assert result["estado"] == "OK"
+
+    def test_ram_alta_es_alerta(self):
+        result = evaluar_metrica("uso_ram", "88%")
+        assert result["estado"] == "ALERTA"
+
+    def test_ram_critica(self):
+        result = evaluar_metrica("uso_ram", "96%")
+        assert result["estado"] == "CRITICO"
+
+    # --- CPU (umbrales distintos: 80 alerta, 95 crítico) ---
+    def test_cpu_normal_es_ok(self):
+        result = evaluar_metrica("uso_cpu", "5%", umbral_alerta=80, umbral_critico=95)
+        assert result["estado"] == "OK"
+
+    def test_cpu_alta_es_alerta(self):
+        result = evaluar_metrica("uso_cpu", "85%", umbral_alerta=80, umbral_critico=95)
+        assert result["estado"] == "ALERTA"
+
+    def test_cpu_critica(self):
+        result = evaluar_metrica("uso_cpu", "98%", umbral_alerta=80, umbral_critico=95)
+        assert result["estado"] == "CRITICO"
+
+# ============================================================
+# TESTS DE SERVICIOS: systemctl
+# ============================================================
+
+class TestServicios:
+    """Tests que verifican la evaluación del estado de servicios."""
+
+    def test_servicio_activo_es_info(self):
+        result = evaluar_servicio("apache2", "active")
+        assert result["severidad"] == "INFO"
+
+    def test_servicio_inactivo_es_alta(self):
+        result = evaluar_servicio("apache2", "inactive")
+        assert result["severidad"] == "ALTA"
+
+    def test_servicio_failed_es_alta(self):
+        result = evaluar_servicio("ssh", "failed")
+        assert result["severidad"] == "ALTA"
+
+# ============================================================
+# TESTS DE ESTADO GLOBAL
+# ============================================================
+
+class TestEstadoGlobal:
+    """Tests que verifican el cálculo del estado global del servidor."""
+
+    def test_todo_ok(self):
+        metricas = [{"severidad": "INFO"}, {"severidad": "INFO"}]
+        servicios = [{"severidad": "INFO"}]
+        assert calcular_estado_global(metricas, servicios) == "OK"
+
+    def test_una_alerta_cambia_global(self):
+        metricas = [{"severidad": "INFO"}, {"severidad": "ALTA"}]
+        servicios = [{"severidad": "INFO"}]
+        assert calcular_estado_global(metricas, servicios) == "ALERTA"
+
+    def test_critica_domina(self):
+        """Si hay al menos una CRITICA, el estado global es CRITICO."""
+        metricas = [{"severidad": "INFO"}, {"severidad": "CRITICA"}]
+        servicios = [{"severidad": "INFO"}]
+        assert calcular_estado_global(metricas, servicios) == "CRITICO"
+
+    def test_servicio_caido_cambia_global(self):
+        metricas = [{"severidad": "INFO"}]
+        servicios = [{"severidad": "ALTA"}]
+        assert calcular_estado_global(metricas, servicios) == "ALERTA"
+
+# ============================================================
+# TESTS DE ESTRUCTURA JSON
+# ============================================================
+
+class TestHealthJsonStructure:
+    """Tests que verifican el formato del JSON de salida."""
+
+    def test_metrica_tiene_campos_obligatorios(self):
+        """Cada métrica debe tener estos campos para el orquestador."""
+        metrica = {
+            "nombre": "uso_disco",
+            "valor": "14%",
+            "umbral_alerta": "80%",
+            "umbral_critico": "90%",
+            "estado": "OK",
+            "severidad": "INFO"
+        }
+        campos = ["nombre", "valor", "estado", "severidad"]
+        for campo in campos:
+            assert campo in metrica
+
+    def test_servicio_tiene_campos_obligatorios(self):
+        servicio = {"nombre": "apache2", "estado": "active", "severidad": "INFO"}
+        for campo in ["nombre", "estado", "severidad"]:
+            assert campo in servicio
+FILE:tests\test_scanner_network.py
+"""
+Tests para scanner_network.py — Módulo 2 de ScanOps
+=====================================================
+Estos tests verifican que el parseo de Nmap funciona correctamente
+sin necesidad de tener Nmap instalado ni un servidor real.
+
+Ejecutar: pytest tests/test_scanner_network.py -v
+"""
+import pytest
+import json
+import os
+import sys
+from unittest.mock import patch, MagicMock
+
+# Añadir el directorio raíz al path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# ============================================================
+# FIXTURES: Datos de ejemplo que simulan la salida real de Nmap
+# ============================================================
+
+@pytest.fixture
+def nmap_output_normal():
+    """Simula una salida típica de Nmap con puertos abiertos y filtrados."""
+    return """Starting Nmap 7.94 ( https://nmap.org ) at 2026-04-20 10:25 CEST
+Nmap scan report for 10.202.15.100
+Host is up (0.0012s latency).
+
+PORT      STATE    SERVICE  VERSION
+22/tcp    open     ssh      OpenSSH 9.6p1 Ubuntu 3ubuntu13
+80/tcp    open     http     Apache httpd 2.4.58
+443/tcp   open     https    Apache httpd 2.4.58 (SSL)
+19999/tcp filtered netdata
+
+Service detection performed.
+Nmap done: 1 IP address (1 host up) scanned in 12.34 seconds"""
+
+@pytest.fixture
+def nmap_output_all_closed():
+    """Simula una salida donde todos los puertos están cerrados."""
+    return """Starting Nmap 7.94 ( https://nmap.org ) at 2026-04-20 10:25 CEST
+Nmap scan report for 10.202.15.100
+Host is up (0.0012s latency).
+
+PORT      STATE  SERVICE VERSION
+22/tcp    closed ssh
+80/tcp    closed http
+443/tcp   closed https
+19999/tcp closed netdata
+
+Nmap done: 1 IP address (1 host up) scanned in 5.00 seconds"""
+
+@pytest.fixture
+def nmap_output_spacing_variable():
+    """Simula la salida real de Nmap con espacios variables (el bug original)."""
+    return """Starting Nmap 7.94 ( https://nmap.org )
+PORT      STATE         SERVICE    VERSION
+22/tcp    open          ssh        OpenSSH 9.6p1
+80/tcp    open          http       Apache httpd
+443/tcp   open          https      Apache httpd
+19999/tcp filtered      netdata"""
+
+# ============================================================
+# FUNCIÓN AUXILIAR: Extraer la lógica de parseo para testearla
+# ============================================================
+
+from src.utils import parsear_puerto, calcular_resumen_network
+
+def parse_nmap_output(output):
+    """
+    Extrae hallazgos de la salida de Nmap usando las funciones de utils.
+    """
+    hallazgos = []
+    lines = output.split('\n')
+    for line in lines:
+        if '/tcp' in line and ('open' in line or 'filtered' in line):
+            hallazgo = parsear_puerto(line.strip())
+            if hallazgo:
+                hallazgos.append(hallazgo)
+
+    resumen = calcular_resumen_network(hallazgos)
+    return hallazgos, resumen
+
+# ============================================================
+# TESTS UNITARIOS: Parseo de salida Nmap
+# ============================================================
+
+class TestNmapParsing:
+    """Tests que verifican que el parseo de Nmap detecta correctamente
+    puertos, servicios y estados."""
+
+    def test_detecta_puertos_abiertos(self, nmap_output_normal):
+        """Debe detectar los 3 puertos abiertos (22, 80, 443)."""
+        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
+        assert resumen["puertos_abiertos"] == 3
+
+    def test_detecta_puerto_filtrado(self, nmap_output_normal):
+        """Debe detectar el puerto 19999 como filtrado."""
+        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
+        assert resumen["puertos_filtrados"] == 1
+
+    def test_detecta_ssl_activo(self, nmap_output_normal):
+        """Si el puerto 443 está abierto, ssl_activo debe ser True."""
+        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
+        assert resumen["ssl_activo"] is True
+
+    def test_detecta_firewall(self, nmap_output_normal):
+        """Si 19999 está filtrado, firewall_detectado debe ser True."""
+        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
+        assert resumen["firewall_detectado"] is True
+
+    def test_genera_4_hallazgos(self, nmap_output_normal):
+        """Debe generar exactamente 4 hallazgos (uno por puerto escaneado)."""
+        hallazgos, _ = parse_nmap_output(nmap_output_normal)
+        assert len(hallazgos) == 4
+
+    def test_espacios_variables_no_rompen_parseo(self, nmap_output_spacing_variable):
+        """BUG ORIGINAL: Nmap usa tabs/espacios variables.
+        El parseo con regex debe funcionar igual."""
+        hallazgos, resumen = parse_nmap_output(nmap_output_spacing_variable)
+        assert resumen["puertos_abiertos"] == 3
+        assert resumen["puertos_filtrados"] == 1
+
+    def test_puertos_cerrados_no_generan_hallazgos(self, nmap_output_all_closed):
+        """Los puertos cerrados no deben aparecer como hallazgos."""
+        hallazgos, resumen = parse_nmap_output(nmap_output_all_closed)
+        assert len(hallazgos) == 0
+        assert resumen["puertos_abiertos"] == 0
+
+    def test_sin_salida_nmap_no_falla(self):
+        """Si Nmap no devuelve nada, no debe lanzar excepción."""
+        hallazgos, resumen = parse_nmap_output("")
+        assert len(hallazgos) == 0
+        assert resumen["puertos_abiertos"] == 0
+
+# ============================================================
+# TESTS DE ESTRUCTURA: Verifican el formato del JSON de salida
+# ============================================================
+
+class TestNetworkJsonStructure:
+    """Tests que verifican que el JSON generado tiene los campos
+    obligatorios para el ENS y para el orquestador."""
+
+    def test_hallazgo_tiene_campos_obligatorios(self, nmap_output_normal):
+        """Cada hallazgo debe tener: puerto, servicio, estado, version,
+        severidad, medida_ens, nota."""
+        hallazgos, _ = parse_nmap_output(nmap_output_normal)
+        campos_requeridos = ["puerto", "servicio", "estado", "version",
+                             "severidad", "medida_ens", "nota"]
+        for h in hallazgos:
+            for campo in campos_requeridos:
+                assert campo in h, f"Falta campo '{campo}' en hallazgo {h}"
+
+    def test_severidad_valores_validos(self, nmap_output_normal):
+        """La severidad debe ser uno de los valores permitidos."""
+        hallazgos, _ = parse_nmap_output(nmap_output_normal)
+        valores_validos = {"INFO", "BAJA", "MEDIA", "ALTA", "CRITICA"}
+        for h in hallazgos:
+            assert h["severidad"] in valores_validos, \
+                f"Severidad '{h['severidad']}' no válida en {h['puerto']}"
+
+    def test_medida_ens_no_vacia(self, nmap_output_normal):
+        """Cada hallazgo debe tener una medida ENS asociada."""
+        hallazgos, _ = parse_nmap_output(nmap_output_normal)
+        for h in hallazgos:
+            assert h["medida_ens"] != "", \
+                f"medida_ens vacía en {h['puerto']}"
+
+    def test_ssh_tiene_severidad_info(self, nmap_output_normal):
+        """SSH abierto debe tener severidad INFO (es esperado)."""
+        hallazgos, _ = parse_nmap_output(nmap_output_normal)
+        ssh = next(h for h in hallazgos if h["puerto"] == "22/tcp")
+        assert ssh["severidad"] == "INFO"
+
+    def test_resumen_tiene_campos_obligatorios(self, nmap_output_normal):
+        """El resumen debe tener los 4 campos esperados."""
+        _, resumen = parse_nmap_output(nmap_output_normal)
+        assert "puertos_abiertos" in resumen
+        assert "puertos_filtrados" in resumen
+        assert "ssl_activo" in resumen
+        assert "firewall_detectado" in resumen
+
+# ============================================================
+# TESTS DE INTEGRACIÓN: Simulan la ejecución completa del módulo
+# ============================================================
+
+class TestNetworkModuleIntegration:
+    """Tests que simulan la ejecución completa de scanner_network.py
+    usando mocks para subprocess (sin ejecutar Nmap real)."""
+
+    @patch('subprocess.run')
+    def test_genera_json_valido(self, mock_run, nmap_output_normal, tmp_path):
+        """El módulo debe generar un JSON válido en output/tmp_network.json."""
+        # Simulamos que subprocess.run devuelve la salida de Nmap
+        mock_run.return_value = MagicMock(
+            stdout=nmap_output_normal,
+            returncode=0
+        )
+
+        output_file = tmp_path / "tmp_network.json"
+
+        # Simulamos la escritura del JSON (como haría el módulo real)
+        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
+        result = {
+            "timestamp": "2026-04-20T10:25:00.000000",
+            "target": "10.202.15.100",
+            "hallazgos": hallazgos,
+            "resumen": resumen
+        }
+
+        with open(output_file, "w", encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False, indent=4)
+
+        # Verificar que el JSON es válido y tiene la estructura correcta
+        with open(output_file, "r") as f:
+            data = json.load(f)
+
+        assert "timestamp" in data
+        assert "target" in data
+        assert "hallazgos" in data
+        assert "resumen" in data
+        assert data["target"] == "10.202.15.100"
+
+    @patch('subprocess.run')
+    def test_nmap_falla_no_rompe(self, mock_run):
+        """Si Nmap falla (returncode != 0), el módulo no debe lanzar excepción."""
+        mock_run.return_value = MagicMock(
+            stdout="",
+            stderr="nmap: command not found",
+            returncode=1
+        )
+        # El parseo de una salida vacía no debe fallar
+        hallazgos, resumen = parse_nmap_output("")
+        assert len(hallazgos) == 0

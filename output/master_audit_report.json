@@ -1,0 +1,199 @@
+{
+    "project": "UNUWARE Server Audit Master",
+    "timestamp": "2026-04-20T11:55:51.277677",
+    "server_ip": "10.202.15.100",
+    "data": {
+        "network": {
+            "timestamp": "2026-04-20T11:55:34.348251",
+            "target": "10.202.15.100",
+            "hallazgos": [
+                {
+                    "puerto": "22/tcp",
+                    "servicio": "ssh",
+                    "estado": "Abierto",
+                    "version": "OpenSSH 9.6p1 Ubuntu 3ubuntu13.15 (Ubuntu Linux; protocol 2.0)",
+                    "severidad": "INFO",
+                    "medida_ens": "op.acc.1",
+                    "nota": "Servicio SSH accesible — verificar que solo acepta autenticación por clave"
+                },
+                {
+                    "puerto": "80/tcp",
+                    "servicio": "http",
+                    "estado": "Abierto",
+                    "version": "Apache httpd",
+                    "severidad": "INFO",
+                    "medida_ens": "op.exp.2",
+                    "nota": "HTTP sin cifrar activo — verificar redirección a HTTPS"
+                },
+                {
+                    "puerto": "443/tcp",
+                    "servicio": "https",
+                    "estado": "Abierto",
+                    "version": "Apache httpd",
+                    "severidad": "INFO",
+                    "medida_ens": "op.exp.2",
+                    "nota": "HTTPS activo con SSL"
+                }
+            ],
+            "resumen": {
+                "puertos_abiertos": 3,
+                "puertos_filtrados": 0,
+                "ssl_activo": true,
+                "firewall_detectado": false
+            }
+        },
+        "health": {
+            "timestamp": "2026-04-20T11:55:49.042124",
+            "target": "10.202.15.100",
+            "metricas": [
+                {
+                    "nombre": "uso_disco",
+                    "valor": "14%",
+                    "umbral_alerta": "80%",
+                    "umbral_critico": "90%",
+                    "estado": "OK",
+                    "severidad": "INFO"
+                },
+                {
+                    "nombre": "uso_ram",
+                    "valor": "3%",
+                    "umbral_alerta": "80%",
+                    "umbral_critico": "90%",
+                    "estado": "OK",
+                    "severidad": "INFO"
+                },
+                {
+                    "nombre": "uso_cpu",
+                    "valor": "0,0%",
+                    "umbral_alerta": "80%",
+                    "umbral_critico": "95%",
+                    "estado": "OK",
+                    "severidad": "INFO"
+                },
+                {
+                    "nombre": "uptime",
+                    "valor": "up 2 hours, 34 minutes",
+                    "estado": "OK",
+                    "severidad": "INFO"
+                }
+            ],
+            "servicios": [
+                {
+                    "nombre": "apache2",
+                    "estado": "active",
+                    "severidad": "INFO"
+                },
+                {
+                    "nombre": "ssh",
+                    "estado": "active",
+                    "severidad": "INFO"
+                }
+            ],
+            "estado_global": "OK"
+        },
+        "hardening": {
+            "timestamp": "2026-04-20T11:55:50.231473",
+            "target": "10.202.15.100",
+            "hallazgos": [
+                {
+                    "check": "root_bloqueado",
+                    "estado": "RIESGO",
+                    "severidad": "CRITICA",
+                    "medida_ens": "op.acc.6",
+                    "detalle": "El usuario root NO está bloqueado. Ejecutar: sudo passwd -l root",
+                    "remediacion": "sudo passwd -l root"
+                },
+                {
+                    "check": "banner_legal",
+                    "estado": "PRESENTE",
+                    "severidad": "INFO",
+                    "medida_ens": "op.exp.5",
+                    "detalle": "Banner legal UNUWARE configurado correctamente",
+                    "remediacion": null
+                },
+                {
+                    "check": "ufw_activo",
+                    "estado": "INACTIVO",
+                    "severidad": "CRITICA",
+                    "medida_ens": "op.exp.4",
+                    "detalle": "Estado del firewall UFW",
+                    "remediacion": "sudo ufw enable"
+                },
+                {
+                    "check": "ssh_root_login",
+                    "estado": "RIESGO",
+                    "severidad": "ALTA",
+                    "medida_ens": "op.acc.6",
+                    "detalle": "Verificar PermitRootLogin en sshd_config",
+                    "remediacion": "Editar /etc/ssh/sshd_config: PermitRootLogin no"
+                },
+                {
+                    "check": "parches_pendientes",
+                    "estado": "1 parches pendientes",
+                    "severidad": "ALTA",
+                    "medida_ens": "op.exp.2",
+                    "detalle": "Número de actualizaciones de seguridad pendientes",
+                    "remediacion": "sudo apt update && sudo apt upgrade"
+                },
+                {
+                    "check": "cifrado_disco",
+                    "estado": "AUSENTE",
+                    "severidad": "CRITICA",
+                    "medida_ens": "mp.si.2",
+                    "detalle": "Verificar cifrado LUKS en particiones",
+                    "remediacion": "Configurar LUKS en particiones"
+                }
+            ],
+            "compliance_resumen": {
+                "checks_total": 6,
+                "checks_ok": 1,
+                "checks_riesgo": 5,
+                "cumple_ens": false
+            }
+        }
+    },
+    "alertas_criticas": [
+        {
+            "origen": "hardening",
+            "check": "root_bloqueado",
+            "severidad": "CRITICA",
+            "medida_ens": "op.acc.6",
+            "detalle": "El usuario root NO está bloqueado. Ejecutar: sudo passwd -l root"
+        },
+        {
+            "origen": "hardening",
+            "check": "ufw_activo",
+            "severidad": "CRITICA",
+            "medida_ens": "op.exp.4",
+            "detalle": "Estado del firewall UFW"
+        },
+        {
+            "origen": "hardening",
+            "check": "ssh_root_login",
+            "severidad": "ALTA",
+            "medida_ens": "op.acc.6",
+            "detalle": "Verificar PermitRootLogin en sshd_config"
+        },
+        {
+            "origen": "hardening",
+            "check": "parches_pendientes",
+            "severidad": "ALTA",
+            "medida_ens": "op.exp.2",
+            "detalle": "Número de actualizaciones de seguridad pendientes"
+        },
+        {
+            "origen": "hardening",
+            "check": "cifrado_disco",
+            "severidad": "CRITICA",
+            "medida_ens": "mp.si.2",
+            "detalle": "Verificar cifrado LUKS en particiones"
+        }
+    ],
+    "compliance_global": {
+        "estado": "NO CUMPLE",
+        "motivo": "5 hallazgo(s) de severidad ALTA o CRITICA detectado(s)",
+        "checks_total": 15,
+        "checks_ok": 10,
+        "checks_riesgo": 5
+    }
+}

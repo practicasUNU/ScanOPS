@@ -1,0 +1,60 @@
+{
+    "timestamp": "2026-04-20T11:55:50.231473",
+    "target": "10.202.15.100",
+    "hallazgos": [
+        {
+            "check": "root_bloqueado",
+            "estado": "RIESGO",
+            "severidad": "CRITICA",
+            "medida_ens": "op.acc.6",
+            "detalle": "El usuario root NO está bloqueado. Ejecutar: sudo passwd -l root",
+            "remediacion": "sudo passwd -l root"
+        },
+        {
+            "check": "banner_legal",
+            "estado": "PRESENTE",
+            "severidad": "INFO",
+            "medida_ens": "op.exp.5",
+            "detalle": "Banner legal UNUWARE configurado correctamente",
+            "remediacion": null
+        },
+        {
+            "check": "ufw_activo",
+            "estado": "INACTIVO",
+            "severidad": "CRITICA",
+            "medida_ens": "op.exp.4",
+            "detalle": "Estado del firewall UFW",
+            "remediacion": "sudo ufw enable"
+        },
+        {
+            "check": "ssh_root_login",
+            "estado": "RIESGO",
+            "severidad": "ALTA",
+            "medida_ens": "op.acc.6",
+            "detalle": "Verificar PermitRootLogin en sshd_config",
+            "remediacion": "Editar /etc/ssh/sshd_config: PermitRootLogin no"
+        },
+        {
+            "check": "parches_pendientes",
+            "estado": "1 parches pendientes",
+            "severidad": "ALTA",
+            "medida_ens": "op.exp.2",
+            "detalle": "Número de actualizaciones de seguridad pendientes",
+            "remediacion": "sudo apt update && sudo apt upgrade"
+        },
+        {
+            "check": "cifrado_disco",
+            "estado": "AUSENTE",
+            "severidad": "CRITICA",
+            "medida_ens": "mp.si.2",
+            "detalle": "Verificar cifrado LUKS en particiones",
+            "remediacion": "Configurar LUKS en particiones"
+        }
+    ],
+    "compliance_resumen": {
+        "checks_total": 6,
+        "checks_ok": 1,
+        "checks_riesgo": 5,
+        "cumple_ens": false
+    }
+}

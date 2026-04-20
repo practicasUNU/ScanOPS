@@ -1,0 +1,49 @@
+{
+    "timestamp": "2026-04-20T11:55:49.042124",
+    "target": "10.202.15.100",
+    "metricas": [
+        {
+            "nombre": "uso_disco",
+            "valor": "14%",
+            "umbral_alerta": "80%",
+            "umbral_critico": "90%",
+            "estado": "OK",
+            "severidad": "INFO"
+        },
+        {
+            "nombre": "uso_ram",
+            "valor": "3%",
+            "umbral_alerta": "80%",
+            "umbral_critico": "90%",
+            "estado": "OK",
+            "severidad": "INFO"
+        },
+        {
+            "nombre": "uso_cpu",
+            "valor": "0,0%",
+            "umbral_alerta": "80%",
+            "umbral_critico": "95%",
+            "estado": "OK",
+            "severidad": "INFO"
+        },
+        {
+            "nombre": "uptime",
+            "valor": "up 2 hours, 34 minutes",
+            "estado": "OK",
+            "severidad": "INFO"
+        }
+    ],
+    "servicios": [
+        {
+            "nombre": "apache2",
+            "estado": "active",
+            "severidad": "INFO"
+        },
+        {
+            "nombre": "ssh",
+            "estado": "active",
+            "severidad": "INFO"
+        }
+    ],
+    "estado_global": "OK"
+}
