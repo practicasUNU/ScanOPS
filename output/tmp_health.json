@@ -1,5 +1,5 @@
 {
-    "timestamp": "2026-04-20T11:55:49.042124",
+    "timestamp": "2026-04-20T13:41:42.190383",
     "target": "10.202.15.100",
     "metricas": [
         {
@@ -28,7 +28,7 @@
         },
         {
             "nombre": "uptime",
-            "valor": "up 2 hours, 34 minutes",
+            "valor": "up 4 hours, 20 minutes",
             "estado": "OK",
             "severidad": "INFO"
         }

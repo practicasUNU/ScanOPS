@@ -9,7 +9,7 @@ import sys
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(base_dir, 'src'))
 
-from utils import merge_reports
+from utils import merge_reports as merge_reports_data
 
 from scan_logger import ScanLogger
 
@@ -23,17 +23,31 @@ def run_scanners():
         os.path.join(base_dir, "src", "modules", "scanner_health.py"),
         os.path.join(base_dir, "src", "modules", "scanner_hardening.py")
     ]
-    
+
+    network_data = None
     for script in scripts:
         logger.info("MODULE_EXEC", script=script)
         print(f"[*] Ejecutando módulo: {os.path.basename(script)}...")
-        result = subprocess.run([sys.executable, script])
-        if result.returncode != 0:
-            logger.error("MODULE_FAILED", script=script, returncode=result.returncode)
+        if os.path.basename(script) == "scanner_network.py":
+            result = subprocess.run([sys.executable, script], capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error("MODULE_FAILED", script=script, returncode=result.returncode)
+            else:
+                logger.info("MODULE_OK", script=script)
+                try:
+                    network_data = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    logger.error("MODULE_FAILED", script=script, error="JSON parse error")
         else:
-            logger.info("MODULE_OK", script=script)
+            result = subprocess.run([sys.executable, script])
+            if result.returncode != 0:
+                logger.error("MODULE_FAILED", script=script, returncode=result.returncode)
+            else:
+                logger.info("MODULE_OK", script=script)
 
-def merge_reports():
+    return network_data
+
+def merge_reports(network_data=None):
     final_report = {
         "project": "UNUWARE Server Audit Master",
         "timestamp": datetime.datetime.now().isoformat(),
@@ -42,16 +56,23 @@ def merge_reports():
     }
 
     files = {
-        "network": "output/tmp_network.json",
         "health": "output/tmp_health.json",
         "hardening": "output/tmp_hardening.json"
     }
     
+    if network_data is not None:
+        final_report["data"]["network"] = network_data
+        logger.info("REPORT_MERGED", source="network")
+        print(f"[√] Leyendo network: OK")
+    else:
+        final_report["data"]["network"] = {"error": "Módulo no generó resultados"}
+        logger.warning("REPORT_MISSING", source="network")
+        print("[!] No se obtuvo resultado directo de scanner_network.py")
+
     for key, path in files.items():
         if os.path.exists(path):
             with open(path, "r", encoding='utf-8') as f:
                 contenido = json.load(f)
-                # Forzamos la inserción en el diccionario 'data'
                 final_report["data"][key] = contenido
                 logger.info("REPORT_MERGED", source=key)
                 print(f"[√] Leyendo {key}: OK")
@@ -61,7 +82,7 @@ def merge_reports():
             print(f"[!] Archivo no encontrado: {path}")
 
     # Fusionar reportes usando la función de utils
-    merged = merge_reports(final_report["data"])
+    merged = merge_reports_data(final_report["data"])
     final_report["alertas_criticas"] = merged["alertas_criticas"]
     final_report["compliance_global"] = merged["compliance_global"]
 
@@ -76,5 +97,5 @@ if __name__ == "__main__":
     # Creamos la carpeta output si no existe
     if not os.path.exists("output"):
         os.makedirs("output")
-    run_scanners()
-    merge_reports()
+    network_data = run_scanners()
+    merge_reports(network_data)

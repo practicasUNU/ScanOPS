@@ -1,49 +1,81 @@
 {
     "project": "UNUWARE Server Audit Master",
-    "timestamp": "2026-04-20T11:55:51.277677",
+    "timestamp": "2026-04-20T13:41:44.304874",
     "server_ip": "10.202.15.100",
     "data": {
         "network": {
-            "timestamp": "2026-04-20T11:55:34.348251",
-            "target": "10.202.15.100",
+            "timestamp": "2026-04-20T13:41:41.928889",
+            "target": "10.202.15.0/24",
+            "inventory": {
+                "10.202.15.100": {
+                    "activo": "Servidor de auditoría",
+                    "criticidad": "Alta",
+                    "responsable": "Equipo SOC"
+                },
+                "10.202.15.101": {
+                    "activo": "Switch de borde",
+                    "criticidad": "Media",
+                    "responsable": "Infraestructura"
+                },
+                "scanops.example.com": {
+                    "activo": "Portal ScanOPS",
+                    "criticidad": "Alta",
+                    "responsable": "Equipo SOC"
+                }
+            },
+            "inventory_matches": [
+                {
+                    "host": "10.202.15.100",
+                    "activo": "Servidor de auditoría",
+                    "criticidad": "Alta",
+                    "responsable": "Equipo SOC"
+                }
+            ],
+            "hosts_detected": [
+                "10.202.15.1",
+                "10.202.15.100",
+                "10.202.15.150",
+                "10.202.15.200"
+            ],
+            "subfinder_domains": [],
             "hallazgos": [
                 {
-                    "puerto": "22/tcp",
-                    "servicio": "ssh",
-                    "estado": "Abierto",
-                    "version": "OpenSSH 9.6p1 Ubuntu 3ubuntu13.15 (Ubuntu Linux; protocol 2.0)",
-                    "severidad": "INFO",
-                    "medida_ens": "op.acc.1",
-                    "nota": "Servicio SSH accesible — verificar que solo acepta autenticación por clave"
+                    "check": "hardware_no_autorizado",
+                    "host": "10.202.15.1",
+                    "estado": "NO AUTORIZADO",
+                    "severidad": "ALTA",
+                    "medida_ens": "op.acc.7",
+                    "detalle": "Hardware detectado que no figura en inventario oficial.",
+                    "nota": "Shadow IT detectado"
                 },
                 {
-                    "puerto": "80/tcp",
-                    "servicio": "http",
-                    "estado": "Abierto",
-                    "version": "Apache httpd",
-                    "severidad": "INFO",
-                    "medida_ens": "op.exp.2",
-                    "nota": "HTTP sin cifrar activo — verificar redirección a HTTPS"
+                    "check": "hardware_no_autorizado",
+                    "host": "10.202.15.150",
+                    "estado": "NO AUTORIZADO",
+                    "severidad": "ALTA",
+                    "medida_ens": "op.acc.7",
+                    "detalle": "Hardware detectado que no figura en inventario oficial.",
+                    "nota": "Shadow IT detectado"
                 },
                 {
-                    "puerto": "443/tcp",
-                    "servicio": "https",
-                    "estado": "Abierto",
-                    "version": "Apache httpd",
-                    "severidad": "INFO",
-                    "medida_ens": "op.exp.2",
-                    "nota": "HTTPS activo con SSL"
+                    "check": "hardware_no_autorizado",
+                    "host": "10.202.15.200",
+                    "estado": "NO AUTORIZADO",
+                    "severidad": "ALTA",
+                    "medida_ens": "op.acc.7",
+                    "detalle": "Hardware detectado que no figura en inventario oficial.",
+                    "nota": "Shadow IT detectado"
                 }
             ],
             "resumen": {
-                "puertos_abiertos": 3,
+                "puertos_abiertos": 0,
                 "puertos_filtrados": 0,
-                "ssl_activo": true,
+                "ssl_activo": false,
                 "firewall_detectado": false
             }
         },
         "health": {
-            "timestamp": "2026-04-20T11:55:49.042124",
+            "timestamp": "2026-04-20T13:41:42.190383",
             "target": "10.202.15.100",
             "metricas": [
                 {
@@ -72,7 +104,7 @@
                 },
                 {
                     "nombre": "uptime",
-                    "valor": "up 2 hours, 34 minutes",
+                    "valor": "up 4 hours, 20 minutes",
                     "estado": "OK",
                     "severidad": "INFO"
                 }
@@ -92,7 +124,7 @@
             "estado_global": "OK"
         },
         "hardening": {
-            "timestamp": "2026-04-20T11:55:50.231473",
+            "timestamp": "2026-04-20T13:41:43.393464",
             "target": "10.202.15.100",
             "hallazgos": [
                 {
@@ -116,32 +148,26 @@
                     "estado": "INACTIVO",
                     "severidad": "CRITICA",
                     "medida_ens": "op.exp.4",
-                    "detalle": "Estado del firewall UFW",
                     "remediacion": "sudo ufw enable"
                 },
                 {
                     "check": "ssh_root_login",
                     "estado": "RIESGO",
                     "severidad": "ALTA",
-                    "medida_ens": "op.acc.6",
-                    "detalle": "Verificar PermitRootLogin en sshd_config",
-                    "remediacion": "Editar /etc/ssh/sshd_config: PermitRootLogin no"
+                    "medida_ens": "op.acc.6"
                 },
                 {
                     "check": "parches_pendientes",
                     "estado": "1 parches pendientes",
                     "severidad": "ALTA",
                     "medida_ens": "op.exp.2",
-                    "detalle": "Número de actualizaciones de seguridad pendientes",
                     "remediacion": "sudo apt update && sudo apt upgrade"
                 },
                 {
                     "check": "cifrado_disco",
                     "estado": "AUSENTE",
                     "severidad": "CRITICA",
-                    "medida_ens": "mp.si.2",
-                    "detalle": "Verificar cifrado LUKS en particiones",
-                    "remediacion": "Configurar LUKS en particiones"
+                    "medida_ens": "mp.si.2"
                 }
             ],
             "compliance_resumen": {
@@ -154,6 +180,27 @@
     },
     "alertas_criticas": [
         {
+            "origen": "network",
+            "check": "hardware_no_autorizado",
+            "severidad": "ALTA",
+            "medida_ens": "op.acc.7",
+            "detalle": "Hardware detectado que no figura en inventario oficial."
+        },
+        {
+            "origen": "network",
+            "check": "hardware_no_autorizado",
+            "severidad": "ALTA",
+            "medida_ens": "op.acc.7",
+            "detalle": "Hardware detectado que no figura en inventario oficial."
+        },
+        {
+            "origen": "network",
+            "check": "hardware_no_autorizado",
+            "severidad": "ALTA",
+            "medida_ens": "op.acc.7",
+            "detalle": "Hardware detectado que no figura en inventario oficial."
+        },
+        {
             "origen": "hardening",
             "check": "root_bloqueado",
             "severidad": "CRITICA",
@@ -165,35 +212,34 @@
             "check": "ufw_activo",
             "severidad": "CRITICA",
             "medida_ens": "op.exp.4",
-            "detalle": "Estado del firewall UFW"
+            "detalle": ""
         },
         {
             "origen": "hardening",
             "check": "ssh_root_login",
             "severidad": "ALTA",
             "medida_ens": "op.acc.6",
-            "detalle": "Verificar PermitRootLogin en sshd_config"
+            "detalle": ""
         },
         {
             "origen": "hardening",
             "check": "parches_pendientes",
             "severidad": "ALTA",
             "medida_ens": "op.exp.2",
-            "detalle": "Número de actualizaciones de seguridad pendientes"
+            "detalle": ""
         },
         {
             "origen": "hardening",
             "check": "cifrado_disco",
             "severidad": "CRITICA",
             "medida_ens": "mp.si.2",
-            "detalle": "Verificar cifrado LUKS en particiones"
+            "detalle": ""
         }
     ],
     "compliance_global": {
         "estado": "NO CUMPLE",
-        "motivo": "5 hallazgo(s) de severidad ALTA o CRITICA detectado(s)",
         "checks_total": 15,
-        "checks_ok": 10,
-        "checks_riesgo": 5
+        "checks_ok": 7,
+        "checks_riesgo": 8
     }
 }

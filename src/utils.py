@@ -171,6 +171,7 @@ def parsear_puerto(linea):
         "19999/tcp": "Puerto filtrado por firewall — correcto"
     }
     nota = notas.get(puerto_proto, "")
+    detalle = f"Servicio {servicio} {estado_desc} en {puerto_proto}."
 
     return {
         "puerto": puerto_proto,
@@ -179,7 +180,8 @@ def parsear_puerto(linea):
         "version": version,
         "severidad": severidad,
         "medida_ens": medida_ens,
-        "nota": nota
+        "nota": nota,
+        "detalle": detalle
     }
 
 

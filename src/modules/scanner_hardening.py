@@ -77,7 +77,7 @@ def audit():
         with open(OUTPUT, "w", encoding='utf-8') as f:
             json.dump(res, f, ensure_ascii=False, indent=4)
 
-        logger.scan_end(target=HOST, duration="OK", findings=checks_total)
+        logger.scan_end(target=HOST, duration="OK", findings=compliance_resumen["checks_total"])
         client.close()
     except Exception as e:
         logger.module_error(str(e), target=HOST)

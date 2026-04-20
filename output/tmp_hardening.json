@@ -1,5 +1,5 @@
 {
-    "timestamp": "2026-04-20T11:55:50.231473",
+    "timestamp": "2026-04-20T13:41:43.393464",
     "target": "10.202.15.100",
     "hallazgos": [
         {
@@ -23,32 +23,26 @@
             "estado": "INACTIVO",
             "severidad": "CRITICA",
             "medida_ens": "op.exp.4",
-            "detalle": "Estado del firewall UFW",
             "remediacion": "sudo ufw enable"
         },
         {
             "check": "ssh_root_login",
             "estado": "RIESGO",
             "severidad": "ALTA",
-            "medida_ens": "op.acc.6",
-            "detalle": "Verificar PermitRootLogin en sshd_config",
-            "remediacion": "Editar /etc/ssh/sshd_config: PermitRootLogin no"
+            "medida_ens": "op.acc.6"
         },
         {
             "check": "parches_pendientes",
             "estado": "1 parches pendientes",
             "severidad": "ALTA",
             "medida_ens": "op.exp.2",
-            "detalle": "Número de actualizaciones de seguridad pendientes",
             "remediacion": "sudo apt update && sudo apt upgrade"
         },
         {
             "check": "cifrado_disco",
             "estado": "AUSENTE",
             "severidad": "CRITICA",
-            "medida_ens": "mp.si.2",
-            "detalle": "Verificar cifrado LUKS en particiones",
-            "remediacion": "Configurar LUKS en particiones"
+            "medida_ens": "mp.si.2"
         }
     ],
     "compliance_resumen": {

@@ -20,7 +20,7 @@ import sys
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(base_dir, 'src'))
 
-from utils import merge_reports
+from utils import merge_reports as merge_reports_data
 
 from scan_logger import ScanLogger
 
@@ -35,16 +35,30 @@ def run_scanners():
         os.path.join(base_dir, "src", "modules", "scanner_hardening.py")
     ]
 
+    network_data = None
     for script in scripts:
         logger.info("MODULE_EXEC", script=script)
         print(f"[*] Ejecutando módulo: {os.path.basename(script)}...")
-        result = subprocess.run([sys.executable, script])
-        if result.returncode != 0:
-            logger.error("MODULE_FAILED", script=script, returncode=result.returncode)
+        if os.path.basename(script) == "scanner_network.py":
+            result = subprocess.run([sys.executable, script], capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error("MODULE_FAILED", script=script, returncode=result.returncode)
+            else:
+                logger.info("MODULE_OK", script=script)
+                try:
+                    network_data = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    logger.error("MODULE_FAILED", script=script, error="JSON parse error")
         else:
-            logger.info("MODULE_OK", script=script)
+            result = subprocess.run([sys.executable, script])
+            if result.returncode != 0:
+                logger.error("MODULE_FAILED", script=script, returncode=result.returncode)
+            else:
+                logger.info("MODULE_OK", script=script)
 
-def merge_reports():
+    return network_data
+
+def merge_reports(network_data=None):
     final_report = {
         "project": "UNUWARE Server Audit Master",
         "timestamp": datetime.datetime.now().isoformat(),
@@ -53,16 +67,23 @@ def merge_reports():
     }
 
     files = {
-        "network": "output/tmp_network.json",
         "health": "output/tmp_health.json",
         "hardening": "output/tmp_hardening.json"
     }
+
+    if network_data is not None:
+        final_report["data"]["network"] = network_data
+        logger.info("REPORT_MERGED", source="network")
+        print(f"[√] Leyendo network: OK")
+    else:
+        final_report["data"]["network"] = {"error": "Módulo no generó resultados"}
+        logger.warning("REPORT_MISSING", source="network")
+        print("[!] No se obtuvo resultado directo de scanner_network.py")
 
     for key, path in files.items():
         if os.path.exists(path):
             with open(path, "r", encoding='utf-8') as f:
                 contenido = json.load(f)
-                # Forzamos la inserción en el diccionario 'data'
                 final_report["data"][key] = contenido
                 logger.info("REPORT_MERGED", source=key)
                 print(f"[√] Leyendo {key}: OK")
@@ -72,7 +93,7 @@ def merge_reports():
             print(f"[!] Archivo no encontrado: {path}")
 
     # Fusionar reportes usando la función de utils
-    merged = merge_reports(final_report["data"])
+    merged = merge_reports_data(final_report["data"])
     final_report["alertas_criticas"] = merged["alertas_criticas"]
     final_report["compliance_global"] = merged["compliance_global"]
 
@@ -87,8 +108,8 @@ if __name__ == "__main__":
     # Creamos la carpeta output si no existe
     if not os.path.exists("output"):
         os.makedirs("output")
-    run_scanners()
-    merge_reports()
+    network_data = run_scanners()
+    merge_reports(network_data)
 FILE:src\scan_logger.py
 import logging
 import os
@@ -349,6 +370,7 @@ def parsear_puerto(linea):
         "19999/tcp": "Puerto filtrado por firewall — correcto"
     }
     nota = notas.get(puerto_proto, "")
+    detalle = f"Servicio {servicio} {estado_desc} en {puerto_proto}."
 
     return {
         "puerto": puerto_proto,
@@ -357,7 +379,8 @@ def parsear_puerto(linea):
         "version": version,
         "severidad": severidad,
         "medida_ens": medida_ens,
-        "nota": nota
+        "nota": nota,
+        "detalle": detalle
     }
 
 def calcular_resumen_network(hallazgos):
@@ -515,7 +538,7 @@ def audit():
         with open(OUTPUT, "w", encoding='utf-8') as f:
             json.dump(res, f, ensure_ascii=False, indent=4)
 
-        logger.scan_end(target=HOST, duration="OK", findings=checks_total)
+        logger.scan_end(target=HOST, duration="OK", findings=compliance_resumen["checks_total"])
         client.close()
     except Exception as e:
         logger.module_error(str(e), target=HOST)
@@ -608,11 +631,11 @@ def check():
 if __name__ == "__main__":
     check()
 FILE:src\modules\scanner_network.py
-import subprocess
+import asyncio
 import json
 import os
-import sys
 import re
+import sys
 import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -621,56 +644,179 @@ from utils import parsear_puerto, calcular_resumen_network
 
 logger = ScanLogger("scanner_network")
 
-# Configuración
 TARGET = "10.202.15.100"
-NMAP_PATH = "nmap"
-OUTPUT = "output/tmp_network.json"
+PORTS = "22,80,443,19999"
+MASSCAN_RATE = "1000"
 
-def scan():
-    logger.scan_start(target=TARGET, ports="22,80,443,19999")
-    timestamp = datetime.datetime.now().isoformat()
-    # El comando audita lo que configuraste: SSH (22), Apache (80/443), Netdata (19999)
-    cmd = [NMAP_PATH, "-sV", "-Pn", "-p", "22,80,443,19999", TARGET]
-    process = subprocess.run(cmd, capture_output=True, text=True)
-    out = process.stdout
-
-    hallazgos = []
-    puertos_abiertos = 0
-    puertos_filtrados = 0
-    ssl_activo = False
-    firewall_detectado = False
-
-    port_services = {
-        "22/tcp": {"servicio": "ssh", "medida_ens": "op.acc.1", "nota": "Servicio SSH accesible — verificar que solo acepta autenticación por clave"},
-        "80/tcp": {"servicio": "http", "medida_ens": "op.exp.2", "nota": "HTTP sin cifrar activo — verificar redirección a HTTPS"},
-        "443/tcp": {"servicio": "https", "medida_ens": "op.exp.2", "nota": "HTTPS activo con SSL"},
-        "19999/tcp": {"servicio": "netdata", "medida_ens": "op.exp.4", "nota": "Puerto filtrado por firewall — correcto"}
+MOCK_INVENTORY = {
+    "10.202.15.100": {
+        "activo": "Servidor de auditoría",
+        "criticidad": "Alta",
+        "responsable": "Equipo SOC"
+    },
+    "10.202.15.101": {
+        "activo": "Switch de borde",
+        "criticidad": "Media",
+        "responsable": "Infraestructura"
+    },
+    "scanops.example.com": {
+        "activo": "Portal ScanOPS",
+        "criticidad": "Alta",
+        "responsable": "Equipo SOC"
     }
+}
 
-    lines = out.split('\n')
-    for line in lines:
-        if '/tcp' in line and ('open' in line or 'filtered' in line):
+async def _run_tool(cmd):
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        return stdout.decode(errors="ignore"), stderr.decode(errors="ignore"), process.returncode
+    except FileNotFoundError as exc:
+        return "", str(exc), 1
+
+def is_ip(value):
+    return bool(re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", value))
+
+def inventory_lookup(key):
+    if key in MOCK_INVENTORY:
+        return MOCK_INVENTORY[key]
+    lower_key = key.lower()
+    for asset, data in MOCK_INVENTORY.items():
+        if asset.lower() == lower_key:
+            return data
+    return None
+
+def parse_masscan_output(output):
+    hosts = {}
+    for line in output.splitlines():
+        match = re.search(r"Discovered open port (?P<port>\d+/tcp) on (?P<host>[^\s]+)", line)
+        if match:
+            host = match.group("host")
+            port = match.group("port")
+            hosts.setdefault(host, set()).add(port)
+            continue
+
+        match = re.search(r"(?P<host>\d+\.\d+\.\d+\.\d+).*?(?P<port>\d+/tcp)", line)
+        if match:
+            host = match.group("host")
+            port = match.group("port")
+            hosts.setdefault(host, set()).add(port)
+    return hosts
+
+def parse_subfinder_output(output):
+    return [line.strip() for line in output.splitlines() if line.strip() and not line.startswith("#")]
+
+def extract_hosts_from_nmap(output):
+    hosts = set()
+    for line in output.splitlines():
+        match = re.search(r"Nmap scan report for (?P<host>.+)", line)
+        if match:
+            hosts.add(match.group("host").strip())
+    return hosts
+
+def build_hallazgos(nmap_output, discovered_hosts):
+    hallazgos = []
+    for line in nmap_output.splitlines():
+        if "/tcp" in line and ("open" in line or "filtered" in line):
             hallazgo = parsear_puerto(line.strip())
             if hallazgo:
+                hallazgo["detalle"] = (
+                    f"Servicio {hallazgo['servicio']} detectado en {hallazgo['puerto']} "
+                    f"con estado {hallazgo['estado']}"
+                )
                 hallazgos.append(hallazgo)
                 logger.finding(hallazgo["servicio"].upper(), severity=hallazgo["severidad"], status=hallazgo["estado"])
 
+    for host in sorted(discovered_hosts):
+        if inventory_lookup(host) is None:
+            hallazgos.append({
+                "check": "hardware_no_autorizado",
+                "host": host,
+                "estado": "NO AUTORIZADO",
+                "severidad": "ALTA",
+                "medida_ens": "op.acc.7",
+                "detalle": "Hardware detectado que no figura en inventario oficial.",
+                "nota": "Shadow IT detectado"
+            })
+            logger.finding("HARDWARE_NO_AUTORIZADO", severity="ALTA", status="NO AUTORIZADO", host=host)
+
+    return hallazgos
+
+async def run_masscan():
+    cmd = ["masscan", "-p", PORTS, TARGET, "--rate", MASSCAN_RATE]
+    stdout, stderr, returncode = await _run_tool(cmd)
+    if returncode != 0:
+        logger.warning("MASSCAN_FAILED", target=TARGET, error=stderr.strip())
+    return stdout
+
+async def run_subfinder():
+    domains = [asset for asset in MOCK_INVENTORY if not is_ip(asset)]
+    if not domains:
+        return ""
+    cmd = ["subfinder", "-silent"] + sum([["-d", domain] for domain in domains], [])
+    stdout, stderr, returncode = await _run_tool(cmd)
+    if returncode != 0:
+        logger.warning("SUBFINDER_FAILED", target=TARGET, error=stderr.strip())
+    return stdout
+
+async def run_nmap(open_ports):
+    if not open_ports:
+        logger.info("NMAP_SKIPPED", target=TARGET, reason="No puertos abiertos detectados por Masscan")
+        return ""
+
+    cmd = ["nmap", "-sV", "-p", ",".join(sorted(open_ports)), TARGET]
+    stdout, stderr, returncode = await _run_tool(cmd)
+    if returncode != 0:
+        logger.warning("NMAP_FAILED", target=TARGET, error=stderr.strip())
+    return stdout
+
+async def _scan_async():
+    logger.scan_start(target=TARGET, ports=PORTS)
+    timestamp = datetime.datetime.now().isoformat()
+
+    masscan_task = asyncio.create_task(run_masscan())
+    subfinder_task = asyncio.create_task(run_subfinder())
+    masscan_output, subfinder_output = await asyncio.gather(masscan_task, subfinder_task)
+
+    masscan_hosts = parse_masscan_output(masscan_output)
+    subfinder_domains = parse_subfinder_output(subfinder_output)
+    open_ports = {port for ports in masscan_hosts.values() for port in ports}
+
+    nmap_output = await run_nmap(open_ports)
+    discovered_hosts = set(masscan_hosts.keys()) | extract_hosts_from_nmap(nmap_output)
+    inventory_matches = [
+        {"host": host, **inventory_lookup(host)}
+        for host in sorted(discovered_hosts)
+        if inventory_lookup(host) is not None
+    ]
+
+    hallazgos = build_hallazgos(nmap_output, discovered_hosts)
     resumen = calcular_resumen_network(hallazgos)
 
-    res = {
+    result = {
         "timestamp": timestamp,
         "target": TARGET,
+        "inventory": MOCK_INVENTORY,
+        "inventory_matches": inventory_matches,
+        "hosts_detected": sorted(discovered_hosts),
+        "subfinder_domains": subfinder_domains,
         "hallazgos": hallazgos,
         "resumen": resumen
     }
 
-    with open(OUTPUT, "w", encoding='utf-8') as f:
-        json.dump(res, f, ensure_ascii=False, indent=4)
+    logger.scan_end(target=TARGET, duration="OK", findings=len(hallazgos))
+    return result
 
-    logger.scan_end(target=TARGET, duration="N/A", findings=len(hallazgos))
+async def scan():
+    return await _scan_async()
 
 if __name__ == "__main__":
-    scan()
+    result = asyncio.run(scan())
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 FILE:tests\test_orchestrator.py
 """
 Tests para main_orchestrator.py — Fusión de reportes
@@ -1168,14 +1314,16 @@ sin necesidad de tener Nmap instalado ni un servidor real.
 
 Ejecutar: pytest tests/test_scanner_network.py -v
 """
+import asyncio
 import pytest
 import json
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 # Añadir el directorio raíz al path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.modules import scanner_network
 
 # ============================================================
 # FIXTURES: Datos de ejemplo que simulan la salida real de Nmap
@@ -1308,7 +1456,7 @@ class TestNetworkJsonStructure:
         severidad, medida_ens, nota."""
         hallazgos, _ = parse_nmap_output(nmap_output_normal)
         campos_requeridos = ["puerto", "servicio", "estado", "version",
-                             "severidad", "medida_ens", "nota"]
+                             "severidad", "medida_ens", "nota", "detalle"]
         for h in hallazgos:
             for campo in campos_requeridos:
                 assert campo in h, f"Falta campo '{campo}' en hallazgo {h}"
@@ -1348,49 +1496,42 @@ class TestNetworkJsonStructure:
 
 class TestNetworkModuleIntegration:
     """Tests que simulan la ejecución completa de scanner_network.py
-    usando mocks para subprocess (sin ejecutar Nmap real)."""
+    usando mocks para las herramientas externas."""
 
-    @patch('subprocess.run')
-    def test_genera_json_valido(self, mock_run, nmap_output_normal, tmp_path):
-        """El módulo debe generar un JSON válido en output/tmp_network.json."""
-        # Simulamos que subprocess.run devuelve la salida de Nmap
-        mock_run.return_value = MagicMock(
-            stdout=nmap_output_normal,
-            returncode=0
-        )
+    @patch('src.modules.scanner_network._run_tool', new_callable=AsyncMock)
+    def test_genera_dict_valido(self, mock_run, nmap_output_normal):
+        """El módulo debe devolver un diccionario bien formado sin usar un tmp JSON."""
+        mock_run.side_effect = [
+            (
+                "Discovered open port 22/tcp on 10.202.15.100\n"
+                "Discovered open port 80/tcp on 10.202.15.100\n"
+                "Discovered open port 443/tcp on 10.202.15.100\n",
+                "",
+                0
+            ),
+            ("scanops.example.com\n", "", 0),
+            (nmap_output_normal, "", 0)
+        ]
 
-        output_file = tmp_path / "tmp_network.json"
+        result = asyncio.run(scanner_network.scan())
 
-        # Simulamos la escritura del JSON (como haría el módulo real)
-        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
-        result = {
-            "timestamp": "2026-04-20T10:25:00.000000",
-            "target": "10.202.15.100",
-            "hallazgos": hallazgos,
-            "resumen": resumen
-        }
+        assert result["target"] == scanner_network.TARGET
+        assert "hallazgos" in result
+        assert isinstance(result["hallazgos"], list)
+        assert result["resumen"]["puertos_abiertos"] == 3
+        assert "inventory" in result
+        assert "subfinder_domains" in result
 
-        with open(output_file, "w", encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
-
-        # Verificar que el JSON es válido y tiene la estructura correcta
-        with open(output_file, "r") as f:
-            data = json.load(f)
-
-        assert "timestamp" in data
-        assert "target" in data
-        assert "hallazgos" in data
-        assert "resumen" in data
-        assert data["target"] == "10.202.15.100"
-
-    @patch('subprocess.run')
+    @patch('src.modules.scanner_network._run_tool', new_callable=AsyncMock)
     def test_nmap_falla_no_rompe(self, mock_run):
-        """Si Nmap falla (returncode != 0), el módulo no debe lanzar excepción."""
-        mock_run.return_value = MagicMock(
-            stdout="",
-            stderr="nmap: command not found",
-            returncode=1
-        )
-        # El parseo de una salida vacía no debe fallar
-        hallazgos, resumen = parse_nmap_output("")
-        assert len(hallazgos) == 0
+        """Si Nmap falla, el módulo no debe lanzar excepción."""
+        mock_run.side_effect = [
+            ("", "", 0),
+            ("", "", 0),
+            ("", "nmap: command not found", 1)
+        ]
+
+        result = asyncio.run(scanner_network.scan())
+        assert isinstance(result, dict)
+        assert "hallazgos" in result
+        assert isinstance(result["hallazgos"], list)

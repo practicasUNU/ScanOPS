@@ -6,14 +6,16 @@ sin necesidad de tener Nmap instalado ni un servidor real.
 
 Ejecutar: pytest tests/test_scanner_network.py -v
 """
+import asyncio
 import pytest
 import json
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 # Añadir el directorio raíz al path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.modules import scanner_network
 
 
 # ============================================================
@@ -153,7 +155,7 @@ class TestNetworkJsonStructure:
         severidad, medida_ens, nota."""
         hallazgos, _ = parse_nmap_output(nmap_output_normal)
         campos_requeridos = ["puerto", "servicio", "estado", "version",
-                             "severidad", "medida_ens", "nota"]
+                             "severidad", "medida_ens", "nota", "detalle"]
         for h in hallazgos:
             for campo in campos_requeridos:
                 assert campo in h, f"Falta campo '{campo}' en hallazgo {h}"
@@ -194,49 +196,42 @@ class TestNetworkJsonStructure:
 
 class TestNetworkModuleIntegration:
     """Tests que simulan la ejecución completa de scanner_network.py
-    usando mocks para subprocess (sin ejecutar Nmap real)."""
+    usando mocks para las herramientas externas."""
 
-    @patch('subprocess.run')
-    def test_genera_json_valido(self, mock_run, nmap_output_normal, tmp_path):
-        """El módulo debe generar un JSON válido en output/tmp_network.json."""
-        # Simulamos que subprocess.run devuelve la salida de Nmap
-        mock_run.return_value = MagicMock(
-            stdout=nmap_output_normal,
-            returncode=0
-        )
+    @patch('src.modules.scanner_network._run_tool', new_callable=AsyncMock)
+    def test_genera_dict_valido(self, mock_run, nmap_output_normal):
+        """El módulo debe devolver un diccionario bien formado sin usar un tmp JSON."""
+        mock_run.side_effect = [
+            (
+                "Discovered open port 22/tcp on 10.202.15.100\n"
+                "Discovered open port 80/tcp on 10.202.15.100\n"
+                "Discovered open port 443/tcp on 10.202.15.100\n",
+                "",
+                0
+            ),
+            ("scanops.example.com\n", "", 0),
+            (nmap_output_normal, "", 0)
+        ]
 
-        output_file = tmp_path / "tmp_network.json"
+        result = asyncio.run(scanner_network.scan())
 
-        # Simulamos la escritura del JSON (como haría el módulo real)
-        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
-        result = {
-            "timestamp": "2026-04-20T10:25:00.000000",
-            "target": "10.202.15.100",
-            "hallazgos": hallazgos,
-            "resumen": resumen
-        }
+        assert result["target"] == scanner_network.TARGET
+        assert "hallazgos" in result
+        assert isinstance(result["hallazgos"], list)
+        assert result["resumen"]["puertos_abiertos"] == 3
+        assert "inventory" in result
+        assert "subfinder_domains" in result
 
-        with open(output_file, "w", encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
-
-        # Verificar que el JSON es válido y tiene la estructura correcta
-        with open(output_file, "r") as f:
-            data = json.load(f)
-
-        assert "timestamp" in data
-        assert "target" in data
-        assert "hallazgos" in data
-        assert "resumen" in data
-        assert data["target"] == "10.202.15.100"
-
-    @patch('subprocess.run')
+    @patch('src.modules.scanner_network._run_tool', new_callable=AsyncMock)
     def test_nmap_falla_no_rompe(self, mock_run):
-        """Si Nmap falla (returncode != 0), el módulo no debe lanzar excepción."""
-        mock_run.return_value = MagicMock(
-            stdout="",
-            stderr="nmap: command not found",
-            returncode=1
-        )
-        # El parseo de una salida vacía no debe fallar
-        hallazgos, resumen = parse_nmap_output("")
-        assert len(hallazgos) == 0
+        """Si Nmap falla, el módulo no debe lanzar excepción."""
+        mock_run.side_effect = [
+            ("", "", 0),
+            ("", "", 0),
+            ("", "nmap: command not found", 1)
+        ]
+
+        result = asyncio.run(scanner_network.scan())
+        assert isinstance(result, dict)
+        assert "hallazgos" in result
+        assert isinstance(result["hallazgos"], list)
