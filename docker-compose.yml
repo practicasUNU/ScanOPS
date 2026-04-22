@@ -52,7 +52,25 @@ services:
     depends_on:
       - postgres
       - redis
-      - vault
+      - vault  
+    
+
+  # ... (tus servicios anteriores: postgres, redis, vault)
+
+  scanner-engine:
+    build: .
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: dev-token
+    depends_on:
+      - postgres
+      - redis
+      - vault    
 
 volumes:
   pgdata:
