@@ -2,6 +2,7 @@
 
 import pytest
 import asyncio
+import json
 from datetime import datetime
 from unittest.mock import Mock, patch, AsyncMock
 
@@ -383,6 +384,43 @@ class TestNucleiClient:
 
         assert isinstance(findings, list)
         assert len(findings) > 0
+
+    @pytest.mark.asyncio
+    async def test_nuclei_load_templates(self):
+        """Test loading custom templates"""
+        from services.scanner_engine.clients.nuclei_client import NucleiClient
+        client = NucleiClient()
+        templates = client.load_custom_templates("templates/nuclei/custom")
+        assert isinstance(templates, list)
+        assert len(templates) > 0
+        print(f"✓ Loaded {len(templates)} templates")
+
+    def test_nuclei_parse_json(self):
+        """Test parsing Nuclei JSON output"""
+        from services.scanner_engine.clients.nuclei_client import NucleiClient
+        client = NucleiClient()
+        
+        mock_json = '{"template-id": "test-1", "info": {"name": "Test", "severity": "high"}}\n'
+        findings = client.parse_nuclei_json(mock_json)
+        assert len(findings) == 1
+        assert findings[0]["name"] == "Test"
+        print("✓ JSON parsing works")
+
+    @pytest.mark.asyncio
+    async def test_nuclei_custom_templates_scan(self):
+        """Test full custom templates scan"""
+        from services.scanner_engine.clients.nuclei_client import NucleiClient
+        client = NucleiClient()
+        findings = await client.scan_asset_with_custom_templates(1, "192.168.1.1", "test")
+        assert isinstance(findings, list)
+        print(f"✓ Custom templates scan: {len(findings)} findings")
+
+    def test_ens_mapping(self):
+        """Test ENS mapping exists"""
+        from services.scanner_engine.models.finding import ENS_MAPPING
+        assert isinstance(ENS_MAPPING, dict)
+        assert len(ENS_MAPPING) > 0
+        print(f"✓ ENS mapping: {len(ENS_MAPPING)} entries")
 
 
 # ============================================================================

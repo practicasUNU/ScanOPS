@@ -25,6 +25,23 @@ class ScannerType(str, Enum):
     ZAP = "ZAP"
 
 
+# ENS measures mapping for quick enrichment
+ENS_MAPPING = {
+    "SQL Injection CVE-2024-XXXX": ["op.exp.2", "mp.info.3"],
+    "XML External Entity (XXE) CVE-2024-YYYY": ["op.exp.2"],
+    "Weak Cipher Suite CVE-2023-ZZZZ": ["mp.com.2"],
+    "Missing Security Headers": ["mp.info.4"],
+    "Weak Password Policy Detection": ["op.acc.5"],
+    "Exposed API Keys in Response": ["mp.info.3", "mp.info.4"],
+    "SSH Weak Key Exchange Algorithms": ["op.exp.2", "mp.com.2"],
+    "Unencrypted Data Transmission": ["mp.com.2", "mp.info.3"],
+    "Default Credentials Detection": ["op.acc.5"],
+    "Generic Remote Code Execution Check": ["op.exp.2"],
+    "Server-Side Request Forgery (SSRF) Detection": ["op.exp.2"],
+    "Local File Inclusion (LFI) Pattern": ["op.exp.2"],
+}
+
+
 class Finding(BaseModel):
     """Normalized vulnerability finding across all scanners."""
     asset_id: int
@@ -36,7 +53,10 @@ class Finding(BaseModel):
     evidence: str
     remediation: str
     scanner: ScannerType
-    ens_mapping: List[str] = Field(default_factory=list)  # ["op.exp.2", "mp.info.3"]
+    ens_mapping: List[str] = Field(default_factory=list)  # Legacy support
+    template_id: Optional[str] = None
+    template_tags: List[str] = Field(default_factory=list)
+    ens_tags: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:

@@ -1,0 +1,22 @@
+id: ssh-weak-algorithms
+info:
+  name: SSH Weak Key Exchange Algorithms
+  description: SSH server supports weak key exchange algorithms
+  severity: high
+  tags: [ssh, crypto, weak, hardening]
+
+---
+id: unencrypted-data-transmission
+info:
+  name: Unencrypted Data Transmission
+  description: Sensitive data transmitted without encryption
+  severity: high
+  tags: [encryption, data, hardening]
+
+---
+id: default-credentials
+info:
+  name: Default Credentials Detection
+  description: Application uses default/hardcoded credentials
+  severity: critical
+  tags: [auth, default, credentials, hardening]

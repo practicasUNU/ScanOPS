@@ -1,0 +1,34 @@
+id: cve-2024-sql-injection
+info:
+  name: SQL Injection CVE-2024-XXXX
+  description: Potential SQL injection vulnerability
+  severity: critical
+  tags: [cve, injection, owasp, sql]
+http:
+  - method: GET
+    path: /?id=1' OR '1'='1
+    matchers:
+      - type: status
+        status: [200]
+
+---
+id: cve-2024-xxe
+info:
+  name: XML External Entity (XXE) CVE-2024-YYYY
+  description: XXE vulnerability in XML parser
+  severity: high
+  tags: [cve, xxe, owasp, xml]
+http:
+  - method: POST
+    path: /api/parse
+    matchers:
+      - type: status
+        status: [200]
+
+---
+id: cve-2023-weak-cipher
+info:
+  name: Weak Cipher Suite CVE-2023-ZZZZ
+  description: Server uses weak cipher suites
+  severity: medium
+  tags: [cve, crypto, ssl, weak]
