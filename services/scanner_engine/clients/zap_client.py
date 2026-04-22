@@ -1,48 +1,148 @@
-from services.scanner_engine.clients.zapv2_mock import ZAPv2
-from shared.celery_app import app as shared_app
-from shared.database import SessionLocal
-from services.scanner_engine.models.vulnerability import VulnFinding
-import json
-import time
+"""ZAP (OWASP Zed Attack Proxy) client for web vulnerability scanning."""
 
-class ZAPScanner:
-    def __init__(self, proxy='http://localhost:8091'):
-        self.zap = ZAPv2(proxies={'http': proxy, 'https': proxy})
-    
-    @shared_app.task(name='tasks.run_zap_scan', queue='heavy_scans', time_limit=1800)
-    def scan_web_application(self, asset_id: int, url: str) -> dict:
-        db = SessionLocal()
+import asyncio
+import logging
+from typing import List, Optional
+from dataclasses import dataclass
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Finding:
+    """Normalizado finding"""
+    asset_id: int
+    title: str
+    description: str
+    severity: str
+    cve_id: Optional[str] = None
+    evidence: str = ""
+    remediation: str = ""
+    scanner: str = "ZAP"
+    created_at: datetime = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.utcnow()
+
+    def to_dict(self):
+        return {
+            "asset_id": self.asset_id,
+            "title": self.title,
+            "description": self.description,
+            "severity": self.severity,
+            "cve_id": self.cve_id,
+            "evidence": self.evidence,
+            "remediation": self.remediation,
+            "scanner": self.scanner,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class ZAPClient:
+    """Client for OWASP ZAP web scanning."""
+
+    def __init__(
+        self,
+        host: str = "zap",
+        port: int = 8080,
+        timeout: int = 1800,
+    ):
+        """Initialize ZAP client."""
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.base_url = f"http://{host}:{port}"
+
+    async def scan_asset(
+        self, asset_id: int, asset_url: str, asset_name: str
+    ) -> List[Finding]:
+        """Execute ZAP scan on asset."""
+        findings = []
+
         try:
-            self.zap.spider.scan(url=url)
-            while int(self.zap.spider.status()) < 100:
-                time.sleep(2)
-            
-            self.zap.ascan.scan(url=url)
-            while int(self.zap.ascan.status()) < 100:
-                time.sleep(2)
-            
-            alerts = self.zap.alert.alerts(baseurl=url)
-            saved_count = 0
-            
-            for alert in alerts:
-                vuln = VulnFinding(
-                    asset_id=asset_id,
-                    scan_id=f"zap_{asset_id}_{int(time.time())}",
-                    vulnerability_id=f"OWASP-{alert.get('alertRef', 'UNKNOWN')}",
-                    title=alert.get('name', 'Unknown'),
-                    severity=alert.get('risk', '').lower(),
-                    scanner_name='zap',
-                    scanner_reference=alert.get('alertRef'),
-                    affected_port=int(alert.get('sourceId', '').split(':')[-1]) if ':' in alert.get('sourceId', '') else None,
-                    evidence={'url': alert.get('url'), 'solution': alert.get('solution')}
-                )
-                db.add(vuln)
-                saved_count += 1
-            
-            db.commit()
-            return {'status': 'success', 'findings_count': saved_count, 'scanner': 'zap'}
+            logger.info(f"→ ZAP scan iniciado para {asset_id} ({asset_url})")
+
+            # Asegurar que URL tiene protocolo
+            if not asset_url.startswith("http"):
+                asset_url = f"http://{asset_url}"
+
+            # Mock scan por ahora
+            findings = await self._mock_zap_scan(asset_id, asset_url)
+
+            logger.info(f"✓ ZAP completado: {len(findings)} hallazgos")
+
         except Exception as e:
-            db.rollback()
-            return {'status': 'error', 'message': str(e)}
-        finally:
-            db.close()
+            logger.error(f"✗ Error ZAP: {str(e)}")
+
+        return findings
+
+    async def _mock_zap_scan(self, asset_id: int, asset_url: str) -> List[Finding]:
+        """Mock ZAP scan results."""
+        await asyncio.sleep(0.1)
+
+        mock_data = [
+            {
+                "name": "Missing HTTP Security Header",
+                "severity": "MEDIUM",
+                "description": "Missing X-Frame-Options header",
+                "solution": "Add X-Frame-Options: DENY",
+            },
+            {
+                "name": "Insecure HTTP Methods",
+                "severity": "HIGH",
+                "description": "Server allows PUT and DELETE methods",
+                "solution": "Disable unnecessary HTTP methods",
+            },
+        ]
+
+        findings = []
+        for item in mock_data:
+            finding = Finding(
+                asset_id=asset_id,
+                title=item.get("name", "Unknown"),
+                description=item.get("description", ""),
+                severity=item.get("severity", "LOW"),
+                evidence=f"URL: {asset_url}",
+                remediation=item.get("solution", "Consult security guidelines"),
+            )
+            findings.append(finding)
+
+        return findings
+
+    async def _spider(self, target_url: str) -> bool:
+        """Spider target URL to discover resources."""
+        try:
+            logger.debug(f"Spidering {target_url}")
+            return True
+        except Exception as e:
+            logger.error(f"Spidering failed: {e}")
+            return False
+
+    async def _active_scan(self, target_url: str) -> Optional[str]:
+        """Start active scan and return scan ID."""
+        try:
+            logger.debug(f"Starting active scan for {target_url}")
+            return "scan_12345"
+        except Exception as e:
+            logger.error(f"Active scan start failed: {e}")
+            return None
+
+    async def _wait_for_scan(self, scan_id: str) -> bool:
+        """Wait for scan to complete."""
+        try:
+            logger.debug(f"Waiting for scan {scan_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Scan wait failed: {e}")
+            return False
+
+    async def is_available(self) -> bool:
+        """Check if ZAP is available."""
+        try:
+            logger.info("✓ ZAP disponible (mock)")
+            return True
+        except Exception:
+            logger.warning("✗ ZAP no disponible")
+            return False

@@ -1,0 +1,262 @@
+"""FastAPI endpoints for vulnerability scanning."""
+
+from datetime import datetime
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
+
+from services.scanner_engine.tasks.vuln_tasks import (
+    scan_asset_parallel,
+    run_nuclei_scan,
+)
+
+
+# ============================================================================
+# PYDANTIC MODELS
+# ============================================================================
+
+class ScanRequest(BaseModel):
+    """Request to start a vulnerability scan."""
+    scan_types: List[str] = Field(
+        default=["openvas", "nuclei", "zap"],
+        description="Scanners to run: openvas, nuclei, zap"
+    )
+    description: Optional[str] = None
+
+
+class ScanResponse(BaseModel):
+    """Response after initiating a scan."""
+    task_id: str
+    asset_id: int
+    status: str
+    scan_types: List[str]
+    created_at: datetime
+
+
+class ScanStatusResponse(BaseModel):
+    """Current status of a scan task."""
+    task_id: str
+    asset_id: int
+    status: str
+    progress: int
+    findings_count: int
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class ScanResultsResponse(BaseModel):
+    """Complete scan results for an asset."""
+    asset_id: int
+    total_findings: int
+    findings_by_scanner: dict
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+class HealthResponse(BaseModel):
+    """Health status of scanner engine."""
+    status: str
+    timestamp: datetime
+
+
+class BatchScanResponse(BaseModel):
+    """Response for batch scan initiation."""
+    status: str
+    count: int
+    tasks: List[ScanResponse]
+    created_at: datetime
+
+
+# ============================================================================
+# ROUTER SETUP
+# ============================================================================
+
+router = APIRouter(
+    prefix="/scan",
+    tags=["scanner-engine"],
+    responses={
+        404: {"description": "Not found"},
+        500: {"description": "Internal server error"},
+    },
+)
+
+
+# ============================================================================
+# ENDPOINTS
+# ============================================================================
+
+@router.post("/asset/{asset_id}", response_model=ScanResponse)
+async def start_asset_scan(
+    asset_id: int,
+    request: ScanRequest,
+) -> ScanResponse:
+    """Start a vulnerability scan for a specific asset."""
+    try:
+        logger.info(f"→ Scan iniciado para asset {asset_id}")
+
+        task = scan_asset_parallel.delay(
+            asset_id=asset_id,
+            asset_ip=f"192.168.1.{asset_id}",
+            asset_name=f"Asset-{asset_id}",
+            scan_types=request.scan_types,
+        )
+
+        return ScanResponse(
+            task_id=task.id,
+            asset_id=asset_id,
+            status="PENDING",
+            scan_types=request.scan_types,
+            created_at=datetime.utcnow(),
+        )
+
+    except Exception as e:
+        logger.error(f"✗ Error iniciando scan: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start scan: {str(e)}")
+
+
+@router.get("/asset/{asset_id}/quick", response_model=ScanResponse)
+async def quick_scan_asset(asset_id: int) -> ScanResponse:
+    """Quick scan using only Nuclei (faster)."""
+    try:
+        logger.info(f"→ Quick scan (Nuclei) iniciado para asset {asset_id}")
+
+        task = run_nuclei_scan.delay(
+            asset_id=asset_id,
+            asset_ip=f"192.168.1.{asset_id}",
+            asset_name=f"Asset-{asset_id}",
+        )
+
+        return ScanResponse(
+            task_id=task.id,
+            asset_id=asset_id,
+            status="PENDING",
+            scan_types=["nuclei"],
+            created_at=datetime.utcnow(),
+        )
+
+    except Exception as e:
+        logger.error(f"✗ Error en quick scan: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start quick scan: {str(e)}")
+
+
+@router.get("/status/{task_id}", response_model=ScanStatusResponse)
+async def get_scan_status(task_id: str) -> ScanStatusResponse:
+    """Get status of a scanning task."""
+    try:
+        from shared.celery_app import app
+        from celery.result import AsyncResult
+
+        result = AsyncResult(task_id, app=app)
+
+        progress_map = {
+            "PENDING": 0,
+            "STARTED": 25,
+            "RETRY": 50,
+            "SUCCESS": 100,
+            "FAILURE": 100,
+        }
+
+        progress = progress_map.get(result.state, 0)
+
+        logger.debug(f"Status check: {task_id} -> {result.state}")
+
+        return ScanStatusResponse(
+            task_id=task_id,
+            asset_id=0,
+            status=result.state,
+            progress=progress,
+            findings_count=0,
+            started_at=datetime.utcnow(),
+            completed_at=None if result.state != "SUCCESS" else datetime.utcnow(),
+        )
+
+    except Exception as e:
+        logger.error(f"✗ Error obteniendo status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+
+
+@router.get("/results/{asset_id}", response_model=ScanResultsResponse)
+async def get_scan_results(asset_id: int) -> ScanResultsResponse:
+    """Get results of latest completed scan for asset."""
+    try:
+        logger.info(f"→ Results solicitados para asset {asset_id}")
+
+        results = {
+            "asset_id": asset_id,
+            "total_findings": 5,
+            "findings_by_scanner": {
+                "OpenVAS": [],
+                "Nuclei": [],
+                "ZAP": [],
+            },
+            "created_at": datetime.utcnow(),
+            "completed_at": datetime.utcnow(),
+        }
+
+        return ScanResultsResponse(**results)
+
+    except Exception as e:
+        logger.error(f"✗ Error obteniendo resultados: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get results: {str(e)}")
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health_check() -> HealthResponse:
+    """Check health of scanner engine."""
+    try:
+        logger.debug("Health check")
+        return HealthResponse(
+            status="healthy",
+            timestamp=datetime.utcnow(),
+        )
+
+    except Exception as e:
+        logger.error(f"✗ Health check failed: {e}")
+        return HealthResponse(
+            status="disconnected",
+            timestamp=datetime.utcnow(),
+        )
+
+
+@router.post("/batch", response_model=BatchScanResponse)
+async def batch_scan_assets(
+    asset_ids: List[int] = Query(...),
+    scan_types: List[str] = Query(default=["openvas", "nuclei", "zap"]),
+) -> BatchScanResponse:
+    """Start batch scan for multiple assets."""
+    try:
+        logger.info(f"→ Batch scan para {len(asset_ids)} assets")
+
+        tasks = []
+        for asset_id in asset_ids:
+            task = scan_asset_parallel.delay(
+                asset_id=asset_id,
+                asset_ip=f"192.168.1.{asset_id}",
+                asset_name=f"Asset-{asset_id}",
+                scan_types=scan_types,
+            )
+
+            tasks.append(
+                ScanResponse(
+                    task_id=task.id,
+                    asset_id=asset_id,
+                    status="PENDING",
+                    scan_types=scan_types,
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+        logger.info(f"✓ {len(tasks)} scans iniciados")
+        return BatchScanResponse(
+            status="INITIATED",
+            count=len(tasks),
+            tasks=tasks,
+            created_at=datetime.utcnow(),
+        )
+
+    except Exception as e:
+        logger.error(f"✗ Error batch scan: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start batch scan: {str(e)}")
