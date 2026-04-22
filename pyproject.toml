@@ -1,6 +1,36 @@
+[project]
+name = "scanops"
+version = "0.1.0"
+description = "UNUWARE Server Audit System"
+authors = [
+    {name = "UNUWARE Team"}
+]
+dependencies = [
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "alembic>=1.12.0",
+    "hvac>=2.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.0",
+    "python-multipart>=0.0.6",
+    "celery>=5.3.0",
+    "redis>=4.5.0",
+    "httpx>=0.24.0",
+    "paramiko>=3.1.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0"
+]
+requires-python = ">=3.8"
+
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "services/recon_engine/tests", "services/asset_manager/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+

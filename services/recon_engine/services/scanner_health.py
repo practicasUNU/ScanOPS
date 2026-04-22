@@ -4,9 +4,8 @@ import os
 import sys
 import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from scan_logger import ScanLogger
-from utils import evaluar_metrica, evaluar_servicio, calcular_estado_global
+from shared.scan_logger import ScanLogger
+from shared.utils import evaluar_metrica, evaluar_servicio, calcular_estado_global
 
 logger = ScanLogger("scanner_health")
 

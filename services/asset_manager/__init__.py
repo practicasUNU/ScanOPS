@@ -1,0 +1,1 @@
+"""Placeholder package for the ScanOPS asset manager microservice."""

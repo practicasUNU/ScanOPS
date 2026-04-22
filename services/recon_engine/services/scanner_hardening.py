@@ -4,9 +4,8 @@ import os
 import sys
 import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from scan_logger import ScanLogger
-from utils import evaluar_root_bloqueado, evaluar_ufw, evaluar_ssh_root_login, evaluar_parches, evaluar_cifrado_disco, calcular_compliance
+from shared.scan_logger import ScanLogger
+from shared.utils import evaluar_root_bloqueado, evaluar_ufw, evaluar_ssh_root_login, evaluar_parches, evaluar_cifrado_disco, calcular_compliance
 
 logger = ScanLogger("scanner_hardening")
 
