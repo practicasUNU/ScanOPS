@@ -9,7 +9,7 @@ from services.asset_manager.schemas import AssetCreate
 logger = ScanLogger("discovery")
 
 def _ping_sweep(cidr: str) -> list[str]:
-    """Ejecuta nmap -sn sobre un rango CIDR y devuelve IPs activas.""" [cite: 216]
+    """Ejecuta nmap -sn sobre un rango CIDR y devuelve IPs activas."""
     try:
         # ENS Alto: [op.acc.1] Identificación de dispositivos conectados a la red
         result = subprocess.run(
@@ -23,7 +23,7 @@ def _ping_sweep(cidr: str) -> list[str]:
             if line.startswith("Host:"):
                 parts = line.split()
                 if len(parts) >= 2:
-                    ips.append(parts[1]) [cite: 217]
+                    ips.append(parts[1]) 
         logger.info("NMAP_SWEEP_DONE", cidr=cidr, found=len(ips))
         return ips
     except FileNotFoundError:
@@ -35,7 +35,7 @@ def _ping_sweep(cidr: str) -> list[str]:
 
 @app.task(name="tasks.run_network_discovery", bind=True, max_retries=2)
 def run_network_discovery(self, network_range: str):
-    """Task Celery que ejecuta discovery y dispara escaneos de vulnerabilidades [op.acc.1].""" [cite: 215]
+    """Task Celery que ejecuta discovery y dispara escaneos de vulnerabilidades [op.acc.1].""" 
     
     # Importación diferida para evitar importaciones circulares entre M1 y M3
     from services.scanner_engine.tasks.vuln_tasks import run_nuclei_task 
@@ -63,21 +63,21 @@ def run_network_discovery(self, network_range: str):
                         tipo="OTRO",
                     ),
                     user_id="system-discovery",
-                ) [cite: 220, 221]
+                ) 
                 new_ids.append(asset.id)
                 new_count += 1
                 logger.info("ASSET_DISCOVERED", ip=ip, asset_id=asset.id)
 
                 # --- US-3.4 PARALELISMO: Trigger automático M1 -> M3 ---
                 # Enviamos el escaneo de vulnerabilidades a la cola específica
-                run_nuclei_task.delay(asset.id, ip) [cite: 572, 584]
+                run_nuclei_task.delay(asset.id, ip) 
 
         return {
             "network_range": network_range,
             "hosts_found": len(found_ips),
             "new_assets": new_count,
             "new_asset_ids": new_ids,
-        } [cite: 222]
+        } 
 
     except ValueError as e:
         logger.error("INVALID_CIDR", cidr=network_range, error=str(e))
@@ -86,4 +86,4 @@ def run_network_discovery(self, network_range: str):
         logger.error("DISCOVERY_TASK_FAILED", error=str(e))
         raise self.retry(exc=e, countdown=30)
     finally:
-        db.close() [cite: 223]
+        db.close() 

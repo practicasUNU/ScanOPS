@@ -674,7 +674,8 @@ services:
 
   celery-worker:
     build: .
-    command: celery -A shared.celery_app worker --loglevel=info
+    # US-3.4: Aumentamos la concurrencia a 10 y escuchamos todas las colas definidas en celery_app.py
+    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,celery
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
@@ -2185,12 +2186,6 @@ async def sync_from_external(db: Session) -> dict:
 FILE:services\asset_manager\tasks\__init__.py
 """Asset Manager Celery tasks."""
 FILE:services\asset_manager\tasks\discovery.py
-"""
-Discovery Task — US-1.4
-=======================
-Detecta activos nuevos en rangos CIDR usando NMAP.
-ENS Alto: [op.acc.1] — Control de dispositivos no autorizados.
-"""
 import subprocess
 import ipaddress
 from shared.celery_app import app
@@ -2204,6 +2199,7 @@ logger = ScanLogger("discovery")
 def _ping_sweep(cidr: str) -> list[str]:
     """Ejecuta nmap -sn sobre un rango CIDR y devuelve IPs activas."""
     try:
+        # ENS Alto: [op.acc.1] Identificación de dispositivos conectados a la red
         result = subprocess.run(
             ["nmap", "-sn", "-oG", "-", cidr],
             capture_output=True,
@@ -2227,19 +2223,23 @@ def _ping_sweep(cidr: str) -> list[str]:
 
 @app.task(name="tasks.run_network_discovery", bind=True, max_retries=2)
 def run_network_discovery(self, network_range: str):
-    """Task Celery que ejecuta discovery real [op.acc.1]."""
+    """Task Celery que ejecuta discovery y dispara escaneos de vulnerabilidades [op.acc.1]."""
+
+    # Importación diferida para evitar importaciones circulares entre M1 y M3
+    from services.scanner_engine.tasks.vuln_tasks import run_nuclei_task
+
     db = SessionLocal()
     try:
-        # Validar CIDR
+        # Validar formato CIDR
         ipaddress.ip_network(network_range, strict=False)
 
-        # Escanear
+        # Escanear la red
         found_ips = _ping_sweep(network_range)
 
-        # Crear solo los que no existen
         new_count = 0
         new_ids = []
         for ip in found_ips:
+            # US-2.6: Evitar duplicados en el inventario [cite: 219]
             if not asset_service.get_asset_by_ip(db, ip):
                 asset = asset_service.create_asset(
                     db=db,
@@ -2256,6 +2256,10 @@ def run_network_discovery(self, network_range: str):
                 new_count += 1
                 logger.info("ASSET_DISCOVERED", ip=ip, asset_id=asset.id)
 
+                # --- US-3.4 PARALELISMO: Trigger automático M1 -> M3 ---
+                # Enviamos el escaneo de vulnerabilidades a la cola específica
+                run_nuclei_task.delay(asset.id, ip)
+
         return {
             "network_range": network_range,
             "hosts_found": len(found_ips),
@@ -2264,8 +2268,10 @@ def run_network_discovery(self, network_range: str):
         }
 
     except ValueError as e:
+        logger.error("INVALID_CIDR", cidr=network_range, error=str(e))
         return {"error": f"CIDR inválido: {str(e)}"}
     except Exception as e:
+        logger.error("DISCOVERY_TASK_FAILED", error=str(e))
         raise self.retry(exc=e, countdown=30)
     finally:
         db.close()
@@ -6364,6 +6370,111 @@ async def trigger_nuclei_scan(data: ScanRequest):
         "task_id": task.id,
         "tool": "nuclei"
     }
+FILE:services\scanner_engine\clients\openvast_client.py
+from openvasapi import OpenvasConnection
+from shared.celery_app import app as shared_app
+from shared.database import SessionLocal
+from services.scanner_engine.models.vulnerability import VulnFinding
+from services.asset_manager.models.asset import Asset
+import json
+import time
+
+class OpenVastScanner:
+    def __init__(self, host='localhost', username='admin', password='admin'):
+        self.conn = OpenvasConnection(host, username, password)
+
+    @shared_app.task(name='tasks.run_openvast_scan', queue='heavy_scans', time_limit=7200)
+    def scan_for_cves(self, asset_id: int) -> dict:
+        db = SessionLocal()
+        try:
+            asset = db.query(Asset).get(asset_id)
+            if not asset:
+                return {'status': 'error', 'message': f'Asset {asset_id} no encontrado'}
+
+            target_id = self.conn.create_target(
+                name=f"asset_{asset_id}_{asset.ip}",
+                hosts=[asset.ip]
+            )
+            task_id = self.conn.start_scan(target_id, "Full and fast")
+
+            while int(self.conn.task_status(task_id)) < 100:
+                time.sleep(5)
+
+            results = self.conn.get_results(task_id)
+            saved_count = 0
+
+            for finding in results:
+                vuln = VulnFinding(
+                    asset_id=asset_id,
+                    scan_id=f"openvast_{asset_id}_{int(time.time())}",
+                    vulnerability_id=finding.get('nvt_oid', 'UNKNOWN'),
+                    title=finding.get('nvt_name', 'Unknown'),
+                    severity=finding.get('severity', '').lower(),
+                    cvss_v3_score=float(finding.get('cvss', 0)),
+                    scanner_name='openvast',
+                    scanner_reference=finding.get('nvt_oid'),
+                    affected_port=int(finding.get('port', 0)) if finding.get('port') else None,
+                    evidence={'raw': json.dumps(finding)[:500]}
+                )
+                db.add(vuln)
+                saved_count += 1
+
+            db.commit()
+            return {'status': 'success', 'findings_count': saved_count, 'scanner': 'openvast'}
+        except Exception as e:
+            db.rollback()
+            return {'status': 'error', 'message': str(e)}
+        finally:
+            db.close()
+FILE:services\scanner_engine\clients\zap_client.py
+from zapv2 import ZAPv2
+from shared.celery_app import app as shared_app
+from shared.database import SessionLocal
+from services.scanner_engine.models.vulnerability import VulnFinding
+import json
+import time
+
+class ZAPScanner:
+    def __init__(self, proxy='http://localhost:8091'):
+        self.zap = ZAPv2(proxies={'http': proxy, 'https': proxy})
+
+    @shared_app.task(name='tasks.run_zap_scan', queue='heavy_scans', time_limit=1800)
+    def scan_web_application(self, asset_id: int, url: str) -> dict:
+        db = SessionLocal()
+        try:
+            self.zap.spider.scan(url=url)
+            while int(self.zap.spider.status()) < 100:
+                time.sleep(2)
+
+            self.zap.ascan.scan(url=url)
+            while int(self.zap.ascan.status()) < 100:
+                time.sleep(2)
+
+            alerts = self.zap.alert.alerts(baseurl=url)
+            saved_count = 0
+
+            for alert in alerts:
+                vuln = VulnFinding(
+                    asset_id=asset_id,
+                    scan_id=f"zap_{asset_id}_{int(time.time())}",
+                    vulnerability_id=f"OWASP-{alert.get('alertRef', 'UNKNOWN')}",
+                    title=alert.get('name', 'Unknown'),
+                    severity=alert.get('risk', '').lower(),
+                    scanner_name='zap',
+                    scanner_reference=alert.get('alertRef'),
+                    affected_port=int(alert.get('sourceId', '').split(':')[-1]) if ':' in alert.get('sourceId', '') else None,
+                    evidence={'url': alert.get('url'), 'solution': alert.get('solution')}
+                )
+                db.add(vuln)
+                saved_count += 1
+
+            db.commit()
+            return {'status': 'success', 'findings_count': saved_count, 'scanner': 'zap'}
+        except Exception as e:
+            db.rollback()
+            return {'status': 'error', 'message': str(e)}
+        finally:
+            db.close()
 FILE:services\scanner_engine\models\vulnerability.py
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey
 from sqlalchemy.orm import declarative_base
@@ -7169,6 +7280,49 @@ class VaultClient:
 
 # Global vault client instance
 vault_client = VaultClient()
+FILE:tests\test_m3_complete.py
+import pytest
+import time
+from fastapi.testclient import TestClient
+from app import app
+
+client = TestClient(app)
+
+def test_nuclei_scan_exists():
+    """Verificar Nuclei registrado en Celery"""
+    from shared.celery_app import app as celery_app
+    registered = celery_app.tasks
+    assert 'tasks.run_nuclei_scan' in registered or any('nuclei' in str(t).lower() for t in registered)
+
+def test_openvast_client_importable():
+    """Verificar OpenVAS client importa sin errores"""
+    try:
+        from services.scanner_engine.clients.openvast_client import OpenVastScanner
+        assert OpenVastScanner is not None
+    except ImportError as e:
+        pytest.skip(f"OpenVAS lib no instalada: {e}")
+
+def test_zap_client_importable():
+    """Verificar ZAP client importa sin errores"""
+    try:
+        from services.scanner_engine.clients.zap_client import ZAPScanner
+        assert ZAPScanner is not None
+    except ImportError as e:
+        pytest.skip(f"ZAP lib no instalada: {e}")
+
+def test_vuln_findings_table_exists(db_session):
+    """Verificar tabla vuln_findings existe"""
+    from sqlalchemy import inspect
+    inspector = inspect(db_session.bind)
+    tables = inspector.get_table_names()
+    assert 'vuln_findings' in tables
+
+def test_celery_queues_configured():
+    """Verificar colas están configuradas"""
+    from shared.celery_app import app as celery_app
+    assert 'discovery' in celery_app.conf.task_queues
+    assert 'vulnerabilities' in celery_app.conf.task_queues
+    assert 'heavy_scans' in celery_app.conf.task_queues
 FILE:tests\test_orchestrator.py
 """
 Tests para main_orchestrator.py — Fusión de reportes
