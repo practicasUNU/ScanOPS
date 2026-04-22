@@ -1,4 +1,4 @@
-from openvasapi import OpenvasConnection
+from services.scanner_engine.clients.openvasapi_mock import OpenvasConnection
 from shared.celery_app import app as shared_app
 from shared.database import SessionLocal
 from services.scanner_engine.models.vulnerability import VulnFinding

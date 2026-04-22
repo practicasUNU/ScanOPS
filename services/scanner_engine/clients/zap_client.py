@@ -1,4 +1,4 @@
-from zapv2 import ZAPv2
+from services.scanner_engine.clients.zapv2_mock import ZAPv2
 from shared.celery_app import app as shared_app
 from shared.database import SessionLocal
 from services.scanner_engine.models.vulnerability import VulnFinding
