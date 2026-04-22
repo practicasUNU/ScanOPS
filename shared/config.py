@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # --- API Configuration (Campos que causaban el error) ---
     api_host: str = Field(default="0.0.0.0")
-    api_port: int = Field(default=8000)
+    redis_url: str = Field(default="redis://localhost:6380/0")
 
     # --- Logging ---
     log_level: str = Field(default="INFO")

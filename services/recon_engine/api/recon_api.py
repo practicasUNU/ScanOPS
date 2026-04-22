@@ -165,18 +165,20 @@ async def get_recent_changes(
 
     return changes
 
+from ..tasks.scan_tasks import run_recon_complete
+
 @app.post("/scan")
-async def start_scan(target: str = "192.168.1.0/24", db: Session = Depends(get_db)):
+async def start_scan(target: str = "192.168.1.0/24"):
     """
-    Start a network reconnaissance scan.
+    Lanza el escaneo asíncrono a través de Celery.
     """
-    from ..services.scanner_network import start_scan
-    
-    try:
-        result = await start_scan(target=target)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")
+    # .delay() envía la tarea al Redis (puerto 6380) y el Worker la pesca
+    task = run_recon_complete.delay(target)
+    return {
+        "status": "Scan queued",
+        "task_id": task.id,
+        "target": target
+    }
 
 
 if __name__ == "__main__":

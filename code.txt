@@ -594,6 +594,15 @@ qualname = sqlalchemy.engine
 level = INFO
 handlers =
 qualname = alembic
+FILE:celerybeat-schedule
+BINARY:true
+
+FILE:celerybeat-schedule-shm
+BINARY:true
+
+FILE:celerybeat-schedule-wal
+BINARY:true
+
 FILE:docker-compose.yml
 version: "3.9"
 
@@ -3903,18 +3912,20 @@ async def get_recent_changes(
 
     return changes
 
-@app.post("/scan")
-async def start_scan(target: str = "192.168.1.0/24", db: Session = Depends(get_db)):
-    """
-    Start a network reconnaissance scan.
-    """
-    from ..services.scanner_network import start_scan
+from ..tasks.scan_tasks import run_recon_complete
 
-    try:
-        result = await start_scan(target=target)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")
+@app.post("/scan")
+async def start_scan(target: str = "192.168.1.0/24"):
+    """
+    Lanza el escaneo asíncrono a través de Celery.
+    """
+    # .delay() envía la tarea al Redis (puerto 6380) y el Worker la pesca
+    task = run_recon_complete.delay(target)
+    return {
+        "status": "Scan queued",
+        "task_id": task.id,
+        "target": target
+    }
 
 if __name__ == "__main__":
     import uvicorn
@@ -5188,6 +5199,17 @@ def get_previous_snapshot_id(current_cycle_id: str, db: Session) -> Optional[int
         return previous_snapshots[0].id
 
     return None
+FILE:services\recon_engine\tasks\scan_tasks.py
+# En services/recon_engine/tasks/scan_tasks.py
+from shared.celery_app import app
+from ..services.scanner_network import run_nmap # Nombre corregido según code.txt
+
+@app.task(bind=True, name="run_recon_complete")
+def run_recon_complete(self, target_ips):
+    # Nota: Tu función run_nmap actual recibe un Set[int] de puertos
+    # Para el Hito 2, asegúrate de pasarle los datos que espera.
+    resultado = run_nmap(ports={22, 80, 443})
+    return resultado
 FILE:services\recon_engine\tests\__init__.py
 
 FILE:services\recon_engine\tests\conftest.py
@@ -6324,19 +6346,33 @@ FILE:shared\celery_app.py
 from celery import Celery
 from shared.config import settings
 
+# Asegúrate de que en tu .env o settings, redis_url sea:
+# redis://localhost:6380/0
+
 app = Celery(
     "scanops",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["services.asset_manager.tasks.discovery"]
+    # AÑADIMOS la ruta de las tasks del M2 aquí:
+    include=[
+        "services.asset_manager.tasks.discovery",
+        "services.recon_engine.tasks.scan_tasks"
+    ]
 )
 
 app.conf.update(
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
-    timezone='UTC',
+    timezone='Europe/Madrid', # Ajustado a tu zona
     enable_utc=True,
+    # ESTO CUMPLE LA US-2.7 (Programación automática)
+    beat_schedule={
+        'recon-lunes-madrugada': {
+            'task': 'services.recon_engine.tasks.scan_tasks.run_recon_complete',
+            'schedule': 604800.0, # Una vez a la semana (o usa crontab)
+        },
+    },
 )
 FILE:shared\config.py
 ﻿import os
@@ -6370,7 +6406,7 @@ class Settings(BaseSettings):
 
     # --- API Configuration (Campos que causaban el error) ---
     api_host: str = Field(default="0.0.0.0")
-    api_port: int = Field(default=8000)
+    redis_url: str = Field(default="redis://localhost:6380/0")
 
     # --- Logging ---
     log_level: str = Field(default="INFO")

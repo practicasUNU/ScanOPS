@@ -234,3 +234,6 @@ keys/
 .nmap/
 .nuclei/
 .openvas/
+
+*.exe
+vault.exe
