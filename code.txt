@@ -4,17 +4,31 @@ TYPE: single
 FILE:Dockerfile
 FROM python:3.11-slim
 
-# Instalar nmap para discovery (US-1.4)
-RUN apt-get update && apt-get install -y nmap && rm -rf /var/lib/apt/lists/*
+# 1. Instalar dependencias del sistema y Nmap
+RUN apt-get update && apt-get install -y \
+    nmap \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Instalar Nuclei (US-3.2)
+RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.8/nuclei_3.1.8_linux_amd64.zip \
+    && unzip nuclei_3.1.8_linux_amd64.zip \
+    && mv nuclei /usr/local/bin/ \
+    && rm nuclei_3.1.8_linux_amd64.zip
+
+# 3. Descargar plantillas de vulnerabilidades
+RUN nuclei -update-templates
 
 WORKDIR /app
 
+# 4. Instalar dependencias de Python
 COPY pyproject.toml .
 RUN pip install --no-cache-dir .
 
 COPY . .
 
-EXPOSE 8001
+EXPOSE 8001 8002
 
 CMD ["uvicorn", "services.asset_manager.main:app", "--host", "0.0.0.0", "--port", "8001"]
 FILE:activos_hito1.json
@@ -545,7 +559,8 @@ timezone = UTC
 # directory
 # The string value below points to file in the Alembic project
 # directory that should be present
-# logging_config_file = logging.ini
+# Cambia esto en tu alembic.ini
+logging_config_file = alembic.ini
 
 # set to 'true' to use colors to format the status output
 # console_command = false
@@ -594,6 +609,16 @@ qualname = sqlalchemy.engine
 level = INFO
 handlers =
 qualname = alembic
+
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
 FILE:celerybeat-schedule
 BINARY:true
 
@@ -660,8 +685,31 @@ services:
       - redis
       - vault
 
+  # ... (tus servicios anteriores: postgres, redis, vault)
+
+  scanner-engine:
+    build: .
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: [REDACTED]
+    depends_on:
+      - postgres
+      - redis
+      - vault
+
 volumes:
   pgdata:
+FILE:logging.ini
+[formatters]
+keys = generic
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
 FILE:pyproject.toml
 [project]
 name = "scanops"
@@ -705,55 +753,40 @@ FILE:alembic\env.py
 import os
 import sys
 from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
+from sqlalchemy import engine_from_config, pool, MetaData
 from alembic import context
 
-# Add services to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services'))
+# 1. Asegurar que los servicios sean importables [cite: 327]
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
+# Configuración de Alembic [cite: 306]
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# 3. IMPORTACIÓN DE MODELOS (US-1.1, US-2.1, US-3.5) [cite: 337, 358, 533, 757]
+try:
+    from services.recon_engine.models.recon import Base as ReconBase
+    from services.asset_manager.models.asset import Base as AssetBase
+    from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
+except ImportError as e:
+    print(f"ERROR DE IMPORTACIÓN: {e}")
+    sys.exit(1)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-from recon_engine.models.recon import ReconBase
-from asset_manager.models.asset import AssetBase
-
-# Combine metadata from both services
-from sqlalchemy import MetaData
+# 4. UNIFICACIÓN DE METADATA (ENS Alto: Integridad de BD)
 target_metadata = MetaData()
-for table in ReconBase.metadata.tables.values():
-    table.tometadata(target_metadata)
-for table in AssetBase.metadata.tables.values():
-    table.tometadata(target_metadata)
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+def merge_metadata(base):
+    for table in base.metadata.tables.values():
+        table.to_metadata(target_metadata)
+
+merge_metadata(ReconBase)
+merge_metadata(AssetBase)
+merge_metadata(VulnerabilityBase)
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = config.get_main_option("sqlalchemy.url")
+    """Modo offline: genera SQL sin conectar a la DB."""
+    url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -765,16 +798,11 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
-    # Get database URL from environment or config
+    """Modo online: se conecta a PostgreSQL y aplica cambios."""
+    # Priorizamos la variable de entorno de Docker
     database_url = os.getenv(
         "DATABASE_URL",
-        "postgresql://scanops:scanops@localhost:5432/scanops"
+        "postgresql://scanops:scanops@postgres:5432/scanops"
     )
 
     connectable = engine_from_config(
@@ -785,7 +813,8 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata
         )
 
         with context.begin_transaction():
@@ -6296,6 +6325,138 @@ class TestIntegration:
         change_types = {detail["type"] for detail in changes["details"]}
         assert "new_port" in change_types
         assert "new_host" in change_types
+FILE:services\scanner_engine\main.py
+from fastapi import FastAPI
+# Asegúrate de que la ruta de importación sea exactamente esta
+from services.scanner_engine.api.router import router as scanner_router
+
+app = FastAPI(
+    title="ScanOPS Scanner Engine (M3)",
+    description="Motor de Inteligencia de Vulnerabilidades — ENS Alto [op.exp.2]",
+    version="1.0.0",
+)
+
+# ESTA LÍNEA ES LA QUE FALTA O ESTÁ MAL
+app.include_router(scanner_router)
+
+@app.get("/health")
+async def healthcheck():
+    return {"status": "ok", "service": "scanner-engine"}
+FILE:services\scanner_engine\api\router.py
+from fastapi import APIRouter
+from sqlalchemy.orm import Session
+from shared.database import get_db
+from ..tasks.vuln_tasks import run_nuclei_task
+from pydantic import BaseModel
+
+router = APIRouter(prefix="/scanner", tags=["Scanner Engine (M3)"])
+
+class ScanRequest(BaseModel):
+    asset_id: int
+    ip: str
+
+@router.post("/nuclei")
+async def trigger_nuclei_scan(data: ScanRequest):
+    """Lanza escaneo de Nuclei para detección de Zero-days (US-3.2)."""
+    task = run_nuclei_task.delay(data.asset_id, data.ip)
+    return {
+        "status": "Vulnerability scan queued",
+        "task_id": task.id,
+        "tool": "nuclei"
+    }
+FILE:services\scanner_engine\models\vulnerability.py
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey
+from sqlalchemy.orm import declarative_base
+from datetime import datetime
+
+Base = declarative_base()
+
+class VulnerabilityFinding(Base):
+    """Modelo para normalizar hallazgos de M3 (OpenVAS, Nuclei, ZAP)[cite: 37, 124]."""
+    __tablename__ = "vuln_findings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    asset_id = Column(Integer, nullable=False, index=True) # ID de M1 [cite: 23, 37]
+    cve_id = Column(String(50), nullable=True) # US-3.1/3.2
+    title = Column(String(255), nullable=False)
+    severity = Column(String(20)) # CRITICA, ALTA, MEDIA, BAJA
+    cvss_score = Column(Float, nullable=True)
+    tool_source = Column(String(50)) # "nuclei"
+    description = Column(Text)
+    remediation = Column(Text) # Plan de remediación ENS [cite: 110, 123]
+    ens_measure = Column(String(50), default="op.exp.2") # Medida ENS Alto [cite: 112, 126]
+    evidence = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+FILE:services\scanner_engine\services\nuclei_wrapper.py
+import subprocess
+import json
+import os
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("nuclei_wrapper")
+
+def run_nuclei_scan(target_ip: str):
+    """
+    Ejecuta Nuclei sobre el activo.
+    US-3.2: Uso de plantillas actualizadas para Zero-days.
+    """
+    logger.info("NUCLEI_START", target=target_ip)
+
+    # Comando para ejecución silenciosa con salida en JSON [cite: 120]
+    cmd = ["nuclei", "-target", target_ip, "-silent", "-jsonl"]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+
+        findings = []
+        if result.stdout:
+            for line in result.stdout.splitlines():
+                raw_vuln = json.loads(line)
+                # Normalización del hallazgo (US-3.5)
+                findings.append({
+                    "title": raw_vuln.get("info", {}).get("name"),
+                    "severity": raw_vuln.get("info", {}).get("severity", "").upper(),
+                    "description": raw_vuln.get("info", {}).get("description"),
+                    "cve_id": ",".join(raw_vuln.get("info", {}).get("classification", {}).get("cve-id", [])),
+                    "evidence": raw_vuln.get("matched-at")
+                })
+
+        logger.info("NUCLEI_FINISH", target=target_ip, count=len(findings))
+        return findings
+    except Exception as e:
+        logger.error("NUCLEI_ERROR", target=target_ip, error=str(e))
+        return []
+FILE:services\scanner_engine\services\openvas_client.py
+
+FILE:services\scanner_engine\services\zap_wrapper.py
+
+FILE:services\scanner_engine\tasks\vuln_tasks.py
+# services/scanner_engine/tasks/vuln_tasks.py
+from shared.celery_app import app
+from shared.database import SessionLocal
+from ..services.nuclei_wrapper import run_nuclei_scan
+from ..models.vulnerability import VulnerabilityFinding
+
+@app.task(name="tasks.run_nuclei_vulnerability_scan")
+def run_nuclei_task(asset_id, ip):
+    db = SessionLocal()
+    try:
+        vulns = run_nuclei_scan(ip)
+
+        for v in vulns:
+            finding = VulnerabilityFinding(
+                asset_id=asset_id,
+                title=v["title"],
+                severity=v["severity"],
+                description=v["description"],
+                cve_id=v["cve_id"],
+                tool_source="nuclei",
+                evidence=v["evidence"]
+            )
+            db.add(finding)
+        db.commit()
+    finally:
+        db.close()
 FILE:shared\__init__.py
 """Shared utilities and base modules for ScanOPS microservices."""
 
@@ -6349,14 +6510,15 @@ from shared.config import settings
 # Asegúrate de que en tu .env o settings, redis_url sea:
 # redis://localhost:6380/0
 
+# shared/celery_app.py
 app = Celery(
     "scanops",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    # AÑADIMOS la ruta de las tasks del M2 aquí:
     include=[
         "services.asset_manager.tasks.discovery",
-        "services.recon_engine.tasks.scan_tasks"
+        "services.recon_engine.tasks.scan_tasks",
+        "services.scanner_engine.tasks.vuln_tasks" # Nueva línea
     ]
 )
 
@@ -6373,6 +6535,18 @@ app.conf.update(
             'schedule': 604800.0, # Una vez a la semana (o usa crontab)
         },
     },
+    # US-3.4: Definición de colas para paralelismo
+    task_queues = {
+        'discovery': {'routing_key': 'discovery'},
+        'vulnerabilities': {'routing_key': 'vulnerabilities'},
+        'heavy_scans': {'routing_key': 'heavy_scans'}, # Para OpenVAS
+    },
+    # Mapeo de tareas a colas
+    task_routes = {
+        'tasks.run_network_discovery': {'queue': 'discovery'},
+        'tasks.run_nuclei_vulnerability_scan': {'queue': 'vulnerabilities'},
+        'run_recon_complete': {'queue': 'discovery'},
+    }
 )
 FILE:shared\config.py
 ﻿import os

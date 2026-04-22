@@ -1,56 +1,42 @@
 import os
 import sys
 from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
+from sqlalchemy import engine_from_config, pool, MetaData
 from alembic import context
 
-# Add services to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'services'))
+# 1. Asegurar que los servicios sean importables [cite: 327]
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
+# Configuración de Alembic [cite: 306]
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-from recon_engine.models.recon import ReconBase
-from asset_manager.models.asset import AssetBase
 
-# Combine metadata from both services
-from sqlalchemy import MetaData
+# 3. IMPORTACIÓN DE MODELOS (US-1.1, US-2.1, US-3.5) [cite: 337, 358, 533, 757]
+try:
+    from services.recon_engine.models.recon import Base as ReconBase
+    from services.asset_manager.models.asset import Base as AssetBase
+    from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
+except ImportError as e:
+    print(f"ERROR DE IMPORTACIÓN: {e}")
+    sys.exit(1)
+
+# 4. UNIFICACIÓN DE METADATA (ENS Alto: Integridad de BD) 
 target_metadata = MetaData()
-for table in ReconBase.metadata.tables.values():
-    table.tometadata(target_metadata)
-for table in AssetBase.metadata.tables.values():
-    table.tometadata(target_metadata)
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+def merge_metadata(base):
+    for table in base.metadata.tables.values():
+        table.to_metadata(target_metadata)
 
+merge_metadata(ReconBase)
+merge_metadata(AssetBase)
+merge_metadata(VulnerabilityBase)
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = config.get_main_option("sqlalchemy.url")
+    """Modo offline: genera SQL sin conectar a la DB."""
+    url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -61,18 +47,12 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
-    # Get database URL from environment or config
+    """Modo online: se conecta a PostgreSQL y aplica cambios."""
+    # Priorizamos la variable de entorno de Docker 
     database_url = os.getenv(
-        "DATABASE_URL",
-        "postgresql://scanops:scanops@localhost:5432/scanops"
+        "DATABASE_URL", 
+        "postgresql://scanops:scanops@postgres:5432/scanops"
     )
 
     connectable = engine_from_config(
@@ -83,12 +63,12 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, 
+            target_metadata=target_metadata
         )
 
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()

@@ -1,9 +1,3 @@
-"""
-Discovery Task — US-1.4
-=======================
-Detecta activos nuevos en rangos CIDR usando NMAP.
-ENS Alto: [op.acc.1] — Control de dispositivos no autorizados.
-"""
 import subprocess
 import ipaddress
 from shared.celery_app import app
@@ -14,10 +8,10 @@ from services.asset_manager.schemas import AssetCreate
 
 logger = ScanLogger("discovery")
 
-
 def _ping_sweep(cidr: str) -> list[str]:
-    """Ejecuta nmap -sn sobre un rango CIDR y devuelve IPs activas."""
+    """Ejecuta nmap -sn sobre un rango CIDR y devuelve IPs activas.""" [cite: 216]
     try:
+        # ENS Alto: [op.acc.1] Identificación de dispositivos conectados a la red
         result = subprocess.run(
             ["nmap", "-sn", "-oG", "-", cidr],
             capture_output=True,
@@ -29,7 +23,7 @@ def _ping_sweep(cidr: str) -> list[str]:
             if line.startswith("Host:"):
                 parts = line.split()
                 if len(parts) >= 2:
-                    ips.append(parts[1])
+                    ips.append(parts[1]) [cite: 217]
         logger.info("NMAP_SWEEP_DONE", cidr=cidr, found=len(ips))
         return ips
     except FileNotFoundError:
@@ -39,22 +33,25 @@ def _ping_sweep(cidr: str) -> list[str]:
         logger.error("NMAP_TIMEOUT", cidr=cidr)
         return []
 
-
 @app.task(name="tasks.run_network_discovery", bind=True, max_retries=2)
 def run_network_discovery(self, network_range: str):
-    """Task Celery que ejecuta discovery real [op.acc.1]."""
+    """Task Celery que ejecuta discovery y dispara escaneos de vulnerabilidades [op.acc.1].""" [cite: 215]
+    
+    # Importación diferida para evitar importaciones circulares entre M1 y M3
+    from services.scanner_engine.tasks.vuln_tasks import run_nuclei_task 
+    
     db = SessionLocal()
     try:
-        # Validar CIDR
+        # Validar formato CIDR
         ipaddress.ip_network(network_range, strict=False)
 
-        # Escanear
+        # Escanear la red
         found_ips = _ping_sweep(network_range)
 
-        # Crear solo los que no existen
         new_count = 0
         new_ids = []
         for ip in found_ips:
+            # US-2.6: Evitar duplicados en el inventario [cite: 219]
             if not asset_service.get_asset_by_ip(db, ip):
                 asset = asset_service.create_asset(
                     db=db,
@@ -66,21 +63,27 @@ def run_network_discovery(self, network_range: str):
                         tipo="OTRO",
                     ),
                     user_id="system-discovery",
-                )
+                ) [cite: 220, 221]
                 new_ids.append(asset.id)
                 new_count += 1
                 logger.info("ASSET_DISCOVERED", ip=ip, asset_id=asset.id)
+
+                # --- US-3.4 PARALELISMO: Trigger automático M1 -> M3 ---
+                # Enviamos el escaneo de vulnerabilidades a la cola específica
+                run_nuclei_task.delay(asset.id, ip) [cite: 572, 584]
 
         return {
             "network_range": network_range,
             "hosts_found": len(found_ips),
             "new_assets": new_count,
             "new_asset_ids": new_ids,
-        }
+        } [cite: 222]
 
     except ValueError as e:
+        logger.error("INVALID_CIDR", cidr=network_range, error=str(e))
         return {"error": f"CIDR inválido: {str(e)}"}
     except Exception as e:
+        logger.error("DISCOVERY_TASK_FAILED", error=str(e))
         raise self.retry(exc=e, countdown=30)
     finally:
-        db.close()
+        db.close() [cite: 223]

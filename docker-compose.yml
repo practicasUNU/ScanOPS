@@ -43,7 +43,8 @@ services:
 
   celery-worker:
     build: .
-    command: celery -A shared.celery_app worker --loglevel=info
+    # US-3.4: Aumentamos la concurrencia a 10 y escuchamos todas las colas definidas en celery_app.py
+    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,celery
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
@@ -52,7 +53,7 @@ services:
     depends_on:
       - postgres
       - redis
-      - vault  
+      - vault
     
 
   # ... (tus servicios anteriores: postgres, redis, vault)
