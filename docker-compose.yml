@@ -27,6 +27,20 @@ services:
     ports:
       - "8200:8200"
 
+  openvas:
+    image: greenbone/openvas:latest
+    ports:
+      - "9392:9392"
+    environment:
+      GREENBONE_FEED_SYNC_PATH: /var/lib/openvas/feed-data
+    volumes:
+      - openvas_data:/var/lib/openvas
+    healthcheck:
+      test: ["CMD", "curl", "-f", "https://localhost:9392/login", "-k"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   asset-manager:
     build: .
     ports:
@@ -43,35 +57,48 @@ services:
 
   celery-worker:
     build: .
-    # US-3.4: Aumentamos la concurrencia a 10 y escuchamos todas las colas definidas en celery_app.py
-    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,celery
+    # All task queues: discovery, vulnerabilities, heavy_scans, scanner_tasks, scanner_orchestrator
+    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-token
+      OPENVAS_HOST: openvas
+      OPENVAS_PORT: 9392
     depends_on:
       - postgres
       - redis
       - vault
+      - openvas
     
 
   # ... (tus servicios anteriores: postgres, redis, vault)
 
   scanner-engine:
     build: .
-    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8003
     ports:
-      - "8002:8002"
+      - "8003:8003"
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-token
+      OPENVAS_HOST: openvas
+      OPENVAS_PORT: 9392
+      OPENVAS_USER: admin
+      OPENVAS_PASSWORD: admin
+      OPENVAS_VERIFY_SSL: "False"
+      ZAP_HOST: zap
+      ZAP_PORT: 8080
+      NUCLEI_TEMPLATES_PATH: /app/templates/nuclei
     depends_on:
       - postgres
       - redis
-      - vault    
+      - vault
+      - openvas    
 
 volumes:
   pgdata:
+  openvas_data:
