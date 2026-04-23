@@ -1,16 +1,17 @@
+"""Celery tasks for vulnerability scanning orchestration."""
+
+import asyncio
+import logging
 from typing import Dict, List, Optional
+from datetime import datetime
 
-from celery import app
+from shared.celery_app import app
+from services.scanner_engine.clients.openvas_client import OpenVASClient
+from services.scanner_engine.clients.nuclei_client import NucleiClient
+from services.scanner_engine.clients.zap_client import ZAPClient
 
+logger = logging.getLogger(__name__)
 
-
-@app.task(
-    name="scanner.openvas.scan_asset",
-    bind=True,
-    timeout=3600,
-    max_retries=3,
-    queue="scanner_tasks",
-)
 @app.task(
     name="scanner.openvas.scan_asset",
     bind=True,
