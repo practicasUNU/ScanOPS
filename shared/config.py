@@ -1,4 +1,4 @@
-﻿import os
+import os
 from typing import Optional, List
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,6 +34,17 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: str = Field(default="INFO")
 
+    # --- OpenVAS ---
+    openvas_host: str = Field(default="openvas")
+    openvas_port: int = Field(default=9390)
+    openvas_user: str = Field(default="admin")
+    openvas_pass: str = Field(default="admin")
+
+    # --- ZAP (OWASP) ---
+    zap_host: str = Field(default="zap")
+    zap_port: int = Field(default=8080)
+    zap_api_key: Optional[str] = Field(default=None)
+
     # --- Pydantic Config ---
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -45,8 +56,8 @@ class Settings(BaseSettings):
     @field_validator('database_url')
     @classmethod
     def validate_database_url(cls, v: str) -> str:
-        if not v.startswith(('postgresql://', 'postgresql+psycopg2://')):
-            raise ValueError('Database URL debe ser una cadena de conexión válida de PostgreSQL')
+        if not v.startswith(('postgresql://', 'postgresql+psycopg2://', 'sqlite://')):
+            raise ValueError('Database URL debe ser una cadena de conexión válida de PostgreSQL o SQLite')
         return v
 
     @field_validator('vault_addr')

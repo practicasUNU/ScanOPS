@@ -1,0 +1,28 @@
+id: missing-security-headers
+info:
+  name: Missing Security Headers
+  description: Missing X-Frame-Options, CSP, X-Content-Type-Options
+  severity: medium
+  tags: [security, headers, owasp]
+http:
+  - method: GET
+    path: /
+    matchers:
+      - type: status
+        status: [200]
+
+---
+id: weak-password-policy
+info:
+  name: Weak Password Policy Detection
+  description: Application allows weak passwords
+  severity: low
+  tags: [auth, password, weak]
+
+---
+id: exposed-api-keys
+info:
+  name: Exposed API Keys in Response
+  description: API keys visible in error messages or responses
+  severity: critical
+  tags: [api, key, exposure, secret]

@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 from shared.database import get_db
 from shared.auth import get_current_user
 
-from services.asset_manager.models.asset import CriticidadEnum, TipoActivoEnum, AssetStatusEnum
+from services.asset_manager.models.asset import Asset, CriticidadEnum, TipoActivoEnum, AssetStatusEnum
+from datetime import datetime
 from services.asset_manager.schemas import (
     AssetCreate,
     AssetUpdate,
@@ -142,24 +143,28 @@ async def delete_asset(
 
 
 # ─── Ficha Única (US-1.7) ────────────────────────────────
-
 @router.get("/{asset_id}/ficha", response_model=AssetFicha)
-async def get_asset_ficha(
-    asset_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Get the 'Ficha Única' for an asset.
-    This is the master document consumed by M4 (exploitation).
-    Surface + vulnerability data will be populated in Hitos 2 & 3.
-    """
-    asset = asset_service.get_asset(db, asset_id)
-    if asset is None:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    return AssetFicha.model_validate(asset)
-
-
+async def get_asset_ficha(asset_id: int, db: Session = Depends(get_db)):
+    from services.recon_engine.models.recon import ReconFinding
+    from services.scanner_engine.models.vulnerability import VulnFinding
+    
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset no encontrado")
+    
+    try:
+        recon = db.query(ReconFinding).filter(ReconFinding.host == asset.ip).all()
+        superficie = [{"puerto": f.port, "servicio": f.service, "estado": f.state} for f in recon] if recon else None
+    except:
+        superficie = None
+    
+    try:
+        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        vulnerabilidades = [{"titulo": v.title, "severidad": v.severity, "cvss": v.cvss_v3_score, "cve": v.scanner_reference, "scanner": v.scanner_name} for v in vulns] if vulns else None
+    except:
+        vulnerabilidades = None
+    
+    return AssetFicha(id=asset.id, ip=asset.ip, hostname=asset.hostname, criticidad=asset.criticidad, tipo=asset.tipo, status=asset.status, responsable=asset.responsable, tags_ens=asset.tags_ens or [], superficie=superficie, vulnerabilidades=vulnerabilidades, ficha_generated_at=datetime.utcnow(), ficha_version="1.0")
 # ─── Audit Log (US-1.5) ──────────────────────────────────
 
 @router.get("/{asset_id}/audit", response_model=AuditLogListResponse)

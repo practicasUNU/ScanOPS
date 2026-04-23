@@ -8,6 +8,7 @@ import asyncio
 import subprocess
 from typing import List, Dict, Tuple, Optional, Set
 import httpx
+import json
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from services.recon_engine.models.recon import (
     ReconFinding,
     ReconSubdomain
 )
+from .banner_grabber import grab_all_banners  # <--- Agregado
 
 logger = ScanLogger("scanner_network")
 
@@ -214,7 +216,7 @@ async def get_authorized_ips() -> Set[str]:
 # NUEVAS FUNCIONES - PASO 1: SUBFINDER INTEGRATION (US-2.2)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def run_subfinder(domains: List[str]) -> List[str]:
+async def run_subfinder(domains: List[str]) -> List[Dict]:
     """
     Ejecuta Subfinder para descubrir subdominios [US-2.2].
     
@@ -222,7 +224,7 @@ async def run_subfinder(domains: List[str]) -> List[str]:
         domains: Lista de dominios a escanear (obtenidos de M1)
         
     Returns:
-        Lista de subdominios descubiertos
+        Lista de subdominios descubiertos (objetos con metadatos)
         
     ENS: [op.acc.1] Identificación de dispositivos / superficie externa
     """
@@ -235,30 +237,50 @@ async def run_subfinder(domains: List[str]) -> List[str]:
     for domain in domains:
         logger.info("SUBFINDER_SCAN_START", domain=domain)
         try:
+            # Comando CLI real con salida JSON para producción
             cmd = [
                 "subfinder",
                 "-d", domain,
                 "-silent",
-                "-timeout", "10"
+                "-json",
+                "-timeout", "15"
             ]
-            stdout, stderr, returncode = await _run_tool(cmd)
+            
+            # Ejecución real mediante subprocess (envuelto en thread para async)
+            # Esto asegura la ejecución del binario instalado en /usr/local/bin/subfinder
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True
+            )
+            
+            stdout = result.stdout
+            stderr = result.stderr
+            returncode = result.returncode
 
             if returncode == 0:
-                found = [
-                    line.strip()
-                    for line in stdout.splitlines()
-                    if line.strip()
-                ]
-                all_subdomains.extend(found)
-                logger.finding(
-                    "SUBDOMAIN_DISCOVERED",
-                    severity="INFO",
+                found_count = 0
+                for line in stdout.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        # Subfinder -json devuelve un objeto por cada subdominio encontrado
+                        sub_data = json.loads(line)
+                        all_subdomains.append(sub_data)
+                        found_count += 1
+                    except json.JSONDecodeError:
+                        continue
+                
+                logger.info(
+                    "SUBDOMAIN_DISCOVERY_SUCCESS",
                     domain=domain,
-                    count=len(found)
+                    count=found_count
                 )
             else:
                 logger.warning(
-                    "SUBFINDER_FAILED",
+                    "SUBFINDER_EXECUTION_FAILED",
                     domain=domain,
                     error=stderr[:200]
                 )
@@ -266,7 +288,7 @@ async def run_subfinder(domains: List[str]) -> List[str]:
         except FileNotFoundError:
             logger.error(
                 "SUBFINDER_NOT_FOUND",
-                error="Subfinder no instalado. Run: https://github.com/projectdiscovery/subfinder"
+                error="Subfinder no instalado en el sistema"
             )
             return []
         except Exception as e:
@@ -373,30 +395,16 @@ async def _scan_async(cycle_id: str = None):
         domains_to_scan = await _get_domains_from_m1()
         authorized_ips = await get_authorized_ips()
 
-        # 3. PREPARAR TAREAS EN PARALELO (no se ejecutan aún)
-        # Mock Masscan - devuelve resultado vacío
-        masscan_task = asyncio.create_task(
-            asyncio.sleep(0.1)  # Simula ejecución
-        )
-
-        subfinder_task = asyncio.create_task(
-            run_subfinder(domains_to_scan)
-        )
-
-        # 4. EJECUTAR MASSCAN Y SUBFINDER EN PARALELO
-        logger.info("PARALLEL_SCAN_START", tools=["masscan", "subfinder"])
+        # 4. EJECUTAR SUBFINDER (Masscan sigue pendiente de implementación real en el sistema)
+        logger.info("PARALLEL_SCAN_START", tools=["subfinder"])
         
-        (masscan_output, subfinder_domains) = await asyncio.gather(
-            masscan_task,
-            subfinder_task
-        )
-
-        # 5. Extraer stdout de masscan (que viene como tupla)
-        masscan_output = ("", "", 0)  # Mock output
-
-        # 6. Procesar resultados de Masscan
-        masscan_hosts = parse_masscan_output(masscan_output[0])
-        open_ports = {p for ports in masscan_hosts.values() for p in ports}
+        # En producción, aquí se ejecutaría Masscan real si estuviera instalado
+        # Por ahora solo ejecutamos Subfinder de verdad
+        subfinder_domains = await run_subfinder(domains_to_scan)
+        
+        # Mock Masscan (solo para mantener el flujo hasta que se instale el binario)
+        masscan_hosts = {}
+        open_ports = set()
         
         logger.info(
             "MASSCAN_COMPLETE",
@@ -407,6 +415,18 @@ async def _scan_async(cycle_id: str = None):
         # 7. Ejecutar Nmap con puertos descubiertos
         logger.info("NMAP_SCAN_STARTING", ports=len(open_ports))
         nmap_output = await run_nmap(open_ports)
+
+        # 7.1 Banner Grabbing en paralelo para enriquecer versiones (US-2.7)
+        banners_by_host = {}
+        if masscan_hosts:
+            logger.info("BANNER_GRABBING_TASK_START", hosts=len(masscan_hosts))
+            banner_tasks = {
+                ip: asyncio.create_task(grab_all_banners(ip, list(ports)))
+                for ip, ports in masscan_hosts.items()
+            }
+            # Esperar a todos los hosts
+            for ip, task in banner_tasks.items():
+                banners_by_host[ip] = await task
 
         # 8. Comparación e identificación
         discovered_hosts = set(masscan_hosts.keys())
@@ -426,13 +446,14 @@ async def _scan_async(cycle_id: str = None):
         if shadow_it_list:
             await _register_shadow_it(shadow_it_list)
 
-        # 10. Persistencia: INCLUYE SUBDOMINIOS REALES
+        # 10. Persistencia: INCLUYE SUBDOMINIOS REALES Y BANNERS
         await persist_findings_to_db(
             snapshot.id,
             hallazgos,
             masscan_hosts,
-            subfinder_domains,  # ← AHORA TIENE DATOS REALES (no [])
-            db
+            subfinder_domains,
+            db,
+            banners_by_host=banners_by_host  # <--- Nuevo parámetro
         )
 
         snapshot.finished_at = datetime.utcnow()
@@ -468,32 +489,43 @@ async def _scan_async(cycle_id: str = None):
 async def persist_findings_to_db(snapshot_id: int, hallazgos: List[Dict],
                                 masscan_hosts: Dict[str, Set[int]],
                                 subfinder_domains: List[str],
-                                db: Session):
+                                db: Session,
+                                banners_by_host: Dict[str, List[Dict]] = None):
     """
     Persiste todos los hallazgos en BD.
-    Incluye hosts, puertos, subdominios y hallazgos.
+    Incluye hosts, puertos, subdominios y hallazgos enriquecidos con banners.
     """
+    banners_by_host = banners_by_host or {}
     try:
         # Guardar hallazgos de hosts y puertos
         for ip, ports in masscan_hosts.items():
+            # Obtener banners para este host
+            host_banners = {b["port"]: b for b in banners_by_host.get(ip, [])}
+            
             for port in ports:
+                banner_info = host_banners.get(port, {})
                 finding = ReconFinding(
                     snapshot_id=snapshot_id,
                     host=ip,
                     port=f"{port}/tcp",
+                    service=banner_info.get("service"),
+                    version=banner_info.get("version"),
                     state="open",
                     source="masscan"
                 )
                 db.add(finding)
         
-        # Guardar subdominios
-        for subdomain in subfinder_domains:
-            sub_rec = ReconSubdomain(
-                snapshot_id=snapshot_id,
-                subdomain=subdomain,
-                source="subfinder"
-            )
-            db.add(sub_rec)
+        # Guardar subdominios (ahora vienen como objetos JSON de Subfinder)
+        for sub_obj in subfinder_domains:
+            # Extraer el campo 'host' del JSON de Subfinder
+            subdomain_name = sub_obj.get('host') if isinstance(sub_obj, dict) else sub_obj
+            if subdomain_name:
+                sub_rec = ReconSubdomain(
+                    snapshot_id=snapshot_id,
+                    subdomain=subdomain_name,
+                    source=sub_obj.get('source', 'subfinder') if isinstance(sub_obj, dict) else "subfinder"
+                )
+                db.add(sub_rec)
         
         # Guardar hallazgos de shadow IT
         for hallazgo in hallazgos:

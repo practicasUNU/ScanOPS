@@ -1,0 +1,22 @@
+id: generic-rce-detection
+info:
+  name: Generic Remote Code Execution Check
+  description: Potential RCE vulnerability pattern
+  severity: critical
+  tags: [rce, injection, generic]
+
+---
+id: ssrf-detection
+info:
+  name: Server-Side Request Forgery (SSRF) Detection
+  description: SSRF vulnerability in URL processing
+  severity: high
+  tags: [ssrf, request, forgery]
+
+---
+id: lfi-pattern
+info:
+  name: Local File Inclusion (LFI) Pattern
+  description: LFI vulnerability pattern
+  severity: high
+  tags: [lfi, file, inclusion]

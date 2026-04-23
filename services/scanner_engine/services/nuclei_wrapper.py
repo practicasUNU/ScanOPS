@@ -28,7 +28,8 @@ def run_nuclei_scan(target_ip: str):
                     "severity": raw_vuln.get("info", {}).get("severity", "").upper(),
                     "description": raw_vuln.get("info", {}).get("description"),
                     "cve_id": ",".join(raw_vuln.get("info", {}).get("classification", {}).get("cve-id", [])),
-                    "evidence": raw_vuln.get("matched-at")
+                    "evidence": raw_vuln.get("matched-at"),
+                    "ens_measure": "op.exp.2"  # Mapeo explícito para auditoría ENS
                 })
         
         logger.info("NUCLEI_FINISH", target=target_ip, count=len(findings))

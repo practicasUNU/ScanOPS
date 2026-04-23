@@ -1,8 +1,13 @@
 version: "3.9"
 
+networks:
+  scanops:
+    driver: bridge
+
 services:
   postgres:
     image: postgres:16
+    container_name: scanops-postgres
     environment:
       POSTGRES_USER: scanops
       POSTGRES_PASSWORD: scanops
@@ -11,67 +16,60 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - scanops
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
+    container_name: scanops-redis
     ports:
       - "6379:6379"
-
-  vault:
-    image: hashicorp/vault:1.15
-    cap_add:
-      - IPC_LOCK
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: dev-token
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-    ports:
-      - "8200:8200"
-
-  asset-manager:
-    build: .
-    ports:
-      - "8001:8001"
-    environment:
-      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: dev-token
-    depends_on:
-      - postgres
-      - redis
-      - vault
+    networks:
+      - scanops
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   celery-worker:
     build: .
-    # US-3.4: Aumentamos la concurrencia a 10 y escuchamos todas las colas definidas en celery_app.py
-    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,celery
+    container_name: scanops-celery-worker
+    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: dev-token
+      OPENVAS_USER: admin
+      OPENVAS_PASS: admin
+      ZAP_HOST: localhost
+      ZAP_PORT: 8080
     depends_on:
-      - postgres
-      - redis
-      - vault
-    
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
 
-  # ... (tus servicios anteriores: postgres, redis, vault)
-
+  # services/scanner_engine (M3)
   scanner-engine:
     build: .
-    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    container_name: scanops-scanner-engine
     ports:
       - "8002:8002"
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: dev-token
     depends_on:
       - postgres
       - redis
-      - vault    
-
+    networks:
+      - scanops
 volumes:
   pgdata:
