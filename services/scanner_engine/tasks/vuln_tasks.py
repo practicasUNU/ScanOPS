@@ -1,22 +1,16 @@
-"""Celery tasks for vulnerability scanning orchestration."""
-
-import asyncio
-import logging
 from typing import Dict, List, Optional
-from datetime import datetime
 
-from shared.celery_app import app
-
-logger = logging.getLogger(__name__)
-
-from services.scanner_engine.clients.openvas_client import OpenVASClient
-from services.scanner_engine.clients.nuclei_client import NucleiClient
-from services.scanner_engine.clients.zap_client import ZAPClient
+from celery import app
 
 
-# ============================================================================
-# TASK 1: OpenVAS Scan Task
-# ============================================================================
+
+@app.task(
+    name="scanner.openvas.scan_asset",
+    bind=True,
+    timeout=3600,
+    max_retries=3,
+    queue="scanner_tasks",
+)
 @app.task(
     name="scanner.openvas.scan_asset",
     bind=True,
@@ -26,18 +20,29 @@ from services.scanner_engine.clients.zap_client import ZAPClient
 )
 def run_openvvas_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Dict:
     """Execute OpenVAS vulnerability scan."""
+    from redis import Redis
+    import time
+    
+    redis_client = Redis(host='redis', port=6379, db=0, decode_responses=True)
+    
+    # Esperar slot disponible
+    while int(redis_client.get('active_scans') or 0) >= 5:
+        logger.info("⏳ Esperando slot de escaneo...")
+        time.sleep(2)
+    
+    redis_client.incr('active_scans')
+    
     try:
         logger.info(f"→ OpenVAS scan: asset_id={asset_id}")
-
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
+        
         try:
             client = OpenVASClient()
             findings = loop.run_until_complete(
                 client.scan_asset(asset_id, asset_ip, asset_name)
             )
-
+            
             result = {
                 "scanner": "OpenVAS",
                 "status": "success",
@@ -45,20 +50,36 @@ def run_openvvas_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Di
                 "findings": [f.to_dict() for f in findings],
                 "error": None,
             }
-
+            
             logger.info(f"✓ OpenVAS: {len(findings)} hallazgos")
+            
+            from shared.database import SessionLocal
+            from services.scanner_engine.models.vulnerability import VulnFinding
+            
+            db = SessionLocal()
+            try:
+                for f in findings:
+                    vuln = VulnFinding(asset_id=asset_id, scan_id=f"scan_{int(time.time())}", vulnerability_id=f.cve_id or "UNKNOWN", title=f.title, severity=f.severity.value, cvss_v3_score=f.cvss_score, scanner_name="OpenVAS", evidence={"raw": f.evidence}, created_by="scanner")
+                    db.add(vuln)
+                db.commit()
+                logger.info(f"✓ Saved {len(findings)} findings to BD")
+            except Exception as e:
+                db.rollback()
+                logger.error(f"✗ DB save failed: {e}")
+            finally:
+                db.close()
+            
             return result
-
         finally:
             loop.close()
-
+    
     except Exception as e:
         logger.error(f"✗ OpenVAS error: {str(e)}")
-
+        
         if self.request.retries < self.max_retries:
             logger.info(f"Reintentando OpenVAS (intento {self.request.retries + 1}/{self.max_retries})")
             raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-
+        
         return {
             "scanner": "OpenVAS",
             "status": "error",
@@ -66,198 +87,7 @@ def run_openvvas_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Di
             "findings": [],
             "error": str(e),
         }
-
-
-# ============================================================================
-# TASK 2: Nuclei Scan Task
-# ============================================================================
-@app.task(
-    name="scanner.nuclei.scan_asset",
-    bind=True,
-    timeout=1800,
-    max_retries=2,
-    queue="scanner_tasks",
-)
-def run_nuclei_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Dict:
-    """Execute Nuclei template-based scan."""
-    try:
-        logger.info(f"→ Nuclei scan: asset_id={asset_id}")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            client = NucleiClient()
-            findings = loop.run_until_complete(
-                client.scan_asset(asset_id, asset_ip, asset_name)
-            )
-
-            result = {
-                "scanner": "Nuclei",
-                "status": "success",
-                "findings_count": len(findings),
-                "findings": [f.to_dict() for f in findings],
-                "error": None,
-            }
-
-            logger.info(f"✓ Nuclei: {len(findings)} hallazgos")
-            return result
-
-        finally:
-            loop.close()
-
-    except Exception as e:
-        logger.error(f"✗ Nuclei error: {str(e)}")
-
-        if self.request.retries < self.max_retries:
-            logger.info(f"Reintentando Nuclei (intento {self.request.retries + 1}/{self.max_retries})")
-            raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-
-        return {
-            "scanner": "Nuclei",
-            "status": "error",
-            "findings_count": 0,
-            "findings": [],
-            "error": str(e),
-        }
-
-
-# ============================================================================
-# TASK 3: ZAP Scan Task
-# ============================================================================
-@app.task(
-    name="scanner.zap.scan_asset",
-    bind=True,
-    timeout=1800,
-    max_retries=2,
-    queue="scanner_tasks",
-)
-def run_zap_scan(self, asset_id: int, asset_url: str, asset_name: str) -> Dict:
-    """Execute ZAP web vulnerability scan."""
-    try:
-        logger.info(f"→ ZAP scan: asset_id={asset_id}")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            client = ZAPClient()
-            findings = loop.run_until_complete(
-                client.scan_asset(asset_id, asset_url, asset_name)
-            )
-
-            result = {
-                "scanner": "ZAP",
-                "status": "success",
-                "findings_count": len(findings),
-                "findings": [f.to_dict() for f in findings],
-                "error": None,
-            }
-
-            logger.info(f"✓ ZAP: {len(findings)} hallazgos")
-            return result
-
-        finally:
-            loop.close()
-
-    except Exception as e:
-        logger.error(f"✗ ZAP error: {str(e)}")
-
-        if self.request.retries < self.max_retries:
-            logger.info(f"Reintentando ZAP (intento {self.request.retries + 1}/{self.max_retries})")
-            raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-
-        return {
-            "scanner": "ZAP",
-            "status": "error",
-            "findings_count": 0,
-            "findings": [],
-            "error": str(e),
-        }
-
-
-# ============================================================================
-# TASK 4: Merge Scan Results
-# ============================================================================
-@app.task(
-    name="scanner.merge_results",
-    bind=True,
-    queue="scanner_tasks",
-)
-def merge_scan_results(self, results: List[Dict], asset_id: int) -> Dict:
-    """Merge results from multiple scanners."""
-    try:
-        logger.info(f"→ Merge: asset_id={asset_id}, scanners={len(results)}")
-
-        findings_by_scanner = {}
-        total_findings = 0
-
-        for result in results:
-            if result and result.get("status") == "success":
-                scanner = result.get("scanner")
-                findings = result.get("findings", [])
-                findings_by_scanner[scanner] = findings
-                total_findings += len(findings)
-                logger.debug(f"  {scanner}: {len(findings)} hallazgos")
-
-        merged = {
-            "asset_id": asset_id,
-            "total_findings": total_findings,
-            "findings_by_scanner": findings_by_scanner,
-            "completed_at": datetime.utcnow().isoformat(),
-        }
-
-        logger.info(f"✓ Merge: {total_findings} total hallazgos")
-        return merged
-
-    except Exception as e:
-        logger.error(f"✗ Merge error: {str(e)}")
-        raise
-
-
-# ============================================================================
-# TASK 5: Parallel Orchestrator
-# ============================================================================
-@app.task(
-    name="scanner.orchestrator.scan_parallel",
-    bind=True,
-    timeout=7200,
-    queue="scanner_orchestrator",
-)
-def scan_asset_parallel(
-    self,
-    asset_id: int,
-    asset_ip: str,
-    asset_name: str,
-    scan_types: Optional[List[str]] = None,
-) -> Dict:
-    """Execute multiple scanners in parallel using Celery chord."""
-    from celery import chord
-
-    if scan_types is None:
-        scan_types = ["openvas", "nuclei", "zap"]
-
-    logger.info(f"→ Orchestrator: asset_id={asset_id}, scanners={scan_types}")
-
-    # Create tasks for each scanner
-    tasks = []
-
-    if "openvas" in scan_types:
-        tasks.append(run_openvvas_scan.s(asset_id, asset_ip, asset_name))
-
-    if "nuclei" in scan_types:
-        tasks.append(run_nuclei_scan.s(asset_id, asset_ip, asset_name))
-
-    if "zap" in scan_types:
-        tasks.append(run_zap_scan.s(asset_id, asset_ip, asset_name))
-
-    if not tasks:
-        logger.warning("✗ No scan types especificados")
-        return {"status": "error", "message": "No scan types specified"}
-
-    # Execute all tasks in parallel using chord
-    result = chord(tasks)(merge_scan_results.s(asset_id))
-
-    logger.info(f"✓ Orchestrator: {len(tasks)} scanners en paralelo")
-
-    return result.get()
+    
+    finally:
+        redis_client.decr('active_scans')
+        logger.info(f"✓ Escaneo liberado. Activos: {redis_client.get('active_scans')}")

@@ -180,27 +180,35 @@ async def get_scan_status(task_id: str) -> ScanStatusResponse:
 
 @router.get("/results/{asset_id}", response_model=ScanResultsResponse)
 async def get_scan_results(asset_id: int) -> ScanResultsResponse:
-    """Get results of latest completed scan for asset."""
+    from shared.database import SessionLocal
+    from services.scanner_engine.models.vulnerability import VulnFinding
+    db = SessionLocal()
     try:
-        logger.info(f"→ Results solicitados para asset {asset_id}")
+        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        findings_by_scanner = {}
+        for v in vulns:
+            if v.scanner_name not in findings_by_scanner:
+                findings_by_scanner[v.scanner_name] = []
+            findings_by_scanner[v.scanner_name].append({"title": v.title, "severity": v.severity, "cvss": v.cvss_v3_score, "cve": v.scanner_reference})
+        return ScanResultsResponse(asset_id=asset_id, total_findings=len(vulns), findings_by_scanner=findings_by_scanner, created_at=datetime.utcnow(), completed_at=datetime.utcnow())
+    finally:
+        db.close()
 
-        results = {
-            "asset_id": asset_id,
-            "total_findings": 5,
-            "findings_by_scanner": {
-                "OpenVAS": [],
-                "Nuclei": [],
-                "ZAP": [],
-            },
-            "created_at": datetime.utcnow(),
-            "completed_at": datetime.utcnow(),
-        }
 
-        return ScanResultsResponse(**results)
-
-    except Exception as e:
-        logger.error(f"✗ Error obteniendo resultados: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get results: {str(e)}")
+@router.get("/assets/{asset_id}/ficha")
+async def get_asset_ficha(asset_id: int):
+    from shared.database import SessionLocal
+    from services.asset_manager.models.asset import Asset
+    from services.scanner_engine.models.vulnerability import VulnFinding
+    db = SessionLocal()
+    try:
+        asset = db.query(Asset).filter(Asset.id == asset_id).first()
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        return {"asset_id": asset_id, "m1_asset": {"ip": asset.ip, "hostname": asset.hostname, "criticidad": asset.criticidad, "tipo": asset.tipo}, "m3_vulnerabilities": [{"title": v.title, "severity": v.severity, "cve": v.scanner_reference, "scanner": v.scanner_name} for v in vulns], "total_findings": len(vulns)}
+    finally:
+        db.close()
 
 
 @router.get("/health", response_model=HealthResponse)

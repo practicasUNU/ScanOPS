@@ -5,6 +5,7 @@ import logging
 from typing import List, Optional
 from dataclasses import dataclass
 from datetime import datetime
+from zapv2 import ZAPv2
 
 logger = logging.getLogger(__name__)
 
@@ -49,33 +50,43 @@ class ZAPClient:
         port: int = 8080,
         timeout: int = 1800,
     ):
-        """Initialize ZAP client."""
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.base_url = f"http://{host}:{port}"
+        self.zap = ZAPv2(proxies={'http': f'http://{host}:{port}', 'https': f'http://{host}:{port}'})
 
-    async def scan_asset(
-        self, asset_id: int, asset_url: str, asset_name: str
-    ) -> List[Finding]:
-        """Execute ZAP scan on asset."""
+    async def scan_asset(self, asset_id: int, asset_url: str, asset_name: str) -> List[Finding]:
         findings = []
-
         try:
-            logger.info(f"→ ZAP scan iniciado para {asset_id} ({asset_url})")
-
-            # Asegurar que URL tiene protocolo
             if not asset_url.startswith("http"):
                 asset_url = f"http://{asset_url}"
-
-            # Mock scan por ahora
-            findings = await self._mock_zap_scan(asset_id, asset_url)
-
-            logger.info(f"✓ ZAP completado: {len(findings)} hallazgos")
-
+            logger.info(f"→ ZAP scan: {asset_id} ({asset_url})")
+            
+            # Spider
+            spider_id = await asyncio.to_thread(self.zap.spider.scan, url=asset_url)
+            await self._wait_for_scan(spider_id)
+            
+            # Active scan
+            scan_id = await asyncio.to_thread(self.zap.ascan.scan, url=asset_url)
+            await self._wait_for_scan(scan_id)
+            
+            # Get alerts
+            alerts = await asyncio.to_thread(self.zap.alert.alerts, baseurl=asset_url)
+            for alert in alerts:
+                finding = Finding(
+                    asset_id=asset_id,
+                    title=alert.get("name", "Unknown"),
+                    description=alert.get("description", ""),
+                    severity=alert.get("riskcode", "1"),
+                    evidence=f"URL: {asset_url}",
+                    remediation=alert.get("solution", "Review"),
+                )
+                findings.append(finding)
+            
+            logger.info(f"✓ ZAP: {len(findings)} findings")
         except Exception as e:
-            logger.error(f"✗ Error ZAP: {str(e)}")
-
+            logger.error(f"✗ ZAP error: {e}")
+        
         return findings
 
     async def _mock_zap_scan(self, asset_id: int, asset_url: str) -> List[Finding]:
@@ -130,19 +141,24 @@ class ZAPClient:
             return None
 
     async def _wait_for_scan(self, scan_id: str) -> bool:
-        """Wait for scan to complete."""
         try:
-            logger.debug(f"Waiting for scan {scan_id}")
-            return True
+            while True:
+                status = await asyncio.to_thread(self.zap.ascan.status, id=scan_id) if scan_id.isdigit() else await asyncio.to_thread(self.zap.spider.status)
+                if int(status) == 100:
+                    logger.info(f"✓ Scan {scan_id} completed")
+                    return True
+                logger.debug(f"Waiting... {status}%")
+                await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"Scan wait failed: {e}")
+            logger.error(f"✗ Error: {e}")
             return False
 
     async def is_available(self) -> bool:
-        """Check if ZAP is available."""
         try:
-            logger.info("✓ ZAP disponible (mock)")
-            return True
-        except Exception:
-            logger.warning("✗ ZAP no disponible")
+            version = await asyncio.to_thread(self.zap.core.version)
+            available = version is not None
+            logger.info("✓ ZAP available") if available else logger.warning("✗ ZAP unavailable")
+            return available
+        except Exception as e:
+            logger.warning(f"✗ ZAP unavailable: {e}")
             return False

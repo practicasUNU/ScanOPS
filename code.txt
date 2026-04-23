@@ -1,6 +1,17 @@
 PROJECT: SHOWMETEXT
 TYPE: single
 
+FILE:.env.example
+# OpenVAS Configuration
+OPENVAS_USER=admin
+OPENVAS_PASS=[REDACTED]
+
+# ZAP Configuration
+ZAP_PORT=8080
+
+REDIS_HOST=redis
+REDIS_PORT=6379
+MAX_CONCURRENT_SCANS=5
 FILE:Dockerfile
 FROM python:3.11-slim
 
@@ -631,9 +642,14 @@ BINARY:true
 FILE:docker-compose.yml
 version: "3.9"
 
+networks:
+  scanops:
+    driver: bridge
+
 services:
   postgres:
     image: postgres:16
+    container_name: scanops-postgres
     environment:
       POSTGRES_USER: scanops
       POSTGRES_PASSWORD: [REDACTED]
@@ -642,96 +658,48 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - scanops
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
+    container_name: scanops-redis
     ports:
       - "6379:6379"
-
-  vault:
-    image: hashicorp/vault:1.15
-    cap_add:
-      - IPC_LOCK
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: [REDACTED]
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-    ports:
-      - "8200:8200"
-
-  openvas:
-    image: greenbone/openvas:latest
-    ports:
-      - "9392:9392"
-    environment:
-      GREENBONE_FEED_SYNC_PATH: /var/lib/openvas/feed-data
-    volumes:
-      - openvas_data:/var/lib/openvas
+    networks:
+      - scanops
     healthcheck:
-      test: ["CMD", "curl", "-f", "https://localhost:9392/login", "-k"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  asset-manager:
-    build: .
-    ports:
-      - "8001:8001"
-    environment:
-      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: [REDACTED]
-    depends_on:
-      - postgres
-      - redis
-      - vault
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   celery-worker:
     build: .
-    # All task queues: discovery, vulnerabilities, heavy_scans, scanner_tasks, scanner_orchestrator
+    container_name: scanops-celery-worker
     command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: [REDACTED]
-      OPENVAS_HOST: openvas
-      OPENVAS_PORT: 9392
-    depends_on:
-      - postgres
-      - redis
-      - vault
-      - openvas
-
-  # ... (tus servicios anteriores: postgres, redis, vault)
-
-  scanner-engine:
-    build: .
-    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8003
-    ports:
-      - "8003:8003"
-    environment:
-      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
-      VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: [REDACTED]
-      OPENVAS_HOST: openvas
-      OPENVAS_PORT: 9392
       OPENVAS_USER: admin
-      OPENVAS_PASSWORD: [REDACTED]
-      OPENVAS_VERIFY_SSL: "False"
-      ZAP_HOST: zap
+      OPENVAS_PASS: [REDACTED]
+      ZAP_HOST: localhost
       ZAP_PORT: 8080
-      NUCLEI_TEMPLATES_PATH: /app/templates/nuclei
     depends_on:
-      - postgres
-      - redis
-      - vault
-      - openvas
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
 
 volumes:
   pgdata:
-  openvas_data:
 FILE:logging.ini
 [formatters]
 keys = generic
@@ -1214,7 +1182,8 @@ from sqlalchemy.orm import Session
 from shared.database import get_db
 from shared.auth import get_current_user
 
-from services.asset_manager.models.asset import CriticidadEnum, TipoActivoEnum, AssetStatusEnum
+from services.asset_manager.models.asset import Asset, CriticidadEnum, TipoActivoEnum, AssetStatusEnum
+from datetime import datetime
 from services.asset_manager.schemas import (
     AssetCreate,
     AssetUpdate,
@@ -1331,23 +1300,28 @@ async def delete_asset(
     return asset
 
 # ─── Ficha Única (US-1.7) ────────────────────────────────
-
 @router.get("/{asset_id}/ficha", response_model=AssetFicha)
-async def get_asset_ficha(
-    asset_id: int,
-    db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Get the 'Ficha Única' for an asset.
-    This is the master document consumed by M4 (exploitation).
-    Surface + vulnerability data will be populated in Hitos 2 & 3.
-    """
-    asset = asset_service.get_asset(db, asset_id)
-    if asset is None:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    return AssetFicha.model_validate(asset)
+async def get_asset_ficha(asset_id: int, db: Session = Depends(get_db)):
+    from services.recon_engine.models.recon import ReconFinding
+    from services.scanner_engine.models.vulnerability import VulnFinding
 
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset no encontrado")
+
+    try:
+        recon = db.query(ReconFinding).filter(ReconFinding.host == asset.ip).all()
+        superficie = [{"puerto": f.port, "servicio": f.service, "estado": f.state} for f in recon] if recon else None
+    except:
+        superficie = None
+
+    try:
+        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        vulnerabilidades = [{"titulo": v.title, "severidad": v.severity, "cvss": v.cvss_v3_score, "cve": v.scanner_reference, "scanner": v.scanner_name} for v in vulns] if vulns else None
+    except:
+        vulnerabilidades = None
+
+    return AssetFicha(id=asset.id, ip=asset.ip, hostname=asset.hostname, criticidad=asset.criticidad, tipo=asset.tipo, status=asset.status, responsable=asset.responsable, tags_ens=asset.tags_ens or [], superficie=superficie, vulnerabilidades=vulnerabilidades, ficha_generated_at=datetime.utcnow(), ficha_version="1.0")
 # ─── Audit Log (US-1.5) ──────────────────────────────────
 
 @router.get("/{asset_id}/audit", response_model=AuditLogListResponse)
@@ -4166,6 +4140,7 @@ import json
 import os
 import sys
 import datetime
+import time
 
 from shared.scan_logger import ScanLogger
 from shared.utils import evaluar_root_bloqueado, evaluar_ufw, evaluar_ssh_root_login, evaluar_parches, evaluar_cifrado_disco, calcular_compliance
@@ -4225,6 +4200,150 @@ def audit():
         _, stdout, _ = client.exec_command("lsblk -o FSTYPE | grep -q crypt && echo 'crypt' || echo ''")
         lsblk_output = stdout.read().decode().strip()
         hallazgos.append(evaluar_cifrado_disco(lsblk_output))
+
+        # IP Forwarding
+        _, stdout, _ = client.exec_command("sysctl net.ipv4.ip_forward | awk '{print $3}'")
+        ip_forward = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "ip_forwarding",
+            "estado": "DESACTIVO" if ip_forward == "0" else "ACTIVO",
+            "severidad": "INFO" if ip_forward == "0" else "MEDIA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"IP forwarding habilitado: {ip_forward}",
+            "remediacion": "sysctl -w net.ipv4.ip_forward=0" if ip_forward != "0" else None
+        })
+
+        # SYN Cookies
+        _, stdout, _ = client.exec_command("sysctl net.ipv4.tcp_syncookies | awk '{print $3}'")
+        syncookies = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "syn_cookies",
+            "estado": "ACTIVO" if syncookies == "1" else "INACTIVO",
+            "severidad": "INFO" if syncookies == "1" else "MEDIA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"SYN cookies: {syncookies}",
+            "remediacion": "sysctl -w net.ipv4.tcp_syncookies=1" if syncookies != "1" else None
+        })
+
+        # SELinux
+        _, stdout, _ = client.exec_command("getenforce")
+        selinux = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "selinux",
+            "estado": selinux,
+            "severidad": "INFO" if selinux == "Enforcing" else "ALTA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"SELinux status: {selinux}",
+            "remediacion": None if selinux == "Enforcing" else "semanage permissive -d domain_t"
+        })
+
+        # AppArmor
+        _, stdout, _ = client.exec_command("aa-status 2>&1 | grep 'apparmor module is loaded' | wc -l")
+        apparmor = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "apparmor",
+            "estado": "ACTIVO" if apparmor == "1" else "INACTIVO",
+            "severidad": "INFO" if apparmor == "1" else "MEDIA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"AppArmor: {apparmor}",
+            "remediacion": "systemctl enable apparmor" if apparmor != "1" else None
+        })
+
+        # Core Dumps
+        _, stdout, _ = client.exec_command("sysctl kernel.core_pattern | awk '{print $3}'")
+        core_pattern = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "core_dumps",
+            "estado": "PROTEGIDO" if "/dev/null" in core_pattern else "EXPUESTO",
+            "severidad": "INFO" if "/dev/null" in core_pattern else "BAJA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"Kernel core pattern: {core_pattern}",
+            "remediacion": "sysctl -w kernel.core_pattern=/dev/null" if "/dev/null" not in core_pattern else None
+        })
+
+        # Umask
+        _, stdout, _ = client.exec_command("grep -E '^umask' /etc/login.defs | awk '{print $2}'")
+        umask = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "umask",
+            "estado": "RESTRICTIVO" if umask == "077" else "PERMISIVO",
+            "severidad": "INFO" if umask == "077" else "MEDIA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"Default umask: {umask}",
+            "remediacion": "echo 'umask 077' >> /etc/login.defs" if umask != "077" else None
+        })
+
+        # SSH Public Key Authentication
+        _, stdout, _ = client.exec_command("grep -i 'PubkeyAuthentication yes' /etc/ssh/sshd_config | wc -l")
+        pubkey = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "ssh_pubkey_auth",
+            "estado": "HABILITADO" if pubkey == "1" else "DESHABILITADO",
+            "severidad": "INFO" if pubkey == "1" else "ALTA",
+            "medida_ens": "op.acc.5",
+            "detalle": f"SSH PubkeyAuthentication: {pubkey}",
+            "remediacion": "echo 'PubkeyAuthentication yes' >> /etc/ssh/sshd_config" if pubkey != "1" else None
+        })
+
+        # RP Filter (IP Spoofing Protection)
+        _, stdout, _ = client.exec_command("sysctl net.ipv4.conf.all.rp_filter | awk '{print $3}'")
+        rpfilter = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "ip_spoofing_protection",
+            "estado": "ACTIVO" if rpfilter == "1" else "INACTIVO",
+            "severidad": "INFO" if rpfilter == "1" else "ALTA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"Reverse path filtering: {rpfilter}",
+            "remediacion": "sysctl -w net.ipv4.conf.all.rp_filter=1" if rpfilter != "1" else None
+        })
+
+        # SSH Empty Passwords
+        _, stdout, _ = client.exec_command("grep -i 'PermitEmptyPasswords no' /etc/ssh/sshd_config | wc -l")
+        emptypwd = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "ssh_empty_passwords",
+            "estado": "BLOQUEADO" if emptypwd == "1" else "PERMITIDO",
+            "severidad": "INFO" if emptypwd == "1" else "CRÍTICA",
+            "medida_ens": "op.acc.5",
+            "detalle": f"SSH empty passwords permitidas: {emptypwd}",
+            "remediacion": "echo 'PermitEmptyPasswords no' >> /etc/ssh/sshd_config" if emptypwd != "1" else None
+        })
+
+        # Sudo Logging
+        _, stdout, _ = client.exec_command("grep -i 'Defaults logfile' /etc/sudoers | wc -l")
+        sudolog = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "sudo_logging",
+            "estado": "HABILITADO" if sudolog == "1" else "DESHABILITADO",
+            "severidad": "INFO" if sudolog == "1" else "MEDIA",
+            "medida_ens": "op.exp.5",
+            "detalle": f"Sudo logging configurado: {sudolog}",
+            "remediacion": "echo 'Defaults logfile=/var/log/sudo.log' >> /etc/sudoers" if sudolog != "1" else None
+        })
+
+        # File Integrity (AIDE)
+        _, stdout, _ = client.exec_command("which aide | wc -l")
+        aide = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "aide_installed",
+            "estado": "PRESENTE" if aide == "1" else "AUSENTE",
+            "severidad": "INFO" if aide == "1" else "MEDIA",
+            "medida_ens": "op.exp.2",
+            "detalle": f"AIDE (File Integrity Monitor): {aide}",
+            "remediacion": "apt-get install aide aide-common" if aide != "1" else None
+        })
+
+        # Fail2Ban
+        _, stdout, _ = client.exec_command("systemctl is-active fail2ban 2>/dev/null")
+        fail2ban = stdout.read().decode().strip()
+        hallazgos.append({
+            "check": "fail2ban",
+            "estado": "ACTIVO" if "active" in fail2ban else "INACTIVO",
+            "severidad": "INFO" if "active" in fail2ban else "MEDIA",
+            "medida_ens": "op.exp.3",
+            "detalle": f"Fail2Ban status: {fail2ban}",
+            "remediacion": "systemctl start fail2ban && systemctl enable fail2ban" if "active" not in fail2ban else None
+        })
 
         # Compliance resumen
         compliance_resumen = calcular_compliance(hallazgos)
@@ -6853,6 +6972,8 @@ import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
+import httpx
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -6906,17 +7027,18 @@ class OpenVASClient:
         self.password = password
         self.verify_ssl = verify_ssl
         self.timeout = timeout
+        self.session = httpx.AsyncClient(verify=self.verify_ssl, timeout=self.timeout)
         self.base_url = f"https://{host}:{port}"
         self.is_connected = False
 
     async def connect(self) -> bool:
-        """Conectar a OpenVAS y validar credenciales"""
         try:
-            logger.info(f"✓ OpenVAS conectado en {self.host}:{self.port}")
-            self.is_connected = True
-            return True
+            resp = await self.session.get(f"{self.base_url}/gmp", auth=(self.username, self.password))
+            self.is_connected = resp.status_code == 200
+            logger.info("✓ OpenVAS connected" if self.is_connected else "✗ OpenVAS failed")
+            return self.is_connected
         except Exception as e:
-            logger.error(f"✗ Error conectando a OpenVAS: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return False
 
     async def disconnect(self):
@@ -6941,78 +7063,60 @@ class OpenVASClient:
             logger.error(f"✗ Error obteniendo scanners: {str(e)}")
             return {}
 
-    async def create_target(
-        self,
-        target_ips: List[str],
-        target_name: str,
-        allow_simultaneous_ips: bool = False,
-    ) -> Optional[str]:
-        """Crear target (grupo de IPs) en OpenVAS"""
+    async def create_target(self, target_ips: List[str], target_name: str, allow_simultaneous_ips: bool = False) -> Optional[str]:
         if not self.is_connected:
-            logger.error("OpenVAS no conectado")
+            logger.error("OpenVAS not connected")
             return None
-
         try:
             hosts = ",".join(target_ips)
-            logger.info(f"→ Creando target: {target_name} con IPs: {hosts}")
-            target_id = f"target_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"✓ Target creado: {target_id}")
+            xml_body = f'<create_target><name>{target_name}</name><hosts>{hosts}</hosts></create_target>'
+            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            target_id = root.find(".//target/uuid").text if root.find(".//target/uuid") is not None else None
+            logger.info(f"✓ Target created: {target_id}")
             return target_id
         except Exception as e:
-            logger.error(f"✗ Error creando target: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return None
 
-    async def create_task(
-        self,
-        target_id: str,
-        task_name: str,
-        scanner_id: str = "08b69003-5fc2-45d1-a82e-ab9734732d91",
-    ) -> Optional[str]:
-        """Crear tarea de escaneo"""
+    async def create_task(self, target_id: str, task_name: str, scanner_id: str = "08b69003-5fc2-45d1-a82e-ab9734732d91") -> Optional[str]:
         if not self.is_connected:
-            logger.error("OpenVAS no conectado")
             return None
-
         try:
-            logger.info(f"→ Creando tarea: {task_name}")
-            task_id = f"task_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"✓ Tarea creada: {task_id}")
+            xml_body = f'<create_task><name>{task_name}</name><target id="{target_id}"/><config id="{scanner_id}"/></create_task>'
+            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            task_id = root.find(".//task/uuid").text if root.find(".//task/uuid") is not None else None
+            logger.info(f"✓ Task created: {task_id}")
             return task_id
         except Exception as e:
-            logger.error(f"✗ Error creando tarea: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return None
 
     async def start_task(self, task_id: str) -> bool:
-        """Iniciar escaneo de una tarea"""
         if not self.is_connected:
-            logger.error("OpenVAS no conectado")
             return False
-
         try:
-            logger.info(f"→ Iniciando escaneo: {task_id}")
-            logger.info(f"✓ Escaneo iniciado: {task_id}")
-            return True
+            xml_body = f'<start_task task_id="{task_id}"/>'
+            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
+            logger.info(f"✓ Task started: {task_id}")
+            return resp.status_code == 200
         except Exception as e:
-            logger.error(f"✗ Error iniciando tarea: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return False
 
     async def get_task_status(self, task_id: str) -> Dict[str, Any]:
-        """Obtener estado de una tarea"""
         if not self.is_connected:
             return {"status": "DISCONNECTED"}
-
         try:
-            status = {
-                "task_id": task_id,
-                "status": "Done",
-                "progress": 100,
-                "report_count": 1,
-                "last_report": None,
-            }
-            logger.debug(f"Status de {task_id}: {status['progress']}%")
-            return status
+            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_tasks&task_id={task_id}", auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            status = root.find(".//task/status").text if root.find(".//task/status") is not None else "Running"
+            progress = root.find(".//task/progress").text if root.find(".//task/progress") is not None else "0"
+            logger.debug(f"Status {task_id}: {status} {progress}%")
+            return {"task_id": task_id, "status": status, "progress": int(progress) if progress.isdigit() else 0, "report_count": 1}
         except Exception as e:
-            logger.error(f"✗ Error obteniendo status: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return {}
 
     async def wait_for_task_completion(
@@ -7038,37 +7142,23 @@ class OpenVASClient:
         return False
 
     async def get_task_report(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Obtener reporte completo de una tarea"""
         if not self.is_connected:
             return None
-
         try:
-            report = {
-                "task_id": task_id,
-                "created": datetime.utcnow().isoformat(),
-                "results": [
-                    {
-                        "name": "SSL/TLS Weak Cipher Detected",
-                        "severity": "HIGH",
-                        "cvss": 7.5,
-                        "cve": "CVE-2023-1234",
-                        "description": "Server uses weak cipher suites",
-                        "host": "192.168.1.10",
-                    },
-                    {
-                        "name": "HTTP Missing Security Headers",
-                        "severity": "MEDIUM",
-                        "cvss": 5.3,
-                        "cve": None,
-                        "description": "Missing X-Frame-Options header",
-                        "host": "192.168.1.10",
-                    },
-                ],
-            }
-            logger.info(f"✓ Reporte obtenido: {len(report['results'])} hallazgos")
-            return report
+            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_reports&task_id={task_id}", auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            results = []
+            for result in root.findall(".//result"):
+                name = result.find("name").text if result.find("name") is not None else "Unknown"
+                severity = result.find("severity").text if result.find("severity") is not None else "0"
+                cve = result.find("cve").text if result.find("cve") is not None else None
+                host = result.find("host").text if result.find("host") is not None else "N/A"
+                cvss = float(severity) if severity.replace(".", "").isdigit() else 0
+                results.append({"name": name, "severity": severity, "cvss": cvss, "cve": cve, "host": host, "description": ""})
+            logger.info(f"✓ Report: {len(results)} findings")
+            return {"task_id": task_id, "created": datetime.utcnow().isoformat(), "results": results}
         except Exception as e:
-            logger.error(f"✗ Error obteniendo reporte: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return None
 
     async def normalize_findings(
@@ -7247,6 +7337,7 @@ import logging
 from typing import List, Optional
 from dataclasses import dataclass
 from datetime import datetime
+from zapv2 import ZAPv2
 
 logger = logging.getLogger(__name__)
 
@@ -7289,32 +7380,42 @@ class ZAPClient:
         port: int = 8080,
         timeout: int = 1800,
     ):
-        """Initialize ZAP client."""
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.base_url = f"http://{host}:{port}"
+        self.zap = ZAPv2(proxies={'http': f'http://{host}:{port}', 'https': f'http://{host}:{port}'})
 
-    async def scan_asset(
-        self, asset_id: int, asset_url: str, asset_name: str
-    ) -> List[Finding]:
-        """Execute ZAP scan on asset."""
+    async def scan_asset(self, asset_id: int, asset_url: str, asset_name: str) -> List[Finding]:
         findings = []
-
         try:
-            logger.info(f"→ ZAP scan iniciado para {asset_id} ({asset_url})")
-
-            # Asegurar que URL tiene protocolo
             if not asset_url.startswith("http"):
                 asset_url = f"http://{asset_url}"
+            logger.info(f"→ ZAP scan: {asset_id} ({asset_url})")
 
-            # Mock scan por ahora
-            findings = await self._mock_zap_scan(asset_id, asset_url)
+            # Spider
+            spider_id = await asyncio.to_thread(self.zap.spider.scan, url=asset_url)
+            await self._wait_for_scan(spider_id)
 
-            logger.info(f"✓ ZAP completado: {len(findings)} hallazgos")
+            # Active scan
+            scan_id = await asyncio.to_thread(self.zap.ascan.scan, url=asset_url)
+            await self._wait_for_scan(scan_id)
 
+            # Get alerts
+            alerts = await asyncio.to_thread(self.zap.alert.alerts, baseurl=asset_url)
+            for alert in alerts:
+                finding = Finding(
+                    asset_id=asset_id,
+                    title=alert.get("name", "Unknown"),
+                    description=alert.get("description", ""),
+                    severity=alert.get("riskcode", "1"),
+                    evidence=f"URL: {asset_url}",
+                    remediation=alert.get("solution", "Review"),
+                )
+                findings.append(finding)
+
+            logger.info(f"✓ ZAP: {len(findings)} findings")
         except Exception as e:
-            logger.error(f"✗ Error ZAP: {str(e)}")
+            logger.error(f"✗ ZAP error: {e}")
 
         return findings
 
@@ -7370,21 +7471,26 @@ class ZAPClient:
             return None
 
     async def _wait_for_scan(self, scan_id: str) -> bool:
-        """Wait for scan to complete."""
         try:
-            logger.debug(f"Waiting for scan {scan_id}")
-            return True
+            while True:
+                status = await asyncio.to_thread(self.zap.ascan.status, id=scan_id) if scan_id.isdigit() else await asyncio.to_thread(self.zap.spider.status)
+                if int(status) == 100:
+                    logger.info(f"✓ Scan {scan_id} completed")
+                    return True
+                logger.debug(f"Waiting... {status}%")
+                await asyncio.sleep(5)
         except Exception as e:
-            logger.error(f"Scan wait failed: {e}")
+            logger.error(f"✗ Error: {e}")
             return False
 
     async def is_available(self) -> bool:
-        """Check if ZAP is available."""
         try:
-            logger.info("✓ ZAP disponible (mock)")
-            return True
-        except Exception:
-            logger.warning("✗ ZAP no disponible")
+            version = await asyncio.to_thread(self.zap.core.version)
+            available = version is not None
+            logger.info("✓ ZAP available") if available else logger.warning("✗ ZAP unavailable")
+            return available
+        except Exception as e:
+            logger.warning(f"✗ ZAP unavailable: {e}")
             return False
 FILE:services\scanner_engine\clients\zapv2_mock.py
 class ZAPv2:
@@ -7575,27 +7681,34 @@ async def get_scan_status(task_id: str) -> ScanStatusResponse:
 
 @router.get("/results/{asset_id}", response_model=ScanResultsResponse)
 async def get_scan_results(asset_id: int) -> ScanResultsResponse:
-    """Get results of latest completed scan for asset."""
+    from shared.database import SessionLocal
+    from services.scanner_engine.models.vulnerability import VulnFinding
+    db = SessionLocal()
     try:
-        logger.info(f"→ Results solicitados para asset {asset_id}")
+        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        findings_by_scanner = {}
+        for v in vulns:
+            if v.scanner_name not in findings_by_scanner:
+                findings_by_scanner[v.scanner_name] = []
+            findings_by_scanner[v.scanner_name].append({"title": v.title, "severity": v.severity, "cvss": v.cvss_v3_score, "cve": v.scanner_reference})
+        return ScanResultsResponse(asset_id=asset_id, total_findings=len(vulns), findings_by_scanner=findings_by_scanner, created_at=datetime.utcnow(), completed_at=datetime.utcnow())
+    finally:
+        db.close()
 
-        results = {
-            "asset_id": asset_id,
-            "total_findings": 5,
-            "findings_by_scanner": {
-                "OpenVAS": [],
-                "Nuclei": [],
-                "ZAP": [],
-            },
-            "created_at": datetime.utcnow(),
-            "completed_at": datetime.utcnow(),
-        }
-
-        return ScanResultsResponse(**results)
-
-    except Exception as e:
-        logger.error(f"✗ Error obteniendo resultados: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get results: {str(e)}")
+@router.get("/assets/{asset_id}/ficha")
+async def get_asset_ficha(asset_id: int):
+    from shared.database import SessionLocal
+    from services.asset_manager.models.asset import Asset
+    from services.scanner_engine.models.vulnerability import VulnFinding
+    db = SessionLocal()
+    try:
+        asset = db.query(Asset).filter(Asset.id == asset_id).first()
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        return {"asset_id": asset_id, "m1_asset": {"ip": asset.ip, "hostname": asset.hostname, "criticidad": asset.criticidad, "tipo": asset.tipo}, "m3_vulnerabilities": [{"title": v.title, "severity": v.severity, "cve": v.scanner_reference, "scanner": v.scanner_name} for v in vulns], "total_findings": len(vulns)}
+    finally:
+        db.close()
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
@@ -7996,24 +8109,8 @@ FILE:services\scanner_engine\services\zap_wrapper.py
 FILE:services\scanner_engine\tasks\__init__.py
 """Celery scanner tasks module"""
 FILE:services\scanner_engine\tasks\vuln_tasks.py
-"""Celery tasks for vulnerability scanning orchestration."""
-
-import asyncio
-import logging
 from typing import Dict, List, Optional
-from datetime import datetime
 
-from shared.celery_app import app
-
-logger = logging.getLogger(__name__)
-
-from services.scanner_engine.clients.openvas_client import OpenVASClient
-from services.scanner_engine.clients.nuclei_client import NucleiClient
-from services.scanner_engine.clients.zap_client import ZAPClient
-
-# ============================================================================
-# TASK 1: OpenVAS Scan Task
-# ============================================================================
 @app.task(
     name="scanner.openvas.scan_asset",
     bind=True,
@@ -8023,8 +8120,17 @@ from services.scanner_engine.clients.zap_client import ZAPClient
 )
 def run_openvvas_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Dict:
     """Execute OpenVAS vulnerability scan."""
+    from redis import Redis
+    import time
+
+    redis_client = Redis(host='redis', port=6379, db=0, decode_responses=True)
+    while int(redis_client.get('active_scans') or 0) >= 5:
+        logger.info("⏳ Esperando slot de escaneo...")
+        time.sleep(2)
+    redis_client.incr('active_scans')
+
     try:
-        logger.info(f"→ OpenVAS scan: asset_id={asset_id}")
+        logger.info(f"→ OpenVAS scan: asset_id={asset_id}. Activos: {redis_client.get('active_scans')}")
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -8044,6 +8150,23 @@ def run_openvvas_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Di
             }
 
             logger.info(f"✓ OpenVAS: {len(findings)} hallazgos")
+
+            from shared.database import SessionLocal
+            from services.scanner_engine.models.vulnerability import VulnFinding
+
+            db = SessionLocal()
+            try:
+                for f in findings:
+                    vuln = VulnFinding(asset_id=asset_id, scan_id=f"scan_{int(time.time())}", vulnerability_id=f.cve_id or "UNKNOWN", title=f.title, severity=f.severity.value, cvss_v3_score=f.cvss_score, scanner_name="OpenVAS", evidence={"raw": f.evidence}, created_by="scanner")
+                    db.add(vuln)
+                db.commit()
+                logger.info(f"✓ Saved {len(findings)} findings to BD")
+            except Exception as e:
+                db.rollback()
+                logger.error(f"✗ DB save failed: {e}")
+            finally:
+                db.close()
+
             return result
 
         finally:
@@ -8064,196 +8187,9 @@ def run_openvvas_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Di
             "error": str(e),
         }
 
-# ============================================================================
-# TASK 2: Nuclei Scan Task
-# ============================================================================
-@app.task(
-    name="scanner.nuclei.scan_asset",
-    bind=True,
-    timeout=1800,
-    max_retries=2,
-    queue="scanner_tasks",
-)
-def run_nuclei_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Dict:
-    """Execute Nuclei template-based scan."""
-    try:
-        logger.info(f"→ Nuclei scan: asset_id={asset_id}")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            client = NucleiClient()
-            findings = loop.run_until_complete(
-                client.scan_asset(asset_id, asset_ip, asset_name)
-            )
-
-            result = {
-                "scanner": "Nuclei",
-                "status": "success",
-                "findings_count": len(findings),
-                "findings": [f.to_dict() for f in findings],
-                "error": None,
-            }
-
-            logger.info(f"✓ Nuclei: {len(findings)} hallazgos")
-            return result
-
-        finally:
-            loop.close()
-
-    except Exception as e:
-        logger.error(f"✗ Nuclei error: {str(e)}")
-
-        if self.request.retries < self.max_retries:
-            logger.info(f"Reintentando Nuclei (intento {self.request.retries + 1}/{self.max_retries})")
-            raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-
-        return {
-            "scanner": "Nuclei",
-            "status": "error",
-            "findings_count": 0,
-            "findings": [],
-            "error": str(e),
-        }
-
-# ============================================================================
-# TASK 3: ZAP Scan Task
-# ============================================================================
-@app.task(
-    name="scanner.zap.scan_asset",
-    bind=True,
-    timeout=1800,
-    max_retries=2,
-    queue="scanner_tasks",
-)
-def run_zap_scan(self, asset_id: int, asset_url: str, asset_name: str) -> Dict:
-    """Execute ZAP web vulnerability scan."""
-    try:
-        logger.info(f"→ ZAP scan: asset_id={asset_id}")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            client = ZAPClient()
-            findings = loop.run_until_complete(
-                client.scan_asset(asset_id, asset_url, asset_name)
-            )
-
-            result = {
-                "scanner": "ZAP",
-                "status": "success",
-                "findings_count": len(findings),
-                "findings": [f.to_dict() for f in findings],
-                "error": None,
-            }
-
-            logger.info(f"✓ ZAP: {len(findings)} hallazgos")
-            return result
-
-        finally:
-            loop.close()
-
-    except Exception as e:
-        logger.error(f"✗ ZAP error: {str(e)}")
-
-        if self.request.retries < self.max_retries:
-            logger.info(f"Reintentando ZAP (intento {self.request.retries + 1}/{self.max_retries})")
-            raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-
-        return {
-            "scanner": "ZAP",
-            "status": "error",
-            "findings_count": 0,
-            "findings": [],
-            "error": str(e),
-        }
-
-# ============================================================================
-# TASK 4: Merge Scan Results
-# ============================================================================
-@app.task(
-    name="scanner.merge_results",
-    bind=True,
-    queue="scanner_tasks",
-)
-def merge_scan_results(self, results: List[Dict], asset_id: int) -> Dict:
-    """Merge results from multiple scanners."""
-    try:
-        logger.info(f"→ Merge: asset_id={asset_id}, scanners={len(results)}")
-
-        findings_by_scanner = {}
-        total_findings = 0
-
-        for result in results:
-            if result and result.get("status") == "success":
-                scanner = result.get("scanner")
-                findings = result.get("findings", [])
-                findings_by_scanner[scanner] = findings
-                total_findings += len(findings)
-                logger.debug(f"  {scanner}: {len(findings)} hallazgos")
-
-        merged = {
-            "asset_id": asset_id,
-            "total_findings": total_findings,
-            "findings_by_scanner": findings_by_scanner,
-            "completed_at": datetime.utcnow().isoformat(),
-        }
-
-        logger.info(f"✓ Merge: {total_findings} total hallazgos")
-        return merged
-
-    except Exception as e:
-        logger.error(f"✗ Merge error: {str(e)}")
-        raise
-
-# ============================================================================
-# TASK 5: Parallel Orchestrator
-# ============================================================================
-@app.task(
-    name="scanner.orchestrator.scan_parallel",
-    bind=True,
-    timeout=7200,
-    queue="scanner_orchestrator",
-)
-def scan_asset_parallel(
-    self,
-    asset_id: int,
-    asset_ip: str,
-    asset_name: str,
-    scan_types: Optional[List[str]] = None,
-) -> Dict:
-    """Execute multiple scanners in parallel using Celery chord."""
-    from celery import chord
-
-    if scan_types is None:
-        scan_types = ["openvas", "nuclei", "zap"]
-
-    logger.info(f"→ Orchestrator: asset_id={asset_id}, scanners={scan_types}")
-
-    # Create tasks for each scanner
-    tasks = []
-
-    if "openvas" in scan_types:
-        tasks.append(run_openvvas_scan.s(asset_id, asset_ip, asset_name))
-
-    if "nuclei" in scan_types:
-        tasks.append(run_nuclei_scan.s(asset_id, asset_ip, asset_name))
-
-    if "zap" in scan_types:
-        tasks.append(run_zap_scan.s(asset_id, asset_ip, asset_name))
-
-    if not tasks:
-        logger.warning("✗ No scan types especificados")
-        return {"status": "error", "message": "No scan types specified"}
-
-    # Execute all tasks in parallel using chord
-    result = chord(tasks)(merge_scan_results.s(asset_id))
-
-    logger.info(f"✓ Orchestrator: {len(tasks)} scanners en paralelo")
-
-    return result.get()
+    finally:
+        redis_client.decr('active_scans')
+        logger.info(f"✓ Escaneo liberado. Activos: {redis_client.get('active_scans')}")
 FILE:services\scanner_engine\tests\__init__.py
 """Scanner Engine tests module."""
 FILE:services\scanner_engine\tests\conftest.py
@@ -8986,6 +8922,9 @@ app.conf.update(
     result_serializer='json',
     timezone='Europe/Madrid', # Ajustado a tu zona
     enable_utc=True,
+    worker_prefetch_multiplier=1,
+    worker_max_tasks_per_child=10,
+    task_acks_late=True,
     # ESTO CUMPLE LA US-2.7 (Programación automática)
     beat_schedule={
         'recon-lunes-madrugada': {

@@ -4,6 +4,8 @@ import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
+import httpx
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -59,17 +61,18 @@ class OpenVASClient:
         self.password = password
         self.verify_ssl = verify_ssl
         self.timeout = timeout
+        self.session = httpx.AsyncClient(verify=self.verify_ssl, timeout=self.timeout)
         self.base_url = f"https://{host}:{port}"
         self.is_connected = False
 
     async def connect(self) -> bool:
-        """Conectar a OpenVAS y validar credenciales"""
         try:
-            logger.info(f"✓ OpenVAS conectado en {self.host}:{self.port}")
-            self.is_connected = True
-            return True
+            resp = await self.session.get(f"{self.base_url}/gmp", auth=(self.username, self.password))
+            self.is_connected = resp.status_code == 200
+            logger.info("✓ OpenVAS connected" if self.is_connected else "✗ OpenVAS failed")
+            return self.is_connected
         except Exception as e:
-            logger.error(f"✗ Error conectando a OpenVAS: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return False
 
     async def disconnect(self):
@@ -94,78 +97,60 @@ class OpenVASClient:
             logger.error(f"✗ Error obteniendo scanners: {str(e)}")
             return {}
 
-    async def create_target(
-        self,
-        target_ips: List[str],
-        target_name: str,
-        allow_simultaneous_ips: bool = False,
-    ) -> Optional[str]:
-        """Crear target (grupo de IPs) en OpenVAS"""
+    async def create_target(self, target_ips: List[str], target_name: str, allow_simultaneous_ips: bool = False) -> Optional[str]:
         if not self.is_connected:
-            logger.error("OpenVAS no conectado")
+            logger.error("OpenVAS not connected")
             return None
-
         try:
             hosts = ",".join(target_ips)
-            logger.info(f"→ Creando target: {target_name} con IPs: {hosts}")
-            target_id = f"target_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"✓ Target creado: {target_id}")
+            xml_body = f'<create_target><name>{target_name}</name><hosts>{hosts}</hosts></create_target>'
+            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            target_id = root.find(".//target/uuid").text if root.find(".//target/uuid") is not None else None
+            logger.info(f"✓ Target created: {target_id}")
             return target_id
         except Exception as e:
-            logger.error(f"✗ Error creando target: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return None
 
-    async def create_task(
-        self,
-        target_id: str,
-        task_name: str,
-        scanner_id: str = "08b69003-5fc2-45d1-a82e-ab9734732d91",
-    ) -> Optional[str]:
-        """Crear tarea de escaneo"""
+    async def create_task(self, target_id: str, task_name: str, scanner_id: str = "08b69003-5fc2-45d1-a82e-ab9734732d91") -> Optional[str]:
         if not self.is_connected:
-            logger.error("OpenVAS no conectado")
             return None
-
         try:
-            logger.info(f"→ Creando tarea: {task_name}")
-            task_id = f"task_{int(datetime.utcnow().timestamp())}"
-            logger.info(f"✓ Tarea creada: {task_id}")
+            xml_body = f'<create_task><name>{task_name}</name><target id="{target_id}"/><config id="{scanner_id}"/></create_task>'
+            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            task_id = root.find(".//task/uuid").text if root.find(".//task/uuid") is not None else None
+            logger.info(f"✓ Task created: {task_id}")
             return task_id
         except Exception as e:
-            logger.error(f"✗ Error creando tarea: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return None
 
     async def start_task(self, task_id: str) -> bool:
-        """Iniciar escaneo de una tarea"""
         if not self.is_connected:
-            logger.error("OpenVAS no conectado")
             return False
-
         try:
-            logger.info(f"→ Iniciando escaneo: {task_id}")
-            logger.info(f"✓ Escaneo iniciado: {task_id}")
-            return True
+            xml_body = f'<start_task task_id="{task_id}"/>'
+            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
+            logger.info(f"✓ Task started: {task_id}")
+            return resp.status_code == 200
         except Exception as e:
-            logger.error(f"✗ Error iniciando tarea: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return False
 
     async def get_task_status(self, task_id: str) -> Dict[str, Any]:
-        """Obtener estado de una tarea"""
         if not self.is_connected:
             return {"status": "DISCONNECTED"}
-
         try:
-            status = {
-                "task_id": task_id,
-                "status": "Done",
-                "progress": 100,
-                "report_count": 1,
-                "last_report": None,
-            }
-            logger.debug(f"Status de {task_id}: {status['progress']}%")
-            return status
+            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_tasks&task_id={task_id}", auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            status = root.find(".//task/status").text if root.find(".//task/status") is not None else "Running"
+            progress = root.find(".//task/progress").text if root.find(".//task/progress") is not None else "0"
+            logger.debug(f"Status {task_id}: {status} {progress}%")
+            return {"task_id": task_id, "status": status, "progress": int(progress) if progress.isdigit() else 0, "report_count": 1}
         except Exception as e:
-            logger.error(f"✗ Error obteniendo status: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return {}
 
     async def wait_for_task_completion(
@@ -191,37 +176,23 @@ class OpenVASClient:
         return False
 
     async def get_task_report(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Obtener reporte completo de una tarea"""
         if not self.is_connected:
             return None
-
         try:
-            report = {
-                "task_id": task_id,
-                "created": datetime.utcnow().isoformat(),
-                "results": [
-                    {
-                        "name": "SSL/TLS Weak Cipher Detected",
-                        "severity": "HIGH",
-                        "cvss": 7.5,
-                        "cve": "CVE-2023-1234",
-                        "description": "Server uses weak cipher suites",
-                        "host": "192.168.1.10",
-                    },
-                    {
-                        "name": "HTTP Missing Security Headers",
-                        "severity": "MEDIUM",
-                        "cvss": 5.3,
-                        "cve": None,
-                        "description": "Missing X-Frame-Options header",
-                        "host": "192.168.1.10",
-                    },
-                ],
-            }
-            logger.info(f"✓ Reporte obtenido: {len(report['results'])} hallazgos")
-            return report
+            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_reports&task_id={task_id}", auth=(self.username, self.password))
+            root = ET.fromstring(resp.text)
+            results = []
+            for result in root.findall(".//result"):
+                name = result.find("name").text if result.find("name") is not None else "Unknown"
+                severity = result.find("severity").text if result.find("severity") is not None else "0"
+                cve = result.find("cve").text if result.find("cve") is not None else None
+                host = result.find("host").text if result.find("host") is not None else "N/A"
+                cvss = float(severity) if severity.replace(".", "").isdigit() else 0
+                results.append({"name": name, "severity": severity, "cvss": cvss, "cve": cve, "host": host, "description": ""})
+            logger.info(f"✓ Report: {len(results)} findings")
+            return {"task_id": task_id, "created": datetime.utcnow().isoformat(), "results": results}
         except Exception as e:
-            logger.error(f"✗ Error obteniendo reporte: {str(e)}")
+            logger.error(f"✗ Error: {e}")
             return None
 
     async def normalize_findings(

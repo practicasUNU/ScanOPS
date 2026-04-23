@@ -22,6 +22,9 @@ app.conf.update(
     result_serializer='json',
     timezone='Europe/Madrid', # Ajustado a tu zona
     enable_utc=True,
+    worker_prefetch_multiplier=1,
+    worker_max_tasks_per_child=10,
+    task_acks_late=True,
     # ESTO CUMPLE LA US-2.7 (Programación automática)
     beat_schedule={
         'recon-lunes-madrugada': {
