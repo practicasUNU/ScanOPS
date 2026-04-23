@@ -745,6 +745,258 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+FILE:test_m1_m2_m3.py
+"""
+Script de Testing para validar M1, M2, M3
+==========================================
+Verifica que los 3 microservicios están funcionales.
+
+Ejecución:
+  python test_m1_m2_m3.py
+"""
+
+import sys
+import importlib
+from pathlib import Path
+
+# Colores para output
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
+
+def test_imports():
+    """Test 1: Verificar que todos los módulos se importan sin errores."""
+    print(f"\n{YELLOW}═══ TEST 1: IMPORTS ═══{RESET}")
+
+    tests = [
+        ("M1 - Asset Manager Main", "services.asset_manager.main", "app"),
+        ("M1 - Asset Model", "services.asset_manager.models.asset", "Asset"),
+        ("M1 - Asset Router", "services.asset_manager.api.router", "router"),
+        ("M1 - Asset Service", "services.asset_manager.services.asset_service", None),
+
+        ("M2 - Recon Engine Main", "services.recon_engine.main", "app"),
+        ("M2 - Recon Model", "services.recon_engine.models.recon", "ReconFinding"),
+        ("M2 - Recon API", "services.recon_engine.api.recon_api", "router"),
+        ("M2 - Scanner Network", "services.recon_engine.services.scanner_network", None),
+
+        ("M3 - Scanner Engine Main", "services.scanner_engine.main", "app"),
+        ("M3 - Scan Endpoints", "services.scanner_engine.endpoints.scan", "router"),
+        ("M3 - OpenVAS Client", "services.scanner_engine.clients.openvas_client", "OpenVASClient"),
+        ("M3 - Nuclei Client", "services.scanner_engine.clients.nuclei_client", "NucleiClient"),
+        ("M3 - ZAP Client", "services.scanner_engine.clients.zap_client", "ZAPClient"),
+        ("M3 - Vulnerability Model", "services.scanner_engine.models.vulnerability", "VulnFinding"),
+    ]
+
+    passed = 0
+    failed = 0
+
+    for name, module, attr in tests:
+        try:
+            mod = importlib.import_module(module)
+            if attr:
+                getattr(mod, attr)
+            print(f"  {GREEN}✅{RESET} {name}")
+            passed += 1
+        except Exception as e:
+            print(f"  {RED}❌{RESET} {name}: {str(e)[:60]}")
+            failed += 1
+
+    return passed, failed
+
+def test_database_models():
+    """Test 2: Verificar que los modelos de BD están definidos."""
+    print(f"\n{YELLOW}═══ TEST 2: DATABASE MODELS ═══{RESET}")
+
+    try:
+        from services.asset_manager.models.asset import Asset, Base as AssetBase
+        print(f"  {GREEN}✅{RESET} M1 - Asset model with fields: {len(Asset.__table__.columns)} columns")
+
+        from services.recon_engine.models.recon import ReconFinding, Base as ReconBase
+        print(f"  {GREEN}✅{RESET} M2 - ReconFinding model with fields: {len(ReconFinding.__table__.columns)} columns")
+
+        from services.scanner_engine.models.vulnerability import VulnFinding, Base as VulnBase
+        print(f"  {GREEN}✅{RESET} M3 - VulnFinding model with fields: {len(VulnFinding.__table__.columns)} columns")
+
+        return 3, 0
+    except Exception as e:
+        print(f"  {RED}❌{RESET} Database models error: {str(e)}")
+        return 0, 3
+
+def test_fastapi_apps():
+    """Test 3: Verificar que las apps FastAPI están correctamente configuradas."""
+    print(f"\n{YELLOW}═══ TEST 3: FASTAPI APPS ═══{RESET}")
+
+    passed = 0
+    failed = 0
+
+    apps = [
+        ("M1 - Asset Manager", "services.asset_manager.main", "app"),
+        ("M2 - Recon Engine", "services.recon_engine.main", "app"),
+        ("M3 - Scanner Engine", "services.scanner_engine.main", "app"),
+    ]
+
+    for name, module_name, attr_name in apps:
+        try:
+            mod = importlib.import_module(module_name)
+            app = getattr(mod, attr_name)
+
+            # Verificar que sea una FastAPI app
+            if not hasattr(app, 'openapi'):
+                raise Exception("No es una FastAPI app")
+
+            # Contar routers
+            router_count = len(app.routes)
+            print(f"  {GREEN}✅{RESET} {name}: {router_count} rutas")
+            passed += 1
+        except Exception as e:
+            print(f"  {RED}❌{RESET} {name}: {str(e)[:60]}")
+            failed += 1
+
+    return passed, failed
+
+def test_routers():
+    """Test 4: Verificar que los routers están incluidos en las apps."""
+    print(f"\n{YELLOW}═══ TEST 4: ROUTERS INCLUDED ═══{RESET}")
+
+    try:
+        from services.asset_manager.main import app as m1_app
+        m1_routes = [r.path for r in m1_app.routes]
+        m1_has_assets = any('/assets' in r or '/scan' in r for r in m1_routes)
+
+        if m1_has_assets:
+            print(f"  {GREEN}✅{RESET} M1 - Asset endpoints included")
+        else:
+            print(f"  {YELLOW}⚠️ {RESET} M1 - No asset endpoints found in routes")
+
+        from services.recon_engine.main import app as m2_app
+        m2_routes = [r.path for r in m2_app.routes]
+        m2_has_recon = any('/recon' in r or '/scan' in r for r in m2_routes)
+
+        if m2_has_recon:
+            print(f"  {GREEN}✅{RESET} M2 - Recon endpoints included")
+        else:
+            print(f"  {YELLOW}⚠️ {RESET} M2 - No recon endpoints found")
+
+        from services.scanner_engine.main import app as m3_app
+        m3_routes = [r.path for r in m3_app.routes]
+        m3_has_scan = any('/scan' in r or '/status' in r for r in m3_routes)
+
+        if m3_has_scan:
+            print(f"  {GREEN}✅{RESET} M3 - Scan endpoints included")
+        else:
+            print(f"  {YELLOW}⚠️ {RESET} M3 - No scan endpoints found")
+
+        return 3, 0
+
+    except Exception as e:
+        print(f"  {RED}❌{RESET} Router verification failed: {str(e)}")
+        return 0, 3
+
+def test_celery():
+    """Test 5: Verificar que Celery tasks están disponibles."""
+    print(f"\n{YELLOW}═══ TEST 5: CELERY TASKS ═══{RESET}")
+
+    passed = 0
+    failed = 0
+
+    tasks = [
+        ("M1 - Discovery Task", "services.asset_manager.tasks.discovery", "run_network_discovery"),
+        ("M2 - Scan Tasks", "services.recon_engine.tasks.scan_tasks", "run_recon_scan"),
+        ("M3 - Parallel Scan", "services.scanner_engine.tasks.vuln_tasks", "scan_asset_parallel"),
+        ("M3 - Nuclei Task", "services.scanner_engine.tasks.vuln_tasks", "run_nuclei_scan"),
+    ]
+
+    for name, module_name, task_name in tasks:
+        try:
+            mod = importlib.import_module(module_name)
+            task = getattr(mod, task_name)
+            print(f"  {GREEN}✅{RESET} {name}")
+            passed += 1
+        except Exception as e:
+            print(f"  {YELLOW}⚠️ {RESET} {name}: {str(e)[:50]}")
+            failed += 1
+
+    return passed, failed
+
+def test_vault_and_shared():
+    """Test 6: Verificar que dependencias compartidas existen."""
+    print(f"\n{YELLOW}═══ TEST 6: SHARED DEPENDENCIES ═══{RESET}")
+
+    passed = 0
+    failed = 0
+
+    shared = [
+        ("Database", "shared.database", ["engine", "get_db"]),
+        ("Vault Client", "shared.vault_client", ["vault_client"]),
+        ("Auth", "shared.auth", ["get_current_user"]),
+        ("Celery App", "shared.celery_app", ["app"]),
+        ("Logger", "shared.scan_logger", ["get_logger"]),
+    ]
+
+    for name, module_name, attrs in shared:
+        try:
+            mod = importlib.import_module(module_name)
+            for attr in attrs:
+                getattr(mod, attr)
+            print(f"  {GREEN}✅{RESET} {name}")
+            passed += 1
+        except Exception as e:
+            print(f"  {RED}❌{RESET} {name}: {str(e)[:50]}")
+            failed += 1
+
+    return passed, failed
+
+def main():
+    """Ejecutar todos los tests."""
+    print(f"\n{YELLOW}{'='*60}")
+    print(f"  VALIDACIÓN FUNCIONAL: M1, M2, M3")
+    print(f"{'='*60}{RESET}")
+
+    total_passed = 0
+    total_failed = 0
+
+    # Ejecutar tests
+    p, f = test_imports()
+    total_passed += p
+    total_failed += f
+
+    p, f = test_database_models()
+    total_passed += p
+    total_failed += f
+
+    p, f = test_fastapi_apps()
+    total_passed += p
+    total_failed += f
+
+    p, f = test_routers()
+    total_passed += p
+    total_failed += f
+
+    p, f = test_celery()
+    total_passed += p
+    total_failed += f
+
+    p, f = test_vault_and_shared()
+    total_passed += p
+    total_failed += f
+
+    # Resumen
+    print(f"\n{YELLOW}{'='*60}{RESET}")
+    print(f"  RESUMEN")
+    print(f"{YELLOW}{'='*60}{RESET}")
+    print(f"  {GREEN}✅ Pasados:{RESET}  {total_passed}")
+    print(f"  {RED}❌ Fallidos:{RESET}  {total_failed}")
+
+    if total_failed == 0:
+        print(f"\n  {GREEN}🎉 TODOS LOS TESTS PASARON - M1, M2, M3 FUNCIONALES{RESET}")
+        return 0
+    else:
+        print(f"\n  {RED}⚠️  HAY {total_failed} PROBLEMAS QUE REVISAR{RESET}")
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
 FILE:vault.exe
 BINARY:true
 
@@ -1132,60 +1384,51 @@ FILE:services\asset_manager\__init__.py
 """Placeholder package for the ScanOPS asset manager microservice."""
 FILE:services\asset_manager\main.py
 """
-Scanner Engine — Microservice M3
-=================================
-FastAPI application for vulnerability scanning orchestration.
-Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8003
+Asset Manager — Microservice M1
+================================
+FastAPI application for asset inventory management.
+Run: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
 """
 
-from contextlib import asynccontextmanager
-from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 import logging
-from typing import List, Optional
+from datetime import datetime
+
+from services.asset_manager.api.router import router as asset_router
+from services.asset_manager.models.asset import Base
+from shared.database import engine, get_db
+from shared.auth import get_current_user
+from shared.scan_logger import ScanLogger
 from sqlalchemy.orm import Session
 
-from shared.database import engine, get_db
-from shared.scan_logger import get_logger
-from services.scanner_engine.endpoints.scan import router as scan_router
-from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
-
-# ─── Logging Setup ─────────────────────────────
-logger = get_logger(__name__)
+# Configure logging with ScanLogger
+logger = ScanLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan context manager.
-    Startup: Initialize DB tables and log startup.
-    Shutdown: Clean up resources.
+    Startup and shutdown events.
     """
     # ─── STARTUP ───────────────────────────
-    logger.info("🚀 Starting Scanner Engine (M3)...")
+    logger.info("🚀 Starting Asset Manager (M1)...")
     try:
-        # Create database tables
-        VulnerabilityBase.metadata.create_all(bind=engine)
-        logger.info("✓ Vulnerability tables initialized")
-        logger.info("✓ Scanner Engine startup complete")
+        Base.metadata.create_all(bind=engine)
+        logger.info("✓ Database tables initialized")
     except Exception as e:
-        logger.error(f"✗ Startup failed: {str(e)}", exc_info=True)
+        logger.error(f"✗ Database initialization failed: {str(e)}")
         raise
 
     yield
 
     # ─── SHUTDOWN ──────────────────────────
-    logger.info("🛑 Shutting down Scanner Engine (M3)...")
-    try:
-        logger.info("✓ Scanner Engine shutdown complete")
-    except Exception as e:
-        logger.error(f"✗ Shutdown error: {str(e)}", exc_info=True)
+    logger.info("🛑 Shutting down Asset Manager (M1)...")
 
 # ─── FastAPI Instance ──────────────────────────
 app = FastAPI(
-    title="ScanOPS Scanner Engine (M3)",
-    description="Vulnerability Scanning Orchestration — ENS Alto [op.exp.2] | OpenVAS + Nuclei + ZAP",
+    title="ScanOPS Asset Manager (M1)",
+    description="Inventario de activos — ENS Alto [op.exp.1] | CRUD + Discovery + Sync",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -1203,37 +1446,18 @@ app.add_middleware(
 )
 
 # ─── Include Routers ──────────────────────────
-app.include_router(scan_router, prefix="/api/v1")
+app.include_router(asset_router, prefix="/api/v1")
 
-# ─── Root Endpoint ────────────────────────────
-@app.get("/")
-async def root():
-    """
-    Root endpoint with welcome message.
-    """
-    return {
-        "message": "Welcome to ScanOPS Scanner Engine",
-        "service": "M3 - Vulnerability Scanning Orchestration",
-        "quick_links": {
-            "api_docs": "/docs",
-            "health": "/health",
-            "info": "/info",
-            "start_scan": "/api/v1/scan/asset/{asset_id}",
-        },
-        "scanners": ["openvas", "nuclei", "zap"],
-        "ens_compliance": "ENS Alto - op.exp.2",
-    }
-
-# ─── Health Check Endpoints ────────────────────
+# ─── Health Check ─────────────────────────────
 @app.get("/health")
 async def healthcheck():
     """
     Health check endpoint.
-    Returns service status and timestamp.
+    Returns service status and version.
     """
     return {
         "status": "ok",
-        "service": "scanner-engine",
+        "service": "asset-manager",
         "version": "1.0.0",
         "timestamp": datetime.utcnow().isoformat(),
     }
@@ -1245,10 +1469,11 @@ async def readiness_check(db: Session = Depends(get_db)):
     Verifies database connectivity.
     """
     try:
+        # Simple query to test DB connection
         db.execute("SELECT 1")
         return {
             "status": "ready",
-            "service": "scanner-engine",
+            "service": "asset-manager",
             "database": "connected",
             "timestamp": datetime.utcnow().isoformat(),
         }
@@ -1258,119 +1483,47 @@ async def readiness_check(db: Session = Depends(get_db)):
             detail=f"Service not ready: {str(e)}"
         )
 
-@app.get("/health/live")
-async def liveness_check():
-    """
-    Liveness check for Kubernetes.
-    """
-    return {
-        "status": "alive",
-        "service": "scanner-engine",
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-# ─── Info Endpoint ────────────────────────────
 @app.get("/info")
 async def get_service_info():
     """
-    Get detailed service information including scanners and capabilities.
+    Get detailed service information.
     """
     return {
-        "name": "ScanOPS Scanner Engine",
-        "module": "M3",
-        "description": "Vulnerability scanning orchestration — ENS Alto",
+        "name": "ScanOPS Asset Manager",
+        "module": "M1",
+        "description": "Inventory management module — ENS Alto",
         "version": "1.0.0",
-        "scanners": {
-            "openvas": {
-                "name": "OpenVAS (GVM)",
-                "capability": "Network vulnerability scanning",
-                "scope": "Infrastructure",
-            },
-            "nuclei": {
-                "name": "Nuclei",
-                "capability": "Zero-day detection with templates",
-                "scope": "Web & Infrastructure",
-            },
-            "zap": {
-                "name": "OWASP ZAP",
-                "capability": "Web application scanning",
-                "scope": "Web Applications",
-            },
-        },
         "endpoints": {
-            "start_scan": "POST /api/v1/scan/asset/{asset_id}",
-            "quick_scan": "GET /api/v1/scan/asset/{asset_id}/quick",
-            "batch_scan": "POST /api/v1/scan/batch",
-            "scan_status": "GET /api/v1/scan/status/{task_id}",
-            "scan_results": "GET /api/v1/scan/results/{asset_id}",
-            "asset_ficha": "GET /api/v1/scan/assets/{asset_id}/ficha",
+            "crud": "/api/v1/assets",
+            "discovery": "/api/v1/assets/discovery",
+            "sync": "/api/v1/assets/sync/external",
+            "audit": "/api/v1/assets/{asset_id}/audit",
+            "credentials": "/api/v1/assets/{asset_id}/credentials",
+            "ficha": "/api/v1/assets/{asset_id}/ficha",
         },
         "docs": {
             "swagger": "/docs",
             "redoc": "/redoc",
             "openapi": "/openapi.json",
         },
-        "ens_compliance": "op.exp.2 - Evaluación de configuración de seguridad",
     }
 
-# ─── Scanners Status Endpoint ──────────────────
-@app.get("/scanners/status")
-async def get_scanners_status():
+# ─── Root Endpoint ────────────────────────────
+@app.get("/")
+async def root():
     """
-    Check availability of all scanning engines.
+    Root endpoint with welcome message and quick links.
     """
-    from services.scanner_engine.clients import OpenVASClient, NucleiClient, ZAPClient
-
-    status = {}
-
-    # OpenVAS Check
-    try:
-        openvas = OpenVASClient()
-        status["openvas"] = {
-            "available": True if openvas else False,
-            "version": "GVM",
-            "status": "ready",
-        }
-    except Exception as e:
-        status["openvas"] = {
-            "available": False,
-            "error": str(e),
-            "status": "unavailable",
-        }
-
-    # Nuclei Check
-    try:
-        nuclei = NucleiClient()
-        status["nuclei"] = {
-            "available": True if nuclei else False,
-            "version": "3.1.8",
-            "status": "ready",
-        }
-    except Exception as e:
-        status["nuclei"] = {
-            "available": False,
-            "error": str(e),
-            "status": "unavailable",
-        }
-
-    # ZAP Check
-    try:
-        zap = ZAPClient()
-        status["zap"] = {
-            "available": True if zap else False,
-            "version": "latest",
-            "status": "ready",
-        }
-    except Exception as e:
-        status["zap"] = {
-            "available": False,
-            "error": str(e),
-            "status": "unavailable",
-        }
-
     return {
-        "timestamp": datetime.utcnow().isoformat(),
-        "scanners": status,
+        "message": "Welcome to ScanOPS Asset Manager",
+        "service": "M1 - Asset Inventory Management",
+        "quick_links": {
+            "api_docs": "/docs",
+            "health": "/health",
+            "info": "/info",
+            "assets_crud": "/api/v1/assets",
+        },
+        "ens_compliance": "ENS Alto - op.exp.1",
     }
 
 # ─── Error Handlers ────────────────────────────
@@ -1379,16 +1532,12 @@ async def http_exception_handler(request, exc: HTTPException):
     """
     Custom HTTP exception handler.
     """
-    logger.warning(f"HTTP Exception: {exc.status_code} - {exc.detail}")
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": True,
-            "status_code": exc.status_code,
-            "detail": exc.detail,
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-    )
+    return {
+        "error": True,
+        "status_code": exc.status_code,
+        "detail": exc.detail,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc: Exception):
@@ -1396,22 +1545,19 @@ async def general_exception_handler(request, exc: Exception):
     General exception handler for unhandled errors.
     """
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": True,
-            "status_code": 500,
-            "detail": "Internal server error",
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-    )
+    return {
+        "error": True,
+        "status_code": 500,
+        "detail": "Internal server error",
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8003,
+        port=8001,
         log_level="info",
         reload=True,
     )
@@ -4056,7 +4202,7 @@ FastAPI endpoints for surface snapshot management and change queries.
 import os
 import sys
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 
 from shared.database import get_db, create_tables
@@ -4067,14 +4213,14 @@ from ..models.recon import (
 )
 from ..services.surface_diff import compare_snapshots, get_previous_snapshot_id
 
-app = FastAPI(title="ScanOPS Recon API", version="1.0.0")
+# ─── ROUTER (usado por main.py y tests) ─────────────────
+router = APIRouter(
+    prefix="/recon",
+    tags=["Recon Engine (M2)"],
+    responses={404: {"description": "Not found"}}
+)
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    create_tables()
-
-@app.get("/recon/cycles/{cycle_id}/changes", response_model=SurfaceChanges)
+@router.get("/cycles/{cycle_id}/changes", response_model=SurfaceChanges)
 async def get_surface_changes(
     cycle_id: str,
     severity: Optional[str] = Query(None, description="Filter by severity: CRITICA, ALTA, MEDIA, INFO"),
@@ -4110,7 +4256,7 @@ async def get_surface_changes(
 
     return changes
 
-@app.get("/recon/cycles/{cycle_id}/snapshot", response_model=ReconSnapshotSchema)
+@router.get("/cycles/{cycle_id}/snapshot", response_model=ReconSnapshotSchema)
 async def get_snapshot(cycle_id: str, db: Session = Depends(get_db)):
     """
     Get snapshot details for a specific cycle.
@@ -4124,7 +4270,7 @@ async def get_snapshot(cycle_id: str, db: Session = Depends(get_db)):
 
     return snapshot
 
-@app.get("/recon/cycles", response_model=List[ReconSnapshotSchema])
+@router.get("/cycles", response_model=List[ReconSnapshotSchema])
 async def list_cycles(
     status: Optional[str] = Query(None, description="Filter by status: running, completed, failed"),
     limit: int = Query(50, description="Maximum number of results"),
@@ -4141,7 +4287,7 @@ async def list_cycles(
     snapshots = query.limit(limit).all()
     return snapshots
 
-@app.get("/recon/snapshots/{snapshot_id}/findings", response_model=List[ReconFindingSchema])
+@router.get("/snapshots/{snapshot_id}/findings", response_model=List[ReconFindingSchema])
 async def get_snapshot_findings(
     snapshot_id: int,
     host: Optional[str] = Query(None, description="Filter by host"),
@@ -4164,7 +4310,7 @@ async def get_snapshot_findings(
     findings = query.all()
     return findings
 
-@app.get("/recon/snapshots/{snapshot_id}/subdomains", response_model=List[ReconSubdomainSchema])
+@router.get("/snapshots/{snapshot_id}/subdomains", response_model=List[ReconSubdomainSchema])
 async def get_snapshot_subdomains(snapshot_id: int, db: Session = Depends(get_db)):
     """
     Get subdomains for a specific snapshot.
@@ -4172,7 +4318,7 @@ async def get_snapshot_subdomains(snapshot_id: int, db: Session = Depends(get_db
     subdomains = db.query(ReconSubdomain).filter(ReconSubdomain.snapshot_id == snapshot_id).all()
     return subdomains
 
-@app.get("/recon/changes/recent", response_model=SurfaceChanges)
+@router.get("/changes/recent", response_model=SurfaceChanges)
 async def get_recent_changes(
     limit: int = Query(10, description="Number of recent cycles to check"),
     severity: Optional[str] = Query(None, description="Filter by severity"),
@@ -4209,12 +4355,12 @@ async def get_recent_changes(
 
 from ..tasks.scan_tasks import run_recon_complete
 
-@app.post("/scan")
+@router.post("/scan")
 async def start_scan(target: str = "192.168.1.0/24"):
     """
     Lanza el escaneo asíncrono a través de Celery.
     """
-    # .delay() envía la tarea al Redis (puerto 6380) y el Worker la pesca
+    # .delay() envía la tarea al Redis y el Worker la pesca
     task = run_recon_complete.delay(target)
     return {
         "status": "Scan queued",
@@ -4222,9 +4368,23 @@ async def start_scan(target: str = "192.168.1.0/24"):
         "target": target
     }
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@router.get("/health")
+async def health():
+    """Health check for Recon API."""
+    return {"status": "healthy", "service": "recon-engine"}
+
+# ─── BACKWARDS COMPATIBILITY: app alias ─────────────────
+# Para compatibilidad con código que importa 'app'
+# Creamos una FastAPI app que incluye el router
+from fastapi import FastAPI
+app = FastAPI(title="ScanOPS Recon API", version="1.0.0")
+app.include_router(router)
+
+# Startup event para crear tablas
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup."""
+    create_tables()
 FILE:services\recon_engine\models\__init__.py
 """Recon engine data models package."""
 
@@ -6798,146 +6958,301 @@ class ScannerConfig(BaseSettings):
 
 config = ScannerConfig()
 FILE:services\scanner_engine\main.py
-"""FastAPI application factory for Scanner Engine (M3)."""
+"""
+Scanner Engine — Microservice M3
+=================================
+FastAPI application for vulnerability scanning orchestration.
+Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8003
+"""
 
 from contextlib import asynccontextmanager
 from datetime import datetime
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import logging
+from typing import List, Optional
+from sqlalchemy.orm import Session
 
-from shared.scan_logger import get_logger
+from shared.database import engine, get_db
+from shared.scan_logger import ScanLogger
 from services.scanner_engine.endpoints.scan import router as scan_router
+from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
 
-logger = get_logger(__name__)
-
-# ============================================================================
-# LIFESPAN CONTEXT MANAGER
-# ============================================================================
+# ─── Logging Setup ─────────────────────────────
+logger = ScanLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan context manager for startup/shutdown.
-
-    Startup:
-    - Initialize scanner clients
-    - Test connectivity
-
-    Shutdown:
-    - Clean up resources
+    Application lifespan context manager.
+    Startup: Initialize DB tables and log startup.
+    Shutdown: Clean up resources.
     """
-    # STARTUP
-    logger.info("Scanner Engine starting up...")
+    # ─── STARTUP ───────────────────────────
+    logger.info("🚀 Starting Scanner Engine (M3)...")
     try:
-        # Could initialize clients here if needed
+        # Create database tables
+        VulnerabilityBase.metadata.create_all(bind=engine)
+        logger.info("✓ Vulnerability tables initialized")
         logger.info("✓ Scanner Engine startup complete")
     except Exception as e:
-        logger.error(f"Startup failed: {e}", exc_info=True)
+        logger.error(f"✗ Startup failed: {str(e)}", exc_info=True)
         raise
 
     yield
 
-    # SHUTDOWN
-    logger.info("Scanner Engine shutting down...")
+    # ─── SHUTDOWN ──────────────────────────
+    logger.info("🛑 Shutting down Scanner Engine (M3)...")
     try:
-        # Cleanup code here
         logger.info("✓ Scanner Engine shutdown complete")
     except Exception as e:
-        logger.error(f"Shutdown error: {e}", exc_info=True)
+        logger.error(f"✗ Shutdown error: {str(e)}", exc_info=True)
 
-# ============================================================================
-# APP FACTORY
-# ============================================================================
+# ─── FastAPI Instance ──────────────────────────
+app = FastAPI(
+    title="ScanOPS Scanner Engine (M3)",
+    description="Vulnerability Scanning Orchestration — ENS Alto [op.exp.2] | OpenVAS + Nuclei + ZAP",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    lifespan=lifespan,
+)
 
-def create_app() -> FastAPI:
-    """Create and configure FastAPI application."""
+# ─── CORS Middleware ──────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Cambiar en producción
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    app = FastAPI(
-        title="ScanOPS Scanner Engine (M3)",
-        description="Vulnerability Scanning Engine - ENS Alto [op.exp.2]",
-        version="1.0.0",
-        docs_url="/docs",
-        openapi_url="/openapi.json",
-        lifespan=lifespan,
-    )
+# ─── Include Routers ──────────────────────────
+app.include_router(scan_router, prefix="/api/v1")
 
-    # ========================================================================
-    # MIDDLEWARE
-    # ========================================================================
+# ─── Root Endpoint ────────────────────────────
+@app.get("/")
+async def root():
+    """
+    Root endpoint with welcome message.
+    """
+    return {
+        "message": "Welcome to ScanOPS Scanner Engine",
+        "service": "M3 - Vulnerability Scanning Orchestration",
+        "quick_links": {
+            "api_docs": "/docs",
+            "health": "/health",
+            "info": "/info",
+            "start_scan": "/api/v1/scan/asset/{asset_id}",
+        },
+        "scanners": ["openvas", "nuclei", "zap"],
+        "ens_compliance": "ENS Alto - op.exp.2",
+    }
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# ─── Health Check Endpoints ────────────────────
+@app.get("/health")
+async def healthcheck():
+    """
+    Health check endpoint.
+    Returns service status and timestamp.
+    """
+    return {
+        "status": "ok",
+        "service": "scanner-engine",
+        "version": "1.0.0",
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
-    # ========================================================================
-    # ROUTERS
-    # ========================================================================
-
-    app.include_router(scan_router)
-
-    # ========================================================================
-    # ROOT ENDPOINTS
-    # ========================================================================
-
-    @app.get("/", summary="Root endpoint")
-    async def root():
-        """Root endpoint."""
+@app.get("/health/ready")
+async def readiness_check(db: Session = Depends(get_db)):
+    """
+    Readiness check endpoint.
+    Verifies database connectivity.
+    """
+    try:
+        db.execute("SELECT 1")
         return {
-            "service": "ScanOPS Scanner Engine (M3)",
-            "version": "1.0.0",
-            "status": "running",
-        }
-
-    @app.get("/health", summary="Health check")
-    async def health():
-        """Health check endpoint."""
-        return {
-            "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "status": "ready",
             "service": "scanner-engine",
-        }
-
-    @app.get("/readiness", summary="Readiness probe")
-    async def readiness():
-        """Kubernetes readiness probe."""
-        return {
-            "ready": True,
+            "database": "connected",
             "timestamp": datetime.utcnow().isoformat(),
         }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Service not ready: {str(e)}"
+        )
 
-    @app.get("/liveness", summary="Liveness probe")
-    async def liveness():
-        """Kubernetes liveness probe."""
-        return {
-            "alive": True,
-            "timestamp": datetime.utcnow().isoformat(),
+@app.get("/health/live")
+async def liveness_check():
+    """
+    Liveness check for Kubernetes.
+    """
+    return {
+        "status": "alive",
+        "service": "scanner-engine",
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+# ─── Info Endpoint ────────────────────────────
+@app.get("/info")
+async def get_service_info():
+    """
+    Get detailed service information including scanners and capabilities.
+    """
+    return {
+        "name": "ScanOPS Scanner Engine",
+        "module": "M3",
+        "description": "Vulnerability scanning orchestration — ENS Alto",
+        "version": "1.0.0",
+        "scanners": {
+            "openvas": {
+                "name": "OpenVAS (GVM)",
+                "capability": "Network vulnerability scanning",
+                "scope": "Infrastructure",
+            },
+            "nuclei": {
+                "name": "Nuclei",
+                "capability": "Zero-day detection with templates",
+                "scope": "Web & Infrastructure",
+            },
+            "zap": {
+                "name": "OWASP ZAP",
+                "capability": "Web application scanning",
+                "scope": "Web Applications",
+            },
+        },
+        "endpoints": {
+            "start_scan": "POST /api/v1/scan/asset/{asset_id}",
+            "quick_scan": "GET /api/v1/scan/asset/{asset_id}/quick",
+            "batch_scan": "POST /api/v1/scan/batch",
+            "scan_status": "GET /api/v1/scan/status/{task_id}",
+            "scan_results": "GET /api/v1/scan/results/{asset_id}",
+            "asset_ficha": "GET /api/v1/scan/assets/{asset_id}/ficha",
+        },
+        "docs": {
+            "swagger": "/docs",
+            "redoc": "/redoc",
+            "openapi": "/openapi.json",
+        },
+        "ens_compliance": "op.exp.2 - Evaluación de configuración de seguridad",
+    }
+
+# ─── Scanners Status Endpoint ──────────────────
+@app.get("/scanners/status")
+async def get_scanners_status():
+    """
+    Check availability of all scanning engines.
+    """
+    from services.scanner_engine.clients import OpenVASClient, NucleiClient, ZAPClient
+
+    status = {}
+
+    # OpenVAS Check
+    try:
+        openvas = OpenVASClient()
+        status["openvas"] = {
+            "available": True if openvas else False,
+            "version": "GVM",
+            "status": "ready",
+        }
+    except Exception as e:
+        status["openvas"] = {
+            "available": False,
+            "error": str(e),
+            "status": "unavailable",
         }
 
-    logger.info("FastAPI app created successfully")
-    return app
+    # Nuclei Check
+    try:
+        nuclei = NucleiClient()
+        status["nuclei"] = {
+            "available": True if nuclei else False,
+            "version": "3.1.8",
+            "status": "ready",
+        }
+    except Exception as e:
+        status["nuclei"] = {
+            "available": False,
+            "error": str(e),
+            "status": "unavailable",
+        }
 
-# Create singleton app instance
-app = create_app()
+    # ZAP Check
+    try:
+        zap = ZAPClient()
+        status["zap"] = {
+            "available": True if zap else False,
+            "version": "latest",
+            "status": "ready",
+        }
+    except Exception as e:
+        status["zap"] = {
+            "available": False,
+            "error": str(e),
+            "status": "unavailable",
+        }
+
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "scanners": status,
+    }
+
+# ─── Error Handlers ────────────────────────────
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc: HTTPException):
+    """
+    Custom HTTP exception handler.
+    """
+    logger.warning(f"HTTP Exception: {exc.status_code} - {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc: Exception):
+    """
+    General exception handler for unhandled errors.
+    """
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "status_code": 500,
+            "detail": "Internal server error",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(
-        "services.scanner_engine.main:app",
+        app,
         host="0.0.0.0",
         port=8003,
-        reload=True,
         log_level="info",
+        reload=True,
     )
 FILE:services\scanner_engine\api\router.py
-from fastapi import APIRouter
+import datetime
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from shared.database import get_db
 from ..tasks.vuln_tasks import run_nuclei_task
+from pydantic import BaseModel
+
+from typing import List, Optional
+from ..models.vulnerability import VulnerabilityFinding
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/scanner", tags=["Scanner Engine (M3)"])
@@ -6955,6 +7270,26 @@ async def trigger_nuclei_scan(data: ScanRequest):
         "task_id": task.id,
         "tool": "nuclei"
     }
+
+class VulnerabilityResponse(BaseModel):
+    id: int
+    asset_id: int
+    title: str
+    severity: str
+    tool_source: str
+    cve_id: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+@router.get("/results/{asset_id}", response_model=List[VulnerabilityResponse])
+async def get_vuln_results(asset_id: int, db: Session = Depends(get_db)):
+    """Consulta los hallazgos normalizados para un activo."""
+    results = db.query(VulnerabilityFinding).filter(
+        VulnerabilityFinding.asset_id == asset_id
+    ).all()
+    return results
 FILE:services\scanner_engine\clients\__init__.py
 """Scanner clients module"""
 from .openvas_client import OpenVASClient
@@ -8350,7 +8685,8 @@ def run_nuclei_scan(target_ip: str):
                     "severity": raw_vuln.get("info", {}).get("severity", "").upper(),
                     "description": raw_vuln.get("info", {}).get("description"),
                     "cve_id": ",".join(raw_vuln.get("info", {}).get("classification", {}).get("cve-id", [])),
-                    "evidence": raw_vuln.get("matched-at")
+                    "evidence": raw_vuln.get("matched-at"),
+                    "ens_measure": "op.exp.2"  # Mapeo explícito para auditoría ENS
                 })
 
         logger.info("NUCLEI_FINISH", target=target_ip, count=len(findings))

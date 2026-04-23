@@ -284,12 +284,13 @@ async def general_exception_handler(request, exc: Exception):
     )
  
  
+# services/scanner_engine/main.py
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8003,
+        port=8002,  # <--- Cambiar de 8003 a 8002 para consistencia
         log_level="info",
         reload=True,
     )

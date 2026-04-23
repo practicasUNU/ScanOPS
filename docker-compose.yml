@@ -56,5 +56,20 @@ services:
     networks:
       - scanops
 
+  # services/scanner_engine (M3)
+  scanner-engine:
+    build: .
+    container_name: scanops-scanner-engine
+    ports:
+      - "8002:8002"
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - scanops
 volumes:
   pgdata:
