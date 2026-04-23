@@ -19,7 +19,7 @@ RESET = "\033[0m"
 
 def test_imports():
     """Test 1: Verificar que todos los módulos se importan sin errores."""
-    print(f"\n{YELLOW}═══ TEST 1: IMPORTS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 1: IMPORTS ---{RESET}")
     
     tests = [
         ("M1 - Asset Manager Main", "services.asset_manager.main", "app"),
@@ -48,10 +48,10 @@ def test_imports():
             mod = importlib.import_module(module)
             if attr:
                 getattr(mod, attr)
-            print(f"  {GREEN}✅{RESET} {name}")
+            print(f"  {GREEN}[OK]{RESET} {name}")
             passed += 1
         except Exception as e:
-            print(f"  {RED}❌{RESET} {name}: {str(e)[:60]}")
+            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:60]}")
             failed += 1
     
     return passed, failed
@@ -59,27 +59,27 @@ def test_imports():
 
 def test_database_models():
     """Test 2: Verificar que los modelos de BD están definidos."""
-    print(f"\n{YELLOW}═══ TEST 2: DATABASE MODELS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 2: DATABASE MODELS ---{RESET}")
     
     try:
         from services.asset_manager.models.asset import Asset, Base as AssetBase
-        print(f"  {GREEN}✅{RESET} M1 - Asset model with fields: {len(Asset.__table__.columns)} columns")
+        print(f"  {GREEN}[OK]{RESET} M1 - Asset model with fields: {len(Asset.__table__.columns)} columns")
         
         from services.recon_engine.models.recon import ReconFinding, Base as ReconBase
-        print(f"  {GREEN}✅{RESET} M2 - ReconFinding model with fields: {len(ReconFinding.__table__.columns)} columns")
+        print(f"  {GREEN}[OK]{RESET} M2 - ReconFinding model with fields: {len(ReconFinding.__table__.columns)} columns")
         
         from services.scanner_engine.models.vulnerability import VulnFinding, Base as VulnBase
-        print(f"  {GREEN}✅{RESET} M3 - VulnFinding model with fields: {len(VulnFinding.__table__.columns)} columns")
+        print(f"  {GREEN}[OK]{RESET} M3 - VulnFinding model with fields: {len(VulnFinding.__table__.columns)} columns")
         
         return 3, 0
     except Exception as e:
-        print(f"  {RED}❌{RESET} Database models error: {str(e)}")
+        print(f"  {RED}[FAIL]{RESET} Database models error: {str(e)}")
         return 0, 3
 
 
 def test_fastapi_apps():
     """Test 3: Verificar que las apps FastAPI están correctamente configuradas."""
-    print(f"\n{YELLOW}═══ TEST 3: FASTAPI APPS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 3: FASTAPI APPS ---{RESET}")
     
     passed = 0
     failed = 0
@@ -101,10 +101,10 @@ def test_fastapi_apps():
             
             # Contar routers
             router_count = len(app.routes)
-            print(f"  {GREEN}✅{RESET} {name}: {router_count} rutas")
+            print(f"  {GREEN}[OK]{RESET} {name}: {router_count} rutas")
             passed += 1
         except Exception as e:
-            print(f"  {RED}❌{RESET} {name}: {str(e)[:60]}")
+            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:60]}")
             failed += 1
     
     return passed, failed
@@ -112,7 +112,7 @@ def test_fastapi_apps():
 
 def test_routers():
     """Test 4: Verificar que los routers están incluidos en las apps."""
-    print(f"\n{YELLOW}═══ TEST 4: ROUTERS INCLUDED ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 4: ROUTERS INCLUDED ---{RESET}")
     
     try:
         from services.asset_manager.main import app as m1_app
@@ -120,57 +120,69 @@ def test_routers():
         m1_has_assets = any('/assets' in r or '/scan' in r for r in m1_routes)
         
         if m1_has_assets:
-            print(f"  {GREEN}✅{RESET} M1 - Asset endpoints included")
+            print(f"  {GREEN}[OK]{RESET} M1 - Asset endpoints included")
         else:
-            print(f"  {YELLOW}⚠️ {RESET} M1 - No asset endpoints found in routes")
+            print(f"  {YELLOW}[WARN]{RESET} M1 - No asset endpoints found in routes")
         
         from services.recon_engine.main import app as m2_app
-        m2_routes = [r.path for r in m2_app.routes]
+        m2_routes = []
+        for r in m2_app.routes:
+            m2_routes.append(r.path)
+            if hasattr(r, 'app') and hasattr(r.app, 'routes'):
+                for sr in r.app.routes:
+                    m2_routes.append(f"{r.path}{sr.path}")
+        
         m2_has_recon = any('/recon' in r or '/scan' in r for r in m2_routes)
         
         if m2_has_recon:
-            print(f"  {GREEN}✅{RESET} M2 - Recon endpoints included")
+            print(f"  {GREEN}[OK]{RESET} M2 - Recon endpoints included")
         else:
-            print(f"  {YELLOW}⚠️ {RESET} M2 - No recon endpoints found")
+            print(f"  {YELLOW}[WARN]{RESET} M2 - No recon endpoints found")
         
         from services.scanner_engine.main import app as m3_app
-        m3_routes = [r.path for r in m3_app.routes]
+        m3_routes = []
+        for r in m3_app.routes:
+            m3_routes.append(r.path)
+            if hasattr(r, 'app') and hasattr(r.app, 'routes'):
+                for sr in r.app.routes:
+                    m3_routes.append(f"{r.path}{sr.path}")
+        
         m3_has_scan = any('/scan' in r or '/status' in r for r in m3_routes)
         
         if m3_has_scan:
-            print(f"  {GREEN}✅{RESET} M3 - Scan endpoints included")
+            print(f"  {GREEN}[OK]{RESET} M3 - Scan endpoints included")
         else:
-            print(f"  {YELLOW}⚠️ {RESET} M3 - No scan endpoints found")
+            print(f"  {YELLOW}[WARN]{RESET} M3 - No scan endpoints found")
         
         return 3, 0
         
     except Exception as e:
-        print(f"  {RED}❌{RESET} Router verification failed: {str(e)}")
+        print(f"  {RED}[FAIL]{RESET} Router verification failed: {str(e)}")
         return 0, 3
 
 
 def test_celery():
     """Test 5: Verificar que Celery tasks están disponibles."""
-    print(f"\n{YELLOW}═══ TEST 5: CELERY TASKS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 5: CELERY TASKS ---{RESET}")
     
     passed = 0
     failed = 0
     
     tasks = [
         ("M1 - Discovery Task", "services.asset_manager.tasks.discovery", "run_network_discovery"),
-        ("M2 - Scan Tasks", "services.recon_engine.tasks.scan_tasks", "run_recon_scan"),
+        ("M2 - Scan Tasks", "services.recon_engine.tasks.scan_tasks", "run_recon_complete"),
         ("M3 - Parallel Scan", "services.scanner_engine.tasks.vuln_tasks", "scan_asset_parallel"),
-        ("M3 - Nuclei Task", "services.scanner_engine.tasks.vuln_tasks", "run_nuclei_scan"),
+        ("M3 - Nuclei Task", "services.scanner_engine.tasks.vuln_tasks", "run_nuclei_task"),
     ]
     
     for name, module_name, task_name in tasks:
         try:
             mod = importlib.import_module(module_name)
             task = getattr(mod, task_name)
-            print(f"  {GREEN}✅{RESET} {name}")
+            print(f"  {GREEN}[OK]{RESET} {name}")
             passed += 1
         except Exception as e:
-            print(f"  {YELLOW}⚠️ {RESET} {name}: {str(e)[:50]}")
+            print(f"  {YELLOW}[WARN]{RESET} {name}: {str(e)[:50]}")
             failed += 1
     
     return passed, failed
@@ -178,7 +190,7 @@ def test_celery():
 
 def test_vault_and_shared():
     """Test 6: Verificar que dependencias compartidas existen."""
-    print(f"\n{YELLOW}═══ TEST 6: SHARED DEPENDENCIES ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 6: SHARED DEPENDENCIES ---{RESET}")
     
     passed = 0
     failed = 0
@@ -196,10 +208,10 @@ def test_vault_and_shared():
             mod = importlib.import_module(module_name)
             for attr in attrs:
                 getattr(mod, attr)
-            print(f"  {GREEN}✅{RESET} {name}")
+            print(f"  {GREEN}[OK]{RESET} {name}")
             passed += 1
         except Exception as e:
-            print(f"  {RED}❌{RESET} {name}: {str(e)[:50]}")
+            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:50]}")
             failed += 1
     
     return passed, failed
@@ -243,14 +255,14 @@ def main():
     print(f"\n{YELLOW}{'='*60}{RESET}")
     print(f"  RESUMEN")
     print(f"{YELLOW}{'='*60}{RESET}")
-    print(f"  {GREEN}✅ Pasados:{RESET}  {total_passed}")
-    print(f"  {RED}❌ Fallidos:{RESET}  {total_failed}")
+    print(f"  {GREEN}[OK] Pasados:{RESET}  {total_passed}")
+    print(f"  {RED}[FAIL] Fallidos:{RESET}  {total_failed}")
     
     if total_failed == 0:
-        print(f"\n  {GREEN}🎉 TODOS LOS TESTS PASARON - M1, M2, M3 FUNCIONALES{RESET}")
+        print(f"\n  {GREEN}[CONGRATS] TODOS LOS TESTS PASARON - M1, M2, M3 FUNCIONALES{RESET}")
         return 0
     else:
-        print(f"\n  {RED}⚠️  HAY {total_failed} PROBLEMAS QUE REVISAR{RESET}")
+        print(f"\n  {RED}[WARN] HAY {total_failed} PROBLEMAS QUE REVISAR{RESET}")
         return 1
 
 

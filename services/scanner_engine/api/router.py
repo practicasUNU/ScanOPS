@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -7,7 +7,7 @@ from ..tasks.vuln_tasks import run_nuclei_task
 from pydantic import BaseModel
 
 from typing import List, Optional
-from ..models.vulnerability import VulnerabilityFinding
+from ..models.vulnerability import VulnFinding
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/scanner", tags=["Scanner Engine (M3)"])
@@ -41,7 +41,7 @@ class VulnerabilityResponse(BaseModel):
 @router.get("/results/{asset_id}", response_model=List[VulnerabilityResponse])
 async def get_vuln_results(asset_id: int, db: Session = Depends(get_db)):
     """Consulta los hallazgos normalizados para un activo."""
-    results = db.query(VulnerabilityFinding).filter(
-        VulnerabilityFinding.asset_id == asset_id
+    results = db.query(VulnFinding).filter(
+        VulnFinding.asset_id == asset_id
     ).all()
     return results    

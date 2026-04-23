@@ -1,10 +1,12 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "scanops"
 version = "0.1.0"
-description = "UNUWARE Server Audit System"
-authors = [
-    {name = "UNUWARE Team"}
-]
+description = "ScanOPS - Vulnerability Assessment & Pentesting Platform"
+authors = [{name = "UNUWARE Team"}]
 dependencies = [
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
@@ -26,9 +28,23 @@ dependencies = [
     "pytest-cov>=4.0.0",
     "aiohttp>=3.9.0",
     "lxml>=4.9.0",
-    "PyYAML>=6.0"
+    "PyYAML>=6.0",
+    "dnspython>=2.4.0"
 ]
 requires-python = ">=3.8"
+
+[project.optional-dependencies]
+gvm = [
+    "python-gvm>=24.1.0",
+    "gvm-tools>=20.8.0"
+]
+
+[tool.setuptools]
+packages = ["services", "shared"]
+
+[tool.setuptools.package-data]
+shared = ["*.py"]
+services = ["**/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "services/recon_engine/tests", "services/asset_manager/tests", "services/scanner_engine/tests"]
@@ -36,4 +52,3 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
-

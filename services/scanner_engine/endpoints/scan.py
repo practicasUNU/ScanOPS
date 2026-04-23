@@ -2,15 +2,24 @@
 
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends, Response
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+from shared.database import get_db
+import io
 import logging
 
 logger = logging.getLogger(__name__)
 
 from services.scanner_engine.tasks.vuln_tasks import (
     scan_asset_parallel,
-    run_nuclei_scan,
+    run_nuclei_task, # Corregido de run_nuclei_scan a run_nuclei_task
+)
+from services.scanner_engine.services.export_results import (
+    export_to_json,
+    export_to_csv,
+    export_to_pdf
 )
 
 
@@ -266,5 +275,50 @@ async def batch_scan_assets(
         )
 
     except Exception as e:
-        logger.error(f"✗ Error batch scan: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to start batch scan: {str(e)}")
+        logger.error(f"✗ Batch scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/export/{asset_id}/{format}")
+async def export_scan_results(
+    asset_id: int,
+    format: str,
+    scan_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Exporta los resultados de escaneo de un activo en el formato especificado.
+    Formatos soportados: json, csv, pdf.
+    """
+    format = format.lower()
+    
+    try:
+        if format == "json":
+            content = export_to_json(db, asset_id, scan_id)
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename=results_{asset_id}.json"}
+            )
+            
+        elif format == "csv":
+            content_io = export_to_csv(db, asset_id, scan_id)
+            return StreamingResponse(
+                iter([content_io.getvalue()]),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=results_{asset_id}.csv"}
+            )
+            
+        elif format == "pdf":
+            content_io = export_to_pdf(db, asset_id, scan_id)
+            return StreamingResponse(
+                content_io,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename=results_{asset_id}.pdf"}
+            )
+            
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+            
+    except Exception as e:
+        logger.error(f"✗ Error exportando resultados ({format}): {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")

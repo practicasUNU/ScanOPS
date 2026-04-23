@@ -2,15 +2,42 @@ PROJECT: SHOWMETEXT
 TYPE: single
 
 FILE:.env.example
-# OpenVAS Configuration
+# ==============================================================================
+# ScanOPS - Environment Configuration Example
+# Copy this file to .env and adjust the values as needed.
+# ==============================================================================
+
+# DATABASE (Obligatorio)
+# URL de conexión a la base de datos PostgreSQL
+DATABASE_URL=postgresql://user:pass@localhost/scanops
+
+# REDIS (Obligatorio)
+# URL de conexión para Celery y Caching
+REDIS_URL=redis://localhost:6379/0
+
+# VAULT (Obligatorio)
+# Dirección del servidor HashiCorp Vault para gestión de secretos
+VAULT_ADDR=http://localhost:8200
+VAULT_TOKEN=[REDACTED]
+
+# SCANNER - OpenVAS (Opcional)
+# Configuración para el motor de escaneo de vulnerabilidades OpenVAS/GVM
+OPENVAS_HOST=localhost
 OPENVAS_USER=admin
 OPENVAS_PASS=[REDACTED]
 
-# ZAP Configuration
+# SCANNER - ZAP (Opcional)
+# Configuración para OWASP ZAP Proxy
+ZAP_HOST=localhost
 ZAP_PORT=8080
 
-REDIS_HOST=redis
-REDIS_PORT=6379
+# SCANNER - Nuclei (Opcional)
+# Ruta al directorio de plantillas de Nuclei
+NUCLEI_TEMPLATES=/path/to/templates
+
+# GENERAL CONFIGURATION
+# Nivel de logging y concurrencia
+LOG_LEVEL=INFO
 MAX_CONCURRENT_SCANS=5
 FILE:Dockerfile
 FROM python:3.11-slim
@@ -20,6 +47,7 @@ RUN apt-get update && apt-get install -y \
     nmap \
     wget \
     unzip \
+    whois \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Instalar Nuclei (US-3.2)
@@ -28,7 +56,13 @@ RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.8/nuc
     && mv nuclei /usr/local/bin/ \
     && rm nuclei_3.1.8_linux_amd64.zip
 
-# 3. Descargar plantillas de vulnerabilidades
+# 3. Instalar Subfinder (M2 - descubrimiento de subdominios)
+RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_amd64.zip \
+    && unzip subfinder_2.6.6_linux_amd64.zip \
+    && mv subfinder /usr/local/bin/ \
+    && rm subfinder_2.6.6_linux_amd64.zip
+
+# 4. Descargar plantillas de vulnerabilidades
 RUN nuclei -update-templates
 
 WORKDIR /app
@@ -698,8 +732,161 @@ services:
     networks:
       - scanops
 
+  # services/scanner_engine (M3)
+  scanner-engine:
+    build: .
+    container_name: scanops-scanner-engine
+    ports:
+      - "8002:8002"
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - scanops
 volumes:
   pgdata:
+FILE:install_dependencies.bat
+@echo off
+setlocal enabledelayedexpansion
+
+echo === ScanOPS Installation Script ===
+
+:: 1. Verifica Python 3.8+
+echo Verificando version de Python...
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Python no esta instalado en el PATH.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=2" %%v in ('python --version') do (
+    for /f "tokens=1,2 delims=." %%a in ("%%v") do (
+        if %%a lss 3 (
+            echo [ERROR] Python 3.8 o superior es requerido. Version detectada: %%v
+            pause
+            exit /b 1
+        )
+        if %%a equ 3 (
+            if %%b lss 8 (
+                echo [ERROR] Python 3.8 o superior es requerido. Version detectada: %%v
+                pause
+                exit /b 1
+            )
+        )
+    )
+)
+echo Python detectado: OK
+
+:: 2. Crea virtualenv si no existe
+if not exist venv (
+    echo Creando entorno virtual (venv)...
+    python -m venv venv
+) else (
+    echo Entorno virtual ya existe.
+)
+
+:: Activar entorno virtual
+echo Activando entorno virtual...
+call venv\Scripts\activate
+
+:: Asegurar pip actualizado
+python -m pip install --upgrade pip
+
+:: 3. pip install -e .
+echo Instalando dependencias del nucleo (editable)...
+pip install -e .
+
+:: 4. pip install -r requirements-dev.txt (para tests)
+if exist requirements-dev.txt (
+    echo Instalando dependencias de desarrollo...
+    pip install -r requirements-dev.txt
+) else (
+    echo [AVISO] requirements-dev.txt no encontrado.
+)
+
+:: 5. Verifica que psycopg2 se instaló
+echo Verificando instalacion de psycopg2...
+python -c "import psycopg2; print('psycopg2 importado con exito')" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] psycopg2 no se instalo correctamente.
+    echo Intente ejecutar: pip install psycopg2-binary
+    pause
+    exit /b 1
+)
+
+:: 6. Echo "✅ Instalación completada"
+echo.
+echo ✅ Instalacion completada correctamente.
+echo Para empezar, activa el entorno con: venv\Scripts\activate
+echo.
+pause
+FILE:install_dependencies.sh
+#!/bin/bash
+
+echo "=== ScanOPS Installation Script (Unix) ==="
+
+# 1. Verifica Python 3.8+
+if ! command -v python3 &> /dev/null; then
+    echo "[ERROR] Python 3 no está instalado."
+    exit 1
+fi
+
+PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+REQUIRED_VERSION="3.8"
+
+if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
+    echo "[ERROR] Python $REQUIRED_VERSION+ es requerido. Versión detectada: $PYTHON_VERSION"
+    exit 1
+fi
+echo "Python detectado: $PYTHON_VERSION (OK)"
+
+# 2. Crea virtualenv si no existe
+if [ ! -d "venv" ]; then
+    echo "Creando entorno virtual (venv)..."
+    python3 -m venv venv
+else
+    echo "Entorno virtual ya existe."
+fi
+
+# Activar entorno virtual
+echo "Activando entorno virtual..."
+source venv/bin/activate
+
+# Asegurar pip actualizado
+pip install --upgrade pip
+
+# 3. pip install -e .
+echo "Instalando dependencias del núcleo (editable)..."
+pip install -e .
+
+# 4. pip install -r requirements-dev.txt (para tests)
+if [ -f "requirements-dev.txt" ]; then
+    echo "Instalando dependencias de desarrollo..."
+    pip install -r requirements-dev.txt
+else
+    echo "[AVISO] requirements-dev.txt no encontrado."
+fi
+
+# 5. Verifica que psycopg2 se instaló
+echo "Verificando instalación de psycopg2..."
+if python -c "import psycopg2" &> /dev/null; then
+    echo "psycopg2 importado con éxito"
+else
+    echo "[ERROR] psycopg2 no se instaló correctamente."
+    echo "Intente ejecutar: pip install psycopg2-binary"
+    exit 1
+fi
+
+# 6. Echo "✅ Instalación completada"
+echo ""
+echo "✅ Instalación completada correctamente."
+echo "Para empezar, activa el entorno con: source venv/bin/activate"
+echo ""
 FILE:logging.ini
 [formatters]
 keys = generic
@@ -707,13 +894,15 @@ keys = generic
 [formatter_generic]
 format = %(levelname)-5.5s [%(name)s] %(message)s
 FILE:pyproject.toml
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "scanops"
 version = "0.1.0"
-description = "UNUWARE Server Audit System"
-authors = [
-    {name = "UNUWARE Team"}
-]
+description = "ScanOPS - Vulnerability Assessment & Pentesting Platform"
+authors = [{name = "UNUWARE Team"}]
 dependencies = [
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
@@ -735,9 +924,23 @@ dependencies = [
     "pytest-cov>=4.0.0",
     "aiohttp>=3.9.0",
     "lxml>=4.9.0",
-    "PyYAML>=6.0"
+    "PyYAML>=6.0",
+    "dnspython>=2.4.0"
 ]
 requires-python = ">=3.8"
+
+[project.optional-dependencies]
+gvm = [
+    "python-gvm>=24.1.0",
+    "gvm-tools>=20.8.0"
+]
+
+[tool.setuptools]
+packages = ["services", "shared"]
+
+[tool.setuptools.package-data]
+shared = ["*.py"]
+services = ["**/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "services/recon_engine/tests", "services/asset_manager/tests", "services/scanner_engine/tests"]
@@ -745,6 +948,11 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+FILE:requirements-dev.txt
+# Development dependencies
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
 FILE:test_m1_m2_m3.py
 """
 Script de Testing para validar M1, M2, M3
@@ -767,7 +975,7 @@ RESET = "\033[0m"
 
 def test_imports():
     """Test 1: Verificar que todos los módulos se importan sin errores."""
-    print(f"\n{YELLOW}═══ TEST 1: IMPORTS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 1: IMPORTS ---{RESET}")
 
     tests = [
         ("M1 - Asset Manager Main", "services.asset_manager.main", "app"),
@@ -796,36 +1004,36 @@ def test_imports():
             mod = importlib.import_module(module)
             if attr:
                 getattr(mod, attr)
-            print(f"  {GREEN}✅{RESET} {name}")
+            print(f"  {GREEN}[OK]{RESET} {name}")
             passed += 1
         except Exception as e:
-            print(f"  {RED}❌{RESET} {name}: {str(e)[:60]}")
+            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:60]}")
             failed += 1
 
     return passed, failed
 
 def test_database_models():
     """Test 2: Verificar que los modelos de BD están definidos."""
-    print(f"\n{YELLOW}═══ TEST 2: DATABASE MODELS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 2: DATABASE MODELS ---{RESET}")
 
     try:
         from services.asset_manager.models.asset import Asset, Base as AssetBase
-        print(f"  {GREEN}✅{RESET} M1 - Asset model with fields: {len(Asset.__table__.columns)} columns")
+        print(f"  {GREEN}[OK]{RESET} M1 - Asset model with fields: {len(Asset.__table__.columns)} columns")
 
         from services.recon_engine.models.recon import ReconFinding, Base as ReconBase
-        print(f"  {GREEN}✅{RESET} M2 - ReconFinding model with fields: {len(ReconFinding.__table__.columns)} columns")
+        print(f"  {GREEN}[OK]{RESET} M2 - ReconFinding model with fields: {len(ReconFinding.__table__.columns)} columns")
 
         from services.scanner_engine.models.vulnerability import VulnFinding, Base as VulnBase
-        print(f"  {GREEN}✅{RESET} M3 - VulnFinding model with fields: {len(VulnFinding.__table__.columns)} columns")
+        print(f"  {GREEN}[OK]{RESET} M3 - VulnFinding model with fields: {len(VulnFinding.__table__.columns)} columns")
 
         return 3, 0
     except Exception as e:
-        print(f"  {RED}❌{RESET} Database models error: {str(e)}")
+        print(f"  {RED}[FAIL]{RESET} Database models error: {str(e)}")
         return 0, 3
 
 def test_fastapi_apps():
     """Test 3: Verificar que las apps FastAPI están correctamente configuradas."""
-    print(f"\n{YELLOW}═══ TEST 3: FASTAPI APPS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 3: FASTAPI APPS ---{RESET}")
 
     passed = 0
     failed = 0
@@ -847,17 +1055,17 @@ def test_fastapi_apps():
 
             # Contar routers
             router_count = len(app.routes)
-            print(f"  {GREEN}✅{RESET} {name}: {router_count} rutas")
+            print(f"  {GREEN}[OK]{RESET} {name}: {router_count} rutas")
             passed += 1
         except Exception as e:
-            print(f"  {RED}❌{RESET} {name}: {str(e)[:60]}")
+            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:60]}")
             failed += 1
 
     return passed, failed
 
 def test_routers():
     """Test 4: Verificar que los routers están incluidos en las apps."""
-    print(f"\n{YELLOW}═══ TEST 4: ROUTERS INCLUDED ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 4: ROUTERS INCLUDED ---{RESET}")
 
     try:
         from services.asset_manager.main import app as m1_app
@@ -865,63 +1073,75 @@ def test_routers():
         m1_has_assets = any('/assets' in r or '/scan' in r for r in m1_routes)
 
         if m1_has_assets:
-            print(f"  {GREEN}✅{RESET} M1 - Asset endpoints included")
+            print(f"  {GREEN}[OK]{RESET} M1 - Asset endpoints included")
         else:
-            print(f"  {YELLOW}⚠️ {RESET} M1 - No asset endpoints found in routes")
+            print(f"  {YELLOW}[WARN]{RESET} M1 - No asset endpoints found in routes")
 
         from services.recon_engine.main import app as m2_app
-        m2_routes = [r.path for r in m2_app.routes]
+        m2_routes = []
+        for r in m2_app.routes:
+            m2_routes.append(r.path)
+            if hasattr(r, 'app') and hasattr(r.app, 'routes'):
+                for sr in r.app.routes:
+                    m2_routes.append(f"{r.path}{sr.path}")
+
         m2_has_recon = any('/recon' in r or '/scan' in r for r in m2_routes)
 
         if m2_has_recon:
-            print(f"  {GREEN}✅{RESET} M2 - Recon endpoints included")
+            print(f"  {GREEN}[OK]{RESET} M2 - Recon endpoints included")
         else:
-            print(f"  {YELLOW}⚠️ {RESET} M2 - No recon endpoints found")
+            print(f"  {YELLOW}[WARN]{RESET} M2 - No recon endpoints found")
 
         from services.scanner_engine.main import app as m3_app
-        m3_routes = [r.path for r in m3_app.routes]
+        m3_routes = []
+        for r in m3_app.routes:
+            m3_routes.append(r.path)
+            if hasattr(r, 'app') and hasattr(r.app, 'routes'):
+                for sr in r.app.routes:
+                    m3_routes.append(f"{r.path}{sr.path}")
+
         m3_has_scan = any('/scan' in r or '/status' in r for r in m3_routes)
 
         if m3_has_scan:
-            print(f"  {GREEN}✅{RESET} M3 - Scan endpoints included")
+            print(f"  {GREEN}[OK]{RESET} M3 - Scan endpoints included")
         else:
-            print(f"  {YELLOW}⚠️ {RESET} M3 - No scan endpoints found")
+            print(f"  {YELLOW}[WARN]{RESET} M3 - No scan endpoints found")
 
         return 3, 0
 
     except Exception as e:
-        print(f"  {RED}❌{RESET} Router verification failed: {str(e)}")
+        print(f"  {RED}[FAIL]{RESET} Router verification failed: {str(e)}")
         return 0, 3
 
 def test_celery():
     """Test 5: Verificar que Celery tasks están disponibles."""
-    print(f"\n{YELLOW}═══ TEST 5: CELERY TASKS ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 5: CELERY TASKS ---{RESET}")
 
     passed = 0
     failed = 0
 
     tasks = [
         ("M1 - Discovery Task", "services.asset_manager.tasks.discovery", "run_network_discovery"),
-        ("M2 - Scan Tasks", "services.recon_engine.tasks.scan_tasks", "run_recon_scan"),
+        ("M2 - Scan Tasks", "services.recon_engine.tasks.scan_tasks", "run_recon_complete"),
         ("M3 - Parallel Scan", "services.scanner_engine.tasks.vuln_tasks", "scan_asset_parallel"),
-        ("M3 - Nuclei Task", "services.scanner_engine.tasks.vuln_tasks", "run_nuclei_scan"),
+        ("M3 - Nuclei Task", "services.scanner_engine.tasks.vuln_tasks", "run_nuclei_task"),
     ]
 
     for name, module_name, task_name in tasks:
         try:
             mod = importlib.import_module(module_name)
             task = getattr(mod, task_name)
-            print(f"  {GREEN}✅{RESET} {name}")
+            print(f"  {GREEN}[OK]{RESET} {name}")
             passed += 1
         except Exception as e:
-            print(f"  {YELLOW}⚠️ {RESET} {name}: {str(e)[:50]}")
+            print(f"  {YELLOW}[WARN]{RESET} {name}: {str(e)[:50]}")
             failed += 1
 
     return passed, failed
 
 def test_vault_and_shared():
     """Test 6: Verificar que dependencias compartidas existen."""
-    print(f"\n{YELLOW}═══ TEST 6: SHARED DEPENDENCIES ═══{RESET}")
+    print(f"\n{YELLOW}--- TEST 6: SHARED DEPENDENCIES ---{RESET}")
 
     passed = 0
     failed = 0
@@ -939,10 +1159,10 @@ def test_vault_and_shared():
             mod = importlib.import_module(module_name)
             for attr in attrs:
                 getattr(mod, attr)
-            print(f"  {GREEN}✅{RESET} {name}")
+            print(f"  {GREEN}[OK]{RESET} {name}")
             passed += 1
         except Exception as e:
-            print(f"  {RED}❌{RESET} {name}: {str(e)[:50]}")
+            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:50]}")
             failed += 1
 
     return passed, failed
@@ -985,14 +1205,14 @@ def main():
     print(f"\n{YELLOW}{'='*60}{RESET}")
     print(f"  RESUMEN")
     print(f"{YELLOW}{'='*60}{RESET}")
-    print(f"  {GREEN}✅ Pasados:{RESET}  {total_passed}")
-    print(f"  {RED}❌ Fallidos:{RESET}  {total_failed}")
+    print(f"  {GREEN}[OK] Pasados:{RESET}  {total_passed}")
+    print(f"  {RED}[FAIL] Fallidos:{RESET}  {total_failed}")
 
     if total_failed == 0:
-        print(f"\n  {GREEN}🎉 TODOS LOS TESTS PASARON - M1, M2, M3 FUNCIONALES{RESET}")
+        print(f"\n  {GREEN}[CONGRATS] TODOS LOS TESTS PASARON - M1, M2, M3 FUNCIONALES{RESET}")
         return 0
     else:
-        print(f"\n  {RED}⚠️  HAY {total_failed} PROBLEMAS QUE REVISAR{RESET}")
+        print(f"\n  {RED}[WARN] HAY {total_failed} PROBLEMAS QUE REVISAR{RESET}")
         return 1
 
 if __name__ == "__main__":
@@ -1260,6 +1480,162 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS tipoactivoenum")
     op.execute("DROP TYPE IF EXISTS assetstatusenum")
     op.execute("DROP TYPE IF EXISTS auditactionenum")
+FILE:scanops.egg-info\PKG-INFO
+Metadata-Version: 2.4
+Name: scanops
+Version: 0.1.0
+Summary: ScanOPS - Vulnerability Assessment & Pentesting Platform
+Author: UNUWARE Team
+Requires-Python: >=3.8
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: psycopg2-binary>=2.9.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: pydantic-settings>=2.0.0
+Requires-Dist: fastapi>=0.100.0
+Requires-Dist: uvicorn>=0.20.0
+Requires-Dist: alembic>=1.12.0
+Requires-Dist: hvac>=2.0.0
+Requires-Dist: python-jose[cryptography]>=3.3.0
+Requires-Dist: passlib[bcrypt]>=1.7.0
+Requires-Dist: python-multipart>=0.0.6
+Requires-Dist: celery>=5.3.0
+Requires-Dist: redis>=4.5.0
+Requires-Dist: httpx>=0.24.0
+Requires-Dist: paramiko>=3.1.0
+Requires-Dist: pytest>=7.0.0
+Requires-Dist: pytest-asyncio>=0.21.0
+Requires-Dist: pytest-cov>=4.0.0
+Requires-Dist: aiohttp>=3.9.0
+Requires-Dist: lxml>=4.9.0
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: dnspython>=2.4.0
+Provides-Extra: gvm
+Requires-Dist: python-gvm>=24.1.0; extra == "gvm"
+Requires-Dist: gvm-tools>=20.8.0; extra == "gvm"
+FILE:scanops.egg-info\SOURCES.txt
+README.md
+pyproject.toml
+scanops.egg-info/PKG-INFO
+scanops.egg-info/SOURCES.txt
+scanops.egg-info/dependency_links.txt
+scanops.egg-info/requires.txt
+scanops.egg-info/top_level.txt
+services/__init__.py
+services/asset_manager/__init__.py
+services/asset_manager/main.py
+services/asset_manager/api/__init__.py
+services/asset_manager/api/router.py
+services/asset_manager/models/__init__.py
+services/asset_manager/models/asset.py
+services/asset_manager/schemas/__init__.py
+services/asset_manager/services/__init__.py
+services/asset_manager/services/asset_service.py
+services/asset_manager/services/external_sync.py
+services/asset_manager/tasks/__init__.py
+services/asset_manager/tasks/discovery.py
+services/asset_manager/tests/__init__.py
+services/asset_manager/tests/conftest.py
+services/asset_manager/tests/test_api_crud.py
+services/asset_manager/tests/test_audit_log.py
+services/asset_manager/tests/test_discovery.py
+services/asset_manager/tests/test_external_sync.py
+services/asset_manager/tests/test_ficha_unica.py
+services/asset_manager/tests/test_models.py
+services/asset_manager/tests/test_schemas_validation.py
+services/asset_manager/tests/test_service_layer.py
+services/asset_manager/tests/test_vault_integration.py
+services/recon_engine/__init__.py
+services/recon_engine/main.py
+services/recon_engine/api/__init__.py
+services/recon_engine/api/recon_api.py
+services/recon_engine/models/__init__.py
+services/recon_engine/models/recon.py
+services/recon_engine/services/__init__.py
+services/recon_engine/services/banner_grabber.py
+services/recon_engine/services/dns_whois.py
+services/recon_engine/services/scanner_hardening.py
+services/recon_engine/services/scanner_health.py
+services/recon_engine/services/scanner_network.py
+services/recon_engine/services/surface_diff.py
+services/recon_engine/tasks/scan_tasks.py
+services/recon_engine/tests/__init__.py
+services/recon_engine/tests/conftest.py
+services/recon_engine/tests/test_banner_grabber.py
+services/recon_engine/tests/test_dns_whois.py
+services/recon_engine/tests/test_scanner_hardening.py
+services/recon_engine/tests/test_scanner_health.py
+services/recon_engine/tests/test_scanner_network.py
+services/recon_engine/tests/test_scanner_network_db.py
+services/recon_engine/tests/test_surface_diff.py
+services/scanner_engine/__init__.py
+services/scanner_engine/config.py
+services/scanner_engine/main.py
+services/scanner_engine/api/router.py
+services/scanner_engine/clients/__init__.py
+services/scanner_engine/clients/nuclei_client.py
+services/scanner_engine/clients/openvas_client.py
+services/scanner_engine/clients/openvasapi_mock.py
+services/scanner_engine/clients/openvast_client.py
+services/scanner_engine/clients/zap_client.py
+services/scanner_engine/clients/zap_client_rest.py
+services/scanner_engine/clients/zapv2_mock.py
+services/scanner_engine/endpoints/__init__.py
+services/scanner_engine/endpoints/scan.py
+services/scanner_engine/models/__init__.py
+services/scanner_engine/models/finding.py
+services/scanner_engine/models/vulnerability.py
+services/scanner_engine/services/export_results.py
+services/scanner_engine/services/nuclei_wrapper.py
+services/scanner_engine/services/openvas_client.py
+services/scanner_engine/services/zap_wrapper.py
+services/scanner_engine/tasks/__init__.py
+services/scanner_engine/tasks/vuln_tasks.py
+services/scanner_engine/tests/__init__.py
+services/scanner_engine/tests/conftest.py
+services/scanner_engine/tests/test_export_results.py
+services/scanner_engine/tests/test_openvas_client.py
+services/scanner_engine/tests/test_scanner_engine.py
+shared/__init__.py
+shared/auth.py
+shared/celery_app.py
+shared/config.py
+shared/database.py
+shared/scan_logger.py
+shared/utils.py
+shared/vault_client.py
+tests/test_m3_complete.py
+FILE:scanops.egg-info\dependency_links.txt
+
+FILE:scanops.egg-info\requires.txt
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+fastapi>=0.100.0
+uvicorn>=0.20.0
+alembic>=1.12.0
+hvac>=2.0.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.0
+python-multipart>=0.0.6
+celery>=5.3.0
+redis>=4.5.0
+httpx>=0.24.0
+paramiko>=3.1.0
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+aiohttp>=3.9.0
+lxml>=4.9.0
+PyYAML>=6.0
+dnspython>=2.4.0
+
+[gvm]
+python-gvm>=24.1.0
+gvm-tools>=20.8.0
+FILE:scanops.egg-info\top_level.txt
+services
+shared
 FILE:scripts\main_orchestrator.py
 import json
 import subprocess
@@ -4550,6 +4926,239 @@ __all__ = [
     "compare_snapshots",
     "get_previous_snapshot_id",
 ]
+FILE:services\recon_engine\services\banner_grabber.py
+"""
+Banner Grabbing Service - Recon Engine
+Captura banners de servicios en puertos abiertos usando asyncio.
+"""
+
+import asyncio
+import re
+from typing import Dict, List, Optional
+
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("banner_grabber")
+
+TIMEOUT = 3.0
+
+# Mapeo básico de firmas comunes para extracción de versiones
+SIGNATURES = {
+    "ssh": r"SSH-([\d\.]+)-([\w\._-]+)",
+    "ftp": r"220[\s-]([\w\._-]+)",
+    "http": r"Server: ([\w\._\s\-\/]+)",
+}
+
+async def grab_banner(ip: str, port: int) -> Dict:
+    """
+    Intenta capturar el banner de un puerto específico.
+    """
+    result = {
+        "port": port,
+        "service": "unknown",
+        "version": None,
+        "raw_banner": ""
+    }
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(ip, port),
+            timeout=TIMEOUT
+        )
+
+        # Algunos servicios envían el banner inmediatamente (SSH, FTP)
+        # Otros necesitan un probe (HTTP)
+
+        banner = ""
+
+        # Lógica especial por puerto si es necesario
+        if port in [80, 443, 8080, 8443]:
+            writer.write(b"HEAD / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\n\r\n")
+            await writer.drain()
+            result["service"] = "http"
+
+        try:
+            data = await asyncio.wait_for(reader.read(1024), timeout=TIMEOUT)
+            banner = data.decode('utf-8', errors='ignore').strip()
+        except asyncio.TimeoutError:
+            pass
+
+        writer.close()
+        await writer.wait_closed()
+
+        result["raw_banner"] = banner
+
+        # Identificación básica
+        if "SSH" in banner:
+            result["service"] = "ssh"
+            match = re.search(SIGNATURES["ssh"], banner)
+            if match:
+                result["version"] = match.group(2)
+        elif "220" in banner and ("FTP" in banner or "vsFTPd" in banner):
+            result["service"] = "ftp"
+            match = re.search(SIGNATURES["ftp"], banner)
+            if match:
+                result["version"] = match.group(1)
+        elif "HTTP" in banner or "Server:" in banner:
+            result["service"] = "http"
+            match = re.search(SIGNATURES["http"], banner)
+            if match:
+                result["version"] = match.group(1)
+
+        # Si no hay versión pero hay banner, poner el banner corto
+        if not result["version"] and banner:
+            result["version"] = banner[:50].split('\n')[0]
+
+    except Exception as e:
+        # Fallo de conexión o timeout
+        pass
+
+    return result
+
+async def grab_all_banners(ip: str, ports: List[int]) -> List[Dict]:
+    """
+    Captura banners de una lista de puertos en paralelo.
+    """
+    if not ports:
+        return []
+
+    logger.info("BANNER_GRABBING_START", ip=ip, ports_count=len(ports))
+
+    tasks = [grab_banner(ip, port) for port in ports]
+    results = await asyncio.gather(*tasks)
+
+    # Filtrar resultados que no obtuvieron nada
+    successful_results = [r for r in results if r["raw_banner"] or r["version"]]
+
+    logger.info("BANNER_GRABBING_COMPLETE", count=len(successful_results))
+    return successful_results
+FILE:services\recon_engine\services\dns_whois.py
+"""
+DNS and WHOIS Service - Recon Engine
+Consultas de registros DNS e información de dominio (WHOIS).
+"""
+
+import socket
+import logging
+from typing import Dict, List, Optional
+from datetime import datetime
+
+# Se asume que dnspython y python-whois están instalados
+try:
+    import dns.resolver
+    HAS_DNS = True
+except ImportError:
+    HAS_DNS = False
+
+try:
+    import whois
+    HAS_WHOIS = True
+except ImportError:
+    HAS_WHOIS = False
+
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("dns_whois")
+
+async def get_dns_info(domain: str) -> Dict:
+    """
+    Realiza consultas DNS (A, MX, TXT, NS).
+    """
+    results = {
+        "A": [],
+        "MX": [],
+        "TXT": [],
+        "NS": []
+    }
+
+    if not HAS_DNS:
+        logger.warning("DNS_LIB_MISSING", hint="Install dnspython")
+        # Fallback básico para registro A usando socket
+        try:
+            results["A"] = [socket.gethostbyname(domain)]
+        except:
+            pass
+        return results
+
+    records = ["A", "MX", "TXT", "NS"]
+
+    for record in records:
+        try:
+            answers = dns.resolver.resolve(domain, record)
+            for rdata in answers:
+                if record == "MX":
+                    results[record].append({
+                        "host": str(rdata.exchange).strip('.'),
+                        "priority": rdata.preference
+                    })
+                else:
+                    results[record].append(str(rdata).strip('"'))
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, Exception) as e:
+            logger.debug("DNS_QUERY_NO_DATA", domain=domain, record=record, error=str(e))
+
+    return results
+
+async def get_whois_info(domain: str) -> Dict:
+    """
+    Extrae información WHOIS del dominio.
+    """
+    results = {
+        "registrar": None,
+        "creation_date": None,
+        "expiration_date": None,
+        "name_servers": [],
+        "status": None
+    }
+
+    if not HAS_WHOIS:
+        logger.warning("WHOIS_LIB_MISSING", hint="Install python-whois")
+        return results
+
+    try:
+        # La librería whois es bloqueante, pero para una sola consulta suele ser rápida
+        w = whois.whois(domain)
+
+        results["registrar"] = w.registrar
+
+        # Las fechas pueden ser una lista o un datetime simple
+        def parse_date(date_val):
+            if isinstance(date_val, list):
+                return date_val[0].isoformat() if date_val else None
+            return date_val.isoformat() if hasattr(date_val, 'isoformat') else str(date_val)
+
+        results["creation_date"] = parse_date(w.creation_date)
+        results["expiration_date"] = parse_date(w.expiration_date)
+
+        if w.name_servers:
+            results["name_servers"] = [ns.lower() for ns in w.name_servers]
+
+        results["status"] = w.status[0] if isinstance(w.status, list) else w.status
+
+    except Exception as e:
+        logger.error("WHOIS_QUERY_FAILED", domain=domain, error=str(e))
+
+    return results
+
+async def get_domain_recon(domain: str) -> Dict:
+    """
+    Orquesta la recolección de información DNS y WHOIS.
+    """
+    logger.info("DOMAIN_RECON_START", domain=domain)
+
+    # Ejecutamos ambos en paralelo si es posible
+    # Aunque whois es bloqueante, en un wrapper async no hay problema mayor
+    # para una sola tarea
+    dns_data = await get_dns_info(domain)
+    whois_data = await get_whois_info(domain)
+
+    logger.info("DOMAIN_RECON_COMPLETE", domain=domain)
+
+    return {
+        "domain": domain,
+        "dns_records": dns_data,
+        "whois_info": whois_data,
+        "scanned_at": datetime.utcnow().isoformat()
+    }
 FILE:services\recon_engine\services\scanner_hardening.py
 import paramiko
 import json
@@ -4876,6 +5485,7 @@ import asyncio
 import subprocess
 from typing import List, Dict, Tuple, Optional, Set
 import httpx
+import json
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -4886,6 +5496,7 @@ from services.recon_engine.models.recon import (
     ReconFinding,
     ReconSubdomain
 )
+from .banner_grabber import grab_all_banners  # <--- Agregado
 
 logger = ScanLogger("scanner_network")
 
@@ -5075,7 +5686,7 @@ async def get_authorized_ips() -> Set[str]:
 # NUEVAS FUNCIONES - PASO 1: SUBFINDER INTEGRATION (US-2.2)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def run_subfinder(domains: List[str]) -> List[str]:
+async def run_subfinder(domains: List[str]) -> List[Dict]:
     """
     Ejecuta Subfinder para descubrir subdominios [US-2.2].
 
@@ -5083,7 +5694,7 @@ async def run_subfinder(domains: List[str]) -> List[str]:
         domains: Lista de dominios a escanear (obtenidos de M1)
 
     Returns:
-        Lista de subdominios descubiertos
+        Lista de subdominios descubiertos (objetos con metadatos)
 
     ENS: [op.acc.1] Identificación de dispositivos / superficie externa
     """
@@ -5096,30 +5707,50 @@ async def run_subfinder(domains: List[str]) -> List[str]:
     for domain in domains:
         logger.info("SUBFINDER_SCAN_START", domain=domain)
         try:
+            # Comando CLI real con salida JSON para producción
             cmd = [
                 "subfinder",
                 "-d", domain,
                 "-silent",
-                "-timeout", "10"
+                "-json",
+                "-timeout", "15"
             ]
-            stdout, stderr, returncode = await _run_tool(cmd)
+
+            # Ejecución real mediante subprocess (envuelto en thread para async)
+            # Esto asegura la ejecución del binario instalado en /usr/local/bin/subfinder
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True
+            )
+
+            stdout = result.stdout
+            stderr = result.stderr
+            returncode = result.returncode
 
             if returncode == 0:
-                found = [
-                    line.strip()
-                    for line in stdout.splitlines()
-                    if line.strip()
-                ]
-                all_subdomains.extend(found)
-                logger.finding(
-                    "SUBDOMAIN_DISCOVERED",
-                    severity="INFO",
+                found_count = 0
+                for line in stdout.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        # Subfinder -json devuelve un objeto por cada subdominio encontrado
+                        sub_data = json.loads(line)
+                        all_subdomains.append(sub_data)
+                        found_count += 1
+                    except json.JSONDecodeError:
+                        continue
+
+                logger.info(
+                    "SUBDOMAIN_DISCOVERY_SUCCESS",
                     domain=domain,
-                    count=len(found)
+                    count=found_count
                 )
             else:
                 logger.warning(
-                    "SUBFINDER_FAILED",
+                    "SUBFINDER_EXECUTION_FAILED",
                     domain=domain,
                     error=stderr[:200]
                 )
@@ -5127,7 +5758,7 @@ async def run_subfinder(domains: List[str]) -> List[str]:
         except FileNotFoundError:
             logger.error(
                 "SUBFINDER_NOT_FOUND",
-                error="Subfinder no instalado. Run: https://github.com/projectdiscovery/subfinder"
+                error="Subfinder no instalado en el sistema"
             )
             return []
         except Exception as e:
@@ -5232,30 +5863,16 @@ async def _scan_async(cycle_id: str = None):
         domains_to_scan = await _get_domains_from_m1()
         authorized_ips = await get_authorized_ips()
 
-        # 3. PREPARAR TAREAS EN PARALELO (no se ejecutan aún)
-        # Mock Masscan - devuelve resultado vacío
-        masscan_task = asyncio.create_task(
-            asyncio.sleep(0.1)  # Simula ejecución
-        )
+        # 4. EJECUTAR SUBFINDER (Masscan sigue pendiente de implementación real en el sistema)
+        logger.info("PARALLEL_SCAN_START", tools=["subfinder"])
 
-        subfinder_task = asyncio.create_task(
-            run_subfinder(domains_to_scan)
-        )
+        # En producción, aquí se ejecutaría Masscan real si estuviera instalado
+        # Por ahora solo ejecutamos Subfinder de verdad
+        subfinder_domains = await run_subfinder(domains_to_scan)
 
-        # 4. EJECUTAR MASSCAN Y SUBFINDER EN PARALELO
-        logger.info("PARALLEL_SCAN_START", tools=["masscan", "subfinder"])
-
-        (masscan_output, subfinder_domains) = await asyncio.gather(
-            masscan_task,
-            subfinder_task
-        )
-
-        # 5. Extraer stdout de masscan (que viene como tupla)
-        masscan_output = ("", "", 0)  # Mock output
-
-        # 6. Procesar resultados de Masscan
-        masscan_hosts = parse_masscan_output(masscan_output[0])
-        open_ports = {p for ports in masscan_hosts.values() for p in ports}
+        # Mock Masscan (solo para mantener el flujo hasta que se instale el binario)
+        masscan_hosts = {}
+        open_ports = set()
 
         logger.info(
             "MASSCAN_COMPLETE",
@@ -5266,6 +5883,18 @@ async def _scan_async(cycle_id: str = None):
         # 7. Ejecutar Nmap con puertos descubiertos
         logger.info("NMAP_SCAN_STARTING", ports=len(open_ports))
         nmap_output = await run_nmap(open_ports)
+
+        # 7.1 Banner Grabbing en paralelo para enriquecer versiones (US-2.7)
+        banners_by_host = {}
+        if masscan_hosts:
+            logger.info("BANNER_GRABBING_TASK_START", hosts=len(masscan_hosts))
+            banner_tasks = {
+                ip: asyncio.create_task(grab_all_banners(ip, list(ports)))
+                for ip, ports in masscan_hosts.items()
+            }
+            # Esperar a todos los hosts
+            for ip, task in banner_tasks.items():
+                banners_by_host[ip] = await task
 
         # 8. Comparación e identificación
         discovered_hosts = set(masscan_hosts.keys())
@@ -5285,13 +5914,14 @@ async def _scan_async(cycle_id: str = None):
         if shadow_it_list:
             await _register_shadow_it(shadow_it_list)
 
-        # 10. Persistencia: INCLUYE SUBDOMINIOS REALES
+        # 10. Persistencia: INCLUYE SUBDOMINIOS REALES Y BANNERS
         await persist_findings_to_db(
             snapshot.id,
             hallazgos,
             masscan_hosts,
-            subfinder_domains,  # ← AHORA TIENE DATOS REALES (no [])
-            db
+            subfinder_domains,
+            db,
+            banners_by_host=banners_by_host  # <--- Nuevo parámetro
         )
 
         snapshot.finished_at = datetime.utcnow()
@@ -5326,32 +5956,43 @@ async def _scan_async(cycle_id: str = None):
 async def persist_findings_to_db(snapshot_id: int, hallazgos: List[Dict],
                                 masscan_hosts: Dict[str, Set[int]],
                                 subfinder_domains: List[str],
-                                db: Session):
+                                db: Session,
+                                banners_by_host: Dict[str, List[Dict]] = None):
     """
     Persiste todos los hallazgos en BD.
-    Incluye hosts, puertos, subdominios y hallazgos.
+    Incluye hosts, puertos, subdominios y hallazgos enriquecidos con banners.
     """
+    banners_by_host = banners_by_host or {}
     try:
         # Guardar hallazgos de hosts y puertos
         for ip, ports in masscan_hosts.items():
+            # Obtener banners para este host
+            host_banners = {b["port"]: b for b in banners_by_host.get(ip, [])}
+
             for port in ports:
+                banner_info = host_banners.get(port, {})
                 finding = ReconFinding(
                     snapshot_id=snapshot_id,
                     host=ip,
                     port=f"{port}/tcp",
+                    service=banner_info.get("service"),
+                    version=banner_info.get("version"),
                     state="open",
                     source="masscan"
                 )
                 db.add(finding)
 
-        # Guardar subdominios
-        for subdomain in subfinder_domains:
-            sub_rec = ReconSubdomain(
-                snapshot_id=snapshot_id,
-                subdomain=subdomain,
-                source="subfinder"
-            )
-            db.add(sub_rec)
+        # Guardar subdominios (ahora vienen como objetos JSON de Subfinder)
+        for sub_obj in subfinder_domains:
+            # Extraer el campo 'host' del JSON de Subfinder
+            subdomain_name = sub_obj.get('host') if isinstance(sub_obj, dict) else sub_obj
+            if subdomain_name:
+                sub_rec = ReconSubdomain(
+                    snapshot_id=snapshot_id,
+                    subdomain=subdomain_name,
+                    source=sub_obj.get('source', 'subfinder') if isinstance(sub_obj, dict) else "subfinder"
+                )
+                db.add(sub_rec)
 
         # Guardar hallazgos de shadow IT
         for hallazgo in hallazgos:
@@ -5800,16 +6441,68 @@ def get_previous_snapshot_id(current_cycle_id: str, db: Session) -> Optional[int
 
     return None
 FILE:services\recon_engine\tasks\scan_tasks.py
-# En services/recon_engine/tasks/scan_tasks.py
+import asyncio
+import re
+import logging
 from shared.celery_app import app
-from ..services.scanner_network import run_nmap # Nombre corregido según code.txt
+from ..services.scanner_network import start_scan
+from ..services.dns_whois import get_domain_recon
+
+logger = logging.getLogger(__name__)
 
 @app.task(bind=True, name="run_recon_complete")
-def run_recon_complete(self, target_ips):
-    # Nota: Tu función run_nmap actual recibe un Set[int] de puertos
-    # Para el Hito 2, asegúrate de pasarle los datos que espera.
-    resultado = run_nmap(ports={22, 80, 443})
-    return resultado
+def run_recon_complete(self, target, asset_id=None):
+    """
+    Orquestación completa de reconocimiento (M2).
+    Flujo: Nmap/Masscan -> Subfinder -> Banner Grabbing -> DNS/WHOIS -> M3 Trigger
+    """
+    logger.info(f"🚀 Iniciando orquestación M2 para: {target}")
+
+    try:
+        # 1. Escaneo de red, subdominios y banner grabbing (en scanner_network.py)
+        # Esto guarda resultados en BD (ReconSnapshot, ReconFinding, ReconSubdomain)
+        resultado = asyncio.run(start_scan(target=target))
+
+        # 2. Información DNS/WHOIS (US-2.8)
+        domains_to_check = []
+        is_ip = re.match(r"^\d{1,3}(\.\d{1,3}){3}(/\d+)?$", target)
+        if not is_ip:
+            domains_to_check.append(target)
+
+        dns_whois_results = {}
+        for domain in domains_to_check:
+            try:
+                info = asyncio.run(get_domain_recon(domain))
+                dns_whois_results[domain] = info
+            except Exception as e:
+                logger.error(f"Error en DNS/WHOIS para {domain}: {e}")
+                continue
+
+        resultado["dns_whois"] = dns_whois_results
+
+        # 3. Disparar M3 (Escaneo de Vulnerabilidades) para cada host descubierto
+        # [ENS Alto: op.acc.1] Interconexión de sistemas de auditoría
+        hosts_detectados = resultado.get("hosts_detected", [])
+        if hosts_detectados:
+            logger.info(f"📡 Disparando M3 para {len(hosts_detectados)} hosts descubiertos")
+            for ip in hosts_detectados:
+                try:
+                    # Llamamos a M3 de forma asíncrona vía Celery
+                    # Si no tenemos asset_id (es Shadow IT), pasamos None o creamos uno si fuera necesario
+                    app.send_task(
+                        "services.scanner_engine.tasks.vuln_tasks.scan_asset_parallel",
+                        args=[asset_id or 0, ip, f"Discovered_{ip}"],
+                        kwargs={"scan_types": ["nuclei", "openvas", "zap"]}
+                    )
+                except Exception as e:
+                    logger.error(f"Error al disparar M3 para {ip}: {e}")
+
+        logger.info(f"✅ Orquestación M2 completada para {target}")
+        return resultado
+
+    except Exception as e:
+        logger.error(f"❌ Fallo crítico en orquestación M2: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
 FILE:services\recon_engine\tests\__init__.py
 
 FILE:services\recon_engine\tests\conftest.py
@@ -5863,6 +6556,115 @@ def cleanup_database(test_session):
     test_session.execute("DELETE FROM recon_findings")
     test_session.execute("DELETE FROM recon_snapshots")
     test_session.commit()
+FILE:services\recon_engine\tests\test_banner_grabber.py
+import pytest
+import asyncio
+from unittest.mock import patch, AsyncMock, MagicMock
+from services.recon_engine.services.banner_grabber import grab_banner, grab_all_banners
+
+@pytest.mark.asyncio
+async def test_grab_banner_ssh_success():
+    """Test exitoso capturando banner de SSH."""
+    mock_reader = AsyncMock()
+    mock_reader.read.return_value = b"SSH-2.0-OpenSSH_7.4p1 Debian-10+deb9u7\n"
+    mock_writer = MagicMock()
+
+    with patch("asyncio.open_connection", return_value=(mock_reader, mock_writer)):
+        result = await grab_banner("127.0.0.1", 22)
+
+        assert result["port"] == 22
+        assert result["service"] == "ssh"
+        assert "OpenSSH_7.4p1" in result["version"]
+        assert "SSH-2.0" in result["raw_banner"]
+
+@pytest.mark.asyncio
+async def test_grab_banner_http_success():
+    """Test exitoso capturando banner de HTTP."""
+    mock_reader = AsyncMock()
+    # Simulamos respuesta HTTP con header Server
+    mock_reader.read.return_value = b"HTTP/1.1 200 OK\r\nServer: nginx/1.14.1\r\n\r\n"
+    mock_writer = MagicMock()
+
+    with patch("asyncio.open_connection", return_value=(mock_reader, mock_writer)):
+        result = await grab_banner("127.0.0.1", 80)
+
+        assert result["service"] == "http"
+        assert result["version"] == "nginx/1.14.1"
+
+@pytest.mark.asyncio
+async def test_grab_banner_timeout():
+    """Verificar manejo de timeout."""
+    with patch("asyncio.open_connection", side_effect=asyncio.TimeoutError):
+        result = await grab_banner("127.0.0.1", 80)
+        assert result["raw_banner"] == ""
+        assert result["version"] is None
+
+@pytest.mark.asyncio
+async def test_grab_all_banners_parallel():
+    """Verificar ejecución en paralelo de múltiples puertos."""
+    mock_results = [
+        {"port": 22, "service": "ssh", "version": "v1", "raw_banner": "b1"},
+        {"port": 80, "service": "http", "version": "v2", "raw_banner": "b2"}
+    ]
+
+    with patch("services.recon_engine.services.banner_grabber.grab_banner", side_effect=mock_results):
+        results = await grab_all_banners("127.0.0.1", [22, 80])
+
+        assert len(results) == 2
+        assert results[0]["port"] == 22
+        assert results[1]["port"] == 80
+FILE:services\recon_engine\tests\test_dns_whois.py
+import pytest
+from unittest.mock import patch, MagicMock
+from services.recon_engine.services.dns_whois import get_dns_info, get_whois_info, get_domain_recon
+
+@pytest.mark.asyncio
+async def test_get_dns_info_success():
+    """Test de consulta DNS con mocks de dnspython."""
+    mock_answer = [MagicMock(address="1.1.1.1")]
+
+    with patch("dns.resolver.resolve", return_value=mock_answer):
+        # Forzamos HAS_DNS a True para el test
+        with patch("services.recon_engine.services.dns_whois.HAS_DNS", True):
+            result = await get_dns_info("google.com")
+            assert "A" in result
+            assert len(result["A"]) > 0
+
+@pytest.mark.asyncio
+async def test_get_whois_info_success():
+    """Test de consulta WHOIS con mock de python-whois."""
+    mock_whois = MagicMock()
+    mock_whois.registrar = "Google LLC"
+    mock_whois.creation_date = "1997-09-15"
+    mock_whois.name_servers = ["ns1.google.com", "ns2.google.com"]
+
+    with patch("whois.whois", return_value=mock_whois):
+        with patch("services.recon_engine.services.dns_whois.HAS_WHOIS", True):
+            result = await get_whois_info("google.com")
+            assert result["registrar"] == "Google LLC"
+            assert "ns1.google.com" in result["name_servers"]
+
+@pytest.mark.asyncio
+async def test_get_domain_recon_integration():
+    """Test de la función orquestadora de DNS/WHOIS."""
+    with patch("services.recon_engine.services.dns_whois.get_dns_info", return_value={"A": ["1.2.3.4"]}), \
+         patch("services.recon_engine.services.dns_whois.get_whois_info", return_value={"registrar": "Test"}):
+
+        result = await get_domain_recon("example.com")
+
+        assert result["domain"] == "example.com"
+        assert result["dns_records"]["A"] == ["1.2.3.4"]
+        assert result["whois_info"]["registrar"] == "Test"
+
+@pytest.mark.asyncio
+async def test_dns_whois_error_handling():
+    """Verificar que los errores no rompen la ejecución."""
+    with patch("dns.resolver.resolve", side_effect=Exception("DNS Error")):
+        with patch("whois.whois", side_effect=Exception("WHOIS Error")):
+            result = await get_domain_recon("fail.com")
+            # Debe retornar estructura vacía pero no fallar
+            assert result["domain"] == "fail.com"
+            assert result["whois_info"]["registrar"] is None
 FILE:services\recon_engine\tests\test_scanner_hardening.py
 """
 Tests para scanner_hardening.py — Módulo de bastionado
@@ -6977,6 +7779,7 @@ from sqlalchemy.orm import Session
 from shared.database import engine, get_db
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.endpoints.scan import router as scan_router
+from services.scanner_engine.api.router import router as results_router
 from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
 
 # ─── Logging Setup ─────────────────────────────
@@ -7031,6 +7834,7 @@ app.add_middleware(
 
 # ─── Include Routers ──────────────────────────
 app.include_router(scan_router, prefix="/api/v1")
+app.include_router(results_router, prefix="/api/v1")
 
 # ─── Root Endpoint ────────────────────────────
 @app.get("/")
@@ -7233,17 +8037,18 @@ async def general_exception_handler(request, exc: Exception):
         },
     )
 
+# services/scanner_engine/main.py
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=8003,
+        port=8002,  # <--- Cambiar de 8003 a 8002 para consistencia
         log_level="info",
         reload=True,
     )
 FILE:services\scanner_engine\api\router.py
-import datetime
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -7252,7 +8057,7 @@ from ..tasks.vuln_tasks import run_nuclei_task
 from pydantic import BaseModel
 
 from typing import List, Optional
-from ..models.vulnerability import VulnerabilityFinding
+from ..models.vulnerability import VulnFinding
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/scanner", tags=["Scanner Engine (M3)"])
@@ -7286,8 +8091,8 @@ class VulnerabilityResponse(BaseModel):
 @router.get("/results/{asset_id}", response_model=List[VulnerabilityResponse])
 async def get_vuln_results(asset_id: int, db: Session = Depends(get_db)):
     """Consulta los hallazgos normalizados para un activo."""
-    results = db.query(VulnerabilityFinding).filter(
-        VulnerabilityFinding.asset_id == asset_id
+    results = db.query(VulnFinding).filter(
+        VulnFinding.asset_id == asset_id
     ).all()
     return results
 FILE:services\scanner_engine\clients\__init__.py
@@ -7557,14 +8362,35 @@ class NucleiClient:
             logger.error(f"✗ Custom templates scan failed: {e}")
             return []
 FILE:services\scanner_engine\clients\openvas_client.py
-"""OpenVAS Client - Scanner Engine M3"""
+"""
+OpenVAS Client - Scanner Engine M3
+Cliente real para OpenVAS/GVM usando la librería oficial python-gvm.
+Cumple con ENS Alto [op.exp.3] para la gestión segura de parámetros.
+"""
+
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
-import httpx
 import xml.etree.ElementTree as ET
+
+try:
+    from gvm.connections import TLSConnection
+    from gvm.protocols.gmp import Gmp
+    from gvm.transforms import EtreeTransform
+    from gvm.errors import GvmError
+    GVM_AVAILABLE = True
+except ImportError:
+    # gvm not available, using mock/alternate
+    # needs: pip install gvm-tools
+    GVM_AVAILABLE = False
+    TLSConnection = None
+    Gmp = None
+    EtreeTransform = None
+    GvmError = Exception
+
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -7601,257 +8427,198 @@ class CVEFinding:
         }
 
 class OpenVASClient:
-    """Cliente para OpenVAS/GVM"""
+    """Cliente para OpenVAS/GVM real usando protocolo GMP"""
 
-    def __init__(
-        self,
-        host: str,
-        port: int = 9392,
-        username: str = "admin",
-        password: str = "admin",
-        verify_ssl: bool = False,
-        timeout: int = 30,
-    ):
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.verify_ssl = verify_ssl
-        self.timeout = timeout
-        self.session = httpx.AsyncClient(verify=self.verify_ssl, timeout=self.timeout)
-        self.base_url = f"https://{host}:{port}"
-        self.is_connected = False
+    def __init__(self):
+        self.host = settings.openvas_host
+        self.port = settings.openvas_port
+        self.username = settings.openvas_user
+        self.password = settings.openvas_pass
+        self._gmp = None
+        self._connection = None
 
-    async def connect(self) -> bool:
+    async def _get_gmp(self) -> Gmp:
+        """Inicializa y autentica el cliente GMP si no existe"""
+        if not GVM_AVAILABLE:
+            logger.error("✗ gvm-tools no está instalado. Ejecute 'pip install gvm-tools'")
+            raise ImportError("Librería 'gvm' no disponible. Instale python-gvm / gvm-tools.")
+
+        if self._gmp and self._gmp.is_connected():
+            return self._gmp
+
         try:
-            resp = await self.session.get(f"{self.base_url}/gmp", auth=(self.username, self.password))
-            self.is_connected = resp.status_code == 200
-            logger.info("✓ OpenVAS connected" if self.is_connected else "✗ OpenVAS failed")
-            return self.is_connected
+            logger.info(f"Conectando a OpenVAS en {self.host}:{self.port}...")
+            # La conexión TLS puede tardar si hay problemas de red
+            self._connection = TLSConnection(hostname=self.host, port=self.port)
+            self._gmp = Gmp(connection=self._connection, transform=EtreeTransform())
+
+            # Autenticación (operación síncrona en hilo para no bloquear)
+            await asyncio.to_thread(self._gmp.authenticate, self.username, self.password)
+            logger.info(f"✓ Autenticación exitosa en OpenVAS GVM")
+            return self._gmp
+        except GvmError as ge:
+            logger.error(f"✗ Error de protocolo GVM: {str(ge)}")
+            raise ConnectionError(f"Protocolo GVM falló: {ge}")
         except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return False
+            logger.error(f"✗ Error de conexión física a OpenVAS: {str(e)}")
+            raise ConnectionError(f"No se pudo establecer conexión TLS con OpenVAS: {e}")
 
     async def disconnect(self):
         """Cerrar sesión"""
-        self.is_connected = False
-        logger.info("✓ OpenVAS desconectado")
+        if self._gmp:
+            await asyncio.to_thread(self._gmp.disconnect)
+            logger.info("✓ OpenVAS desconectado")
 
-    async def get_available_scanners(self) -> Dict[str, str]:
-        """Obtener scanners disponibles"""
-        if not self.is_connected:
-            return {}
+    async def create_target(self, target_ips: List[str], target_name: str) -> str:
+        """Crea un target real en GVM"""
+        gmp = await self._get_gmp()
+        hosts = ",".join(target_ips)
 
-        try:
-            scanners = {
-                "08b69003-5fc2-45d1-a82e-ab9734732d91": "Full and fast",
-                "d2590a07-56a8-4249-a11c-1e6c9eb4eee6": "Full and very deep",
-                "daba56c8-73ec-11df-a475-002264764cea": "Full and deep",
-            }
-            logger.info(f"✓ Scanners disponibles: {list(scanners.values())}")
-            return scanners
-        except Exception as e:
-            logger.error(f"✗ Error obteniendo scanners: {str(e)}")
-            return {}
+        response = await asyncio.to_thread(
+            gmp.create_target,
+            name=target_name,
+            hosts=target_ips,
+            port_list_id="33d0cd10-f6ec-11e0-815c-002264764cea"  # All IANA relevant TCP
+        )
+        target_id = response.get("id")
+        logger.info(f"✓ Target creado: {target_id}")
+        return target_id
 
-    async def create_target(self, target_ips: List[str], target_name: str, allow_simultaneous_ips: bool = False) -> Optional[str]:
-        if not self.is_connected:
-            logger.error("OpenVAS not connected")
-            return None
-        try:
-            hosts = ",".join(target_ips)
-            xml_body = f'<create_target><name>{target_name}</name><hosts>{hosts}</hosts></create_target>'
-            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            target_id = root.find(".//target/uuid").text if root.find(".//target/uuid") is not None else None
-            logger.info(f"✓ Target created: {target_id}")
-            return target_id
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return None
+    async def create_task(self, target_id: str, task_name: str, config_id: str = "daba56c8-73ec-11df-a475-002264764cea") -> str:
+        """Crea una tarea real en GVM (Default: Full and fast)"""
+        gmp = await self._get_gmp()
 
-    async def create_task(self, target_id: str, task_name: str, scanner_id: str = "08b69003-5fc2-45d1-a82e-ab9734732d91") -> Optional[str]:
-        if not self.is_connected:
-            return None
-        try:
-            xml_body = f'<create_task><name>{task_name}</name><target id="{target_id}"/><config id="{scanner_id}"/></create_task>'
-            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            task_id = root.find(".//task/uuid").text if root.find(".//task/uuid") is not None else None
-            logger.info(f"✓ Task created: {task_id}")
-            return task_id
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return None
+        # Scanner ID por defecto (OpenVAS Default)
+        scanner_id = "08b69003-5fc2-45d1-a82e-ab9734732d91"
 
-    async def start_task(self, task_id: str) -> bool:
-        if not self.is_connected:
-            return False
-        try:
-            xml_body = f'<start_task task_id="{task_id}"/>'
-            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
-            logger.info(f"✓ Task started: {task_id}")
-            return resp.status_code == 200
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return False
+        response = await asyncio.to_thread(
+            gmp.create_task,
+            name=task_name,
+            config_id=config_id,
+            target_id=target_id,
+            scanner_id=scanner_id
+        )
+        task_id = response.get("id")
+        logger.info(f"✓ Task creada: {task_id}")
+        return task_id
+
+    async def start_task(self, task_id: str) -> str:
+        """Inicia la tarea y devuelve el ID del reporte"""
+        gmp = await self._get_gmp()
+        response = await asyncio.to_thread(gmp.start_task, task_id=task_id)
+        report_id = response.find(".//report_id").text
+        logger.info(f"✓ Task iniciada. Report ID: {report_id}")
+        return report_id
 
     async def get_task_status(self, task_id: str) -> Dict[str, Any]:
-        if not self.is_connected:
-            return {"status": "DISCONNECTED"}
-        try:
-            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_tasks&task_id={task_id}", auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            status = root.find(".//task/status").text if root.find(".//task/status") is not None else "Running"
-            progress = root.find(".//task/progress").text if root.find(".//task/progress") is not None else "0"
-            logger.debug(f"Status {task_id}: {status} {progress}%")
-            return {"task_id": task_id, "status": status, "progress": int(progress) if progress.isdigit() else 0, "report_count": 1}
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return {}
+        """Obtiene el progreso real de la tarea"""
+        gmp = await self._get_gmp()
+        response = await asyncio.to_thread(gmp.get_task, task_id=task_id)
 
-    async def wait_for_task_completion(
-        self,
-        task_id: str,
-        max_wait: int = 3600,
-        poll_interval: int = 30,
-    ) -> bool:
-        """Esperar a que se complete una tarea"""
+        task = response.find(".//task")
+        status = task.find("status").text
+        progress = task.find("progress").text
+
+        return {
+            "status": status,
+            "progress": int(progress) if progress and int(progress) >= 0 else 0
+        }
+
+    async def wait_for_task_completion(self, task_id: str, timeout: int = 3600) -> bool:
+        """Espera activa hasta que la tarea termine"""
         start_time = datetime.utcnow()
+        while (datetime.utcnow() - start_time).total_seconds() < timeout:
+            status_data = await self.get_task_status(task_id)
+            status = status_data["status"]
+            progress = status_data["progress"]
 
-        while (datetime.utcnow() - start_time).total_seconds() < max_wait:
-            status = await self.get_task_status(task_id)
-
-            if status.get("status") == "Done":
-                logger.info(f"✓ Tarea {task_id} completada")
+            if status == "Done":
                 return True
+            if status in ["Stopped", "Error", "Internal Error"]:
+                logger.error(f"✗ Task {task_id} falló con estado: {status}")
+                return False
 
-            logger.info(f"→ Esperando... {status.get('progress', 0)}%")
-            await asyncio.sleep(poll_interval)
+            logger.info(f"→ Escaneo OpenVAS progresando: {progress}% (Estado: {status})")
+            await asyncio.sleep(30)
 
-        logger.warning(f"✗ Timeout esperando tarea {task_id}")
         return False
 
-    async def get_task_report(self, task_id: str) -> Optional[Dict[str, Any]]:
-        if not self.is_connected:
-            return None
-        try:
-            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_reports&task_id={task_id}", auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            results = []
-            for result in root.findall(".//result"):
-                name = result.find("name").text if result.find("name") is not None else "Unknown"
-                severity = result.find("severity").text if result.find("severity") is not None else "0"
-                cve = result.find("cve").text if result.find("cve") is not None else None
-                host = result.find("host").text if result.find("host") is not None else "N/A"
-                cvss = float(severity) if severity.replace(".", "").isdigit() else 0
-                results.append({"name": name, "severity": severity, "cvss": cvss, "cve": cve, "host": host, "description": ""})
-            logger.info(f"✓ Report: {len(results)} findings")
-            return {"task_id": task_id, "created": datetime.utcnow().isoformat(), "results": results}
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return None
+    async def get_report_findings(self, report_id: str, asset_id: int) -> List[CVEFinding]:
+        """Descarga y parsea el reporte real en formato XML"""
+        gmp = await self._get_gmp()
+        # Filtro para obtener solo resultados relevantes (niveles High, Medium, Low)
+        response = await asyncio.to_thread(gmp.get_report, report_id=report_id, filter_string="levels=hml")
 
-    async def normalize_findings(
-        self,
-        report: Dict[str, Any],
-        asset_id: int,
-    ) -> List[CVEFinding]:
-        """Normalizar hallazgos de OpenVAS al schema común"""
         findings = []
-
         severity_map = {
             "High": "HIGH",
             "Medium": "MEDIUM",
             "Low": "LOW",
-            "None": "INFO",
+            "Log": "INFO",
+            "Debug": "INFO"
         }
 
-        for result in report.get("results", []):
+        results = response.findall(".//result")
+        for res in results:
+            nvt = res.find("nvt")
+            severity_text = res.find("threat").text
+
+            # Extraer CVEs
+            cves = nvt.find("cve").text if nvt.find("cve") is not None else None
+
             finding = CVEFinding(
                 asset_id=asset_id,
-                title=result.get("name", "Unknown"),
-                description=result.get("description", ""),
-                severity=severity_map.get(result.get("severity"), "INFO"),
-                cvss_score=result.get("cvss"),
-                cve_id=result.get("cve"),
-                evidence=f"Host: {result.get('host', 'N/A')}",
-                remediation="Refer to vendor guidance or CVE details",
+                title=res.find("name").text,
+                description=nvt.find("description").text if nvt.find("description") is not None else "",
+                severity=severity_map.get(severity_text, "INFO"),
+                cvss_score=float(res.find("severity").text) if res.find("severity") is not None else 0.0,
+                cve_id=cves.split(",")[0] if cves and cves != "NOCVE" else None,
+                evidence=res.find("description").text if res.find("description") is not None else "Ver reporte completo en GVM",
+                remediation=nvt.find("solution").text if nvt.find("solution") is not None else "No especificada"
             )
             findings.append(finding)
 
-        logger.info(f"✓ Normalizados {len(findings)} hallazgos")
         return findings
 
-    async def scan_asset(
-        self,
-        asset_id: int,
-        asset_ip: str,
-        asset_name: str,
-    ) -> List[CVEFinding]:
-        """Ejecutar escaneo completo de un activo"""
-        if not self.is_connected:
-            logger.error("OpenVAS no conectado")
-            return []
-
+    async def scan_asset(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
+        """Flujo completo de producción: Target -> Task -> Start -> Wait -> Report"""
         try:
-            # 1. Crear target
-            target_id = await self.create_target(
-                target_ips=[asset_ip],
-                target_name=f"Target_{asset_name}_{asset_id}",
-            )
-            if not target_id:
+            logger.info(f"Iniciando escaneo OpenVAS real para {asset_name} ({asset_ip})")
+
+            # 1. Crear Target
+            target_id = await self.create_target([asset_ip], f"TGT_{asset_name}_{asset_id}")
+
+            # 2. Crear Task
+            task_id = await self.create_task(target_id, f"TSK_{asset_name}_{asset_id}")
+
+            # 3. Iniciar
+            report_id = await self.start_task(task_id)
+
+            # 4. Esperar
+            if await self.wait_for_task_completion(task_id):
+                # 5. Obtener resultados
+                findings = await self.get_report_findings(report_id, asset_id)
+                logger.info(f"✓ Escaneo finalizado: {len(findings)} vulnerabilidades encontradas")
+                return findings
+            else:
+                logger.error(f"✗ El escaneo no se completó correctamente")
                 return []
-
-            # 2. Crear tarea
-            task_id = await self.create_task(
-                target_id=target_id,
-                task_name=f"Scan_{asset_name}_{asset_id}",
-            )
-            if not task_id:
-                return []
-
-            # 3. Iniciar escaneo
-            if not await self.start_task(task_id):
-                return []
-
-            # 4. Esperar a completación
-            if not await self.wait_for_task_completion(task_id):
-                logger.warning(f"Escaneo de {asset_name} no completado en tiempo")
-                return []
-
-            # 5. Obtener reporte
-            report = await self.get_task_report(task_id)
-            if not report:
-                return []
-
-            # 6. Normalizar hallazgos
-            findings = await self.normalize_findings(report, asset_id)
-
-            logger.info(
-                f"✓ Escaneo completado para {asset_name}: {len(findings)} hallazgos"
-            )
-            return findings
 
         except Exception as e:
-            logger.error(f"✗ Error escaneando {asset_name}: {str(e)}")
+            logger.error(f"✗ Error crítico en scan_asset: {str(e)}")
             return []
+        finally:
+            await self.disconnect()
 
-# Global client instance
-openvas_client = None
+# Singleton instance
+_client_instance = None
 
 async def get_openvas_client() -> OpenVASClient:
-    """Obtener instancia global de OpenVAS client"""
-    global openvas_client
-    if openvas_client is None:
-        openvas_client = OpenVASClient(
-            host="openvas",
-            port=9392,
-            username="admin",
-            password="admin",
-        )
-        await openvas_client.connect()
-    return openvas_client
+    """Obtiene el cliente configurado desde settings"""
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = OpenVASClient()
+    return _client_instance
 FILE:services\scanner_engine\clients\openvasapi_mock.py
 class OpenvasConnection:
     def __init__(self, host, username, password):
@@ -7928,7 +8695,12 @@ import logging
 from typing import List, Optional
 from dataclasses import dataclass
 from datetime import datetime
-from zapv2 import ZAPv2
+try:
+    from zapv2 import ZAPv2
+    ZAP_AVAILABLE = True
+except ImportError:
+    ZAP_AVAILABLE = False
+    ZAPv2 = None
 
 logger = logging.getLogger(__name__)
 
@@ -7974,7 +8746,11 @@ class ZAPClient:
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.zap = ZAPv2(proxies={'http': f'http://{host}:{port}', 'https': f'http://{host}:{port}'})
+        if ZAP_AVAILABLE and ZAPv2:
+            self.zap = ZAPv2(proxies={'http': f'http://{host}:{port}', 'https': f'http://{host}:{port}'})
+        else:
+            self.zap = None
+            logger.warning("ZAP library not available, client will run in restricted/mock mode.")
 
     async def scan_asset(self, asset_id: int, asset_url: str, asset_name: str) -> List[Finding]:
         findings = []
@@ -8083,6 +8859,162 @@ class ZAPClient:
         except Exception as e:
             logger.warning(f"✗ ZAP unavailable: {e}")
             return False
+FILE:services\scanner_engine\clients\zap_client_rest.py
+"""
+ZAP (OWASP Zed Attack Proxy) REST Client - Scanner Engine M3
+Implementación directa vía REST API para evitar dependencia de zapv2.
+"""
+
+import asyncio
+import logging
+import httpx
+from typing import List, Dict, Optional, Any
+from dataclasses import dataclass
+from datetime import datetime
+
+from shared.config import settings
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class ZAPFinding:
+    """Hallazgo normalizado desde ZAP"""
+    asset_id: int
+    title: str
+    description: str
+    severity: str  # HIGH, MEDIUM, LOW, INFO
+    cve_id: Optional[str]
+    evidence: str
+    remediation: str
+    scanner: str = "ZAP"
+    created_at: datetime = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.utcnow()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "asset_id": self.asset_id,
+            "title": self.title,
+            "description": self.description,
+            "severity": self.severity,
+            "cve_id": self.cve_id,
+            "evidence": self.evidence,
+            "remediation": self.remediation,
+            "scanner": self.scanner,
+            "created_at": self.created_at.isoformat(),
+        }
+
+class ZAPClientREST:
+    """Cliente para OWASP ZAP usando la API REST nativa"""
+
+    def __init__(self):
+        self.host = settings.zap_host
+        self.port = settings.zap_port
+        self.api_key = settings.zap_api_key
+        self.base_url = f"http://{self.host}:{self.port}/JSON"
+        self.client = httpx.AsyncClient(timeout=60.0)
+
+    async def _get(self, component: str, view: str, params: Dict = None) -> Dict:
+        """Helper para llamadas GET a la API de ZAP"""
+        if params is None: params = {}
+        if self.api_key: params["apikey"] = self.api_key
+
+        url = f"{self.base_url}/{component}/view/{view}/"
+        resp = await self.client.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _post(self, component: str, action: str, params: Dict = None) -> Dict:
+        """Helper para llamadas POST a la API de ZAP"""
+        if params is None: params = {}
+        if self.api_key: params["apikey"] = self.api_key
+
+        url = f"{self.base_url}/{component}/action/{action}/"
+        resp = await self.client.post(url, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def new_session(self, name: str = "ScanOPS_Session"):
+        """Inicia una nueva sesión en ZAP"""
+        try:
+            await self._post("core", "newSession", {"name": name, "overwrite": "true"})
+            logger.info(f"✓ Nueva sesión ZAP creada: {name}")
+        except Exception as e:
+            logger.error(f"✗ Error creando sesión ZAP: {e}")
+
+    async def start_spider(self, url: str) -> str:
+        """Inicia el Spider de ZAP"""
+        resp = await self._post("spider", "scan", {"url": url})
+        return resp.get("scan")
+
+    async def start_active_scan(self, url: str) -> str:
+        """Inicia el Active Scan de ZAP"""
+        resp = await self._post("ascan", "scan", {"url": url})
+        return resp.get("scan")
+
+    async def wait_for_scan(self, component: str, scan_id: str, timeout: int = 1800):
+        """Espera a que un scan (spider o ascan) termine"""
+        start_time = datetime.utcnow()
+        while (datetime.utcnow() - start_time).total_seconds() < timeout:
+            data = await self._get(component, "status", {"scanId": scan_id})
+            status = int(data.get("status", 0))
+            if status >= 100:
+                logger.info(f"✓ ZAP {component} completado")
+                return True
+            logger.info(f"→ ZAP {component} progresando: {status}%")
+            await asyncio.sleep(10)
+        return False
+
+    async def get_alerts(self, base_url: str) -> List[Dict]:
+        """Obtiene las alertas detectadas para una URL"""
+        data = await self._get("core", "alerts", {"baseurl": base_url})
+        return data.get("alerts", [])
+
+    async def scan_asset(self, asset_id: int, asset_url: str) -> List[ZAPFinding]:
+        """Flujo completo de escaneo DAST: Session -> Spider -> Ascan -> Alerts"""
+        if not asset_url.startswith("http"):
+            asset_url = f"http://{asset_url}"
+
+        try:
+            # 1. Preparar sesión
+            await self.new_session(f"Scan_{asset_id}")
+
+            # 2. Spider
+            logger.info(f"→ Iniciando ZAP Spider para {asset_url}")
+            spider_id = await self.start_spider(asset_url)
+            await self.wait_for_scan("spider", spider_id)
+
+            # 3. Active Scan
+            logger.info(f"→ Iniciando ZAP Active Scan para {asset_url}")
+            ascan_id = await self.start_active_scan(asset_url)
+            await self.wait_for_scan("ascan", ascan_id)
+
+            # 4. Obtener Alertas
+            alerts = await self.get_alerts(asset_url)
+
+            findings = []
+            risk_map = {"3": "HIGH", "2": "MEDIUM", "1": "LOW", "0": "INFO"}
+
+            for alert in alerts:
+                finding = ZAPFinding(
+                    asset_id=asset_id,
+                    title=alert.get("alert", "DAST Finding"),
+                    description=alert.get("description", ""),
+                    severity=risk_map.get(alert.get("risk"), "INFO"),
+                    cve_id=None, # ZAP no suele dar CVE directamente sin plugins
+                    evidence=f"URL: {alert.get('url')} | Param: {alert.get('param')}",
+                    remediation=alert.get("solution", "Consult OWASP Top 10")
+                )
+                findings.append(finding)
+
+            return findings
+        except Exception as e:
+            logger.error(f"✗ Error en escaneo ZAP DAST: {e}")
+            return []
+        finally:
+            await self.client.aclose()
 FILE:services\scanner_engine\clients\zapv2_mock.py
 class ZAPv2:
     def __init__(self, proxies=None):
@@ -8105,15 +9037,24 @@ FILE:services\scanner_engine\endpoints\scan.py
 
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends, Response
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+from shared.database import get_db
+import io
 import logging
 
 logger = logging.getLogger(__name__)
 
 from services.scanner_engine.tasks.vuln_tasks import (
     scan_asset_parallel,
-    run_nuclei_scan,
+    run_nuclei_task, # Corregido de run_nuclei_scan a run_nuclei_task
+)
+from services.scanner_engine.services.export_results import (
+    export_to_json,
+    export_to_csv,
+    export_to_pdf
 )
 
 # ============================================================================
@@ -8355,8 +9296,53 @@ async def batch_scan_assets(
         )
 
     except Exception as e:
-        logger.error(f"✗ Error batch scan: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to start batch scan: {str(e)}")
+        logger.error(f"✗ Batch scan failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/export/{asset_id}/{format}")
+async def export_scan_results(
+    asset_id: int,
+    format: str,
+    scan_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Exporta los resultados de escaneo de un activo en el formato especificado.
+    Formatos soportados: json, csv, pdf.
+    """
+    format = format.lower()
+
+    try:
+        if format == "json":
+            content = export_to_json(db, asset_id, scan_id)
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename=results_{asset_id}.json"}
+            )
+
+        elif format == "csv":
+            content_io = export_to_csv(db, asset_id, scan_id)
+            return StreamingResponse(
+                iter([content_io.getvalue()]),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=results_{asset_id}.csv"}
+            )
+
+        elif format == "pdf":
+            content_io = export_to_pdf(db, asset_id, scan_id)
+            return StreamingResponse(
+                content_io,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename=results_{asset_id}.pdf"}
+            )
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+
+    except Exception as e:
+        logger.error(f"✗ Error exportando resultados ({format}): {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 FILE:services\scanner_engine\models\__init__.py
 """Data models and schemas module"""
 from .finding import Finding
@@ -8654,6 +9640,153 @@ class VulnFinding(Base):
     updated_by = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
+FILE:services\scanner_engine\services\export_results.py
+"""
+Export Results Service - Scanner Engine M3
+Generación de reportes en formatos JSON, CSV y PDF.
+Cumple con ENS Alto [op.exp.2] para la documentación de hallazgos.
+"""
+
+import csv
+import json
+import io
+from typing import List, Dict, Any
+from datetime import datetime
+from sqlalchemy.orm import Session
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.units import cm
+
+from services.scanner_engine.models.vulnerability import VulnFinding
+
+def get_vuln_findings(db: Session, asset_id: int, scan_id: str = None) -> List[VulnFinding]:
+    """Obtiene los hallazgos de vulnerabilidades de la base de datos."""
+    query = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id)
+    if scan_id:
+        query = query.filter(VulnFinding.scan_id == scan_id)
+    return query.all()
+
+def export_to_json(db: Session, asset_id: int, scan_id: str = None) -> str:
+    """Exporta los hallazgos a formato JSON."""
+    findings = get_vuln_findings(db, asset_id, scan_id)
+    data = [
+        {
+            "id": f.id,
+            "vulnerability_id": f.vulnerability_id,
+            "title": f.title,
+            "severity": f.severity,
+            "description": f.description,
+            "scanner": f.scanner_name,
+            "cvss": f.cvss_v3_score,
+            "status": f.remediation_status,
+            "created_at": f.created_at.isoformat() if f.created_at else None
+        }
+        for f in findings
+    ]
+    return json.dumps(data, indent=4)
+
+def export_to_csv(db: Session, asset_id: int, scan_id: str = None):
+    """Exporta los hallazgos a formato CSV."""
+    findings = get_vuln_findings(db, asset_id, scan_id)
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Headers
+    writer.writerow(["Vulnerability", "Severity", "CVE/ID", "Scanner", "Description", "Status"])
+
+    for f in findings:
+        writer.writerow([
+            f.title,
+            f.severity,
+            f.vulnerability_id,
+            f.scanner_name,
+            f.description[:100] + "..." if f.description else "",
+            f.remediation_status
+        ])
+
+    output.seek(0)
+    return output
+
+def export_to_pdf(db: Session, asset_id: int, scan_id: str = None):
+    """Exporta los hallazgos a formato PDF usando ReportLab."""
+    findings = get_vuln_findings(db, asset_id, scan_id)
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+
+    styles = getSampleStyleSheet()
+    title_style = styles["Title"]
+    heading_style = styles["Heading2"]
+    normal_style = styles["Normal"]
+
+    elements = []
+
+    # Logo Placeholder o Texto
+    elements.append(Paragraph("<b>ScanOPS - M3 Vulnerability Report</b>", title_style))
+    elements.append(Spacer(1, 0.5*cm))
+
+    # Metadata
+    elements.append(Paragraph(f"Fecha: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC", normal_style))
+    elements.append(Paragraph(f"Asset ID: {asset_id}", normal_style))
+    if scan_id:
+        elements.append(Paragraph(f"Scan ID: {scan_id}", normal_style))
+    elements.append(Spacer(1, 1*cm))
+
+    # Resumen de Severidad
+    severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    for f in findings:
+        sev = f.severity.upper() if f.severity else "INFO"
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+        else:
+            severity_counts["INFO"] += 1
+
+    elements.append(Paragraph("Resumen de Severidad", heading_style))
+    summary_data = [["Severidad", "Cantidad"]]
+    for sev, count in severity_counts.items():
+        summary_data.append([sev, str(count)])
+
+    summary_table = Table(summary_data, colWidths=[4*cm, 2*cm])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 1*cm))
+
+    # Detalle de Vulnerabilidades
+    elements.append(Paragraph("Detalle de Vulnerabilidades", heading_style))
+
+    table_data = [["Vulnerabilidad", "Sev", "CVE/ID", "Scanner"]]
+    for f in findings:
+        table_data.append([
+            Paragraph(f.title[:50], normal_style),
+            f.severity,
+            f.vulnerability_id,
+            f.scanner_name
+        ])
+
+    vuln_table = Table(table_data, colWidths=[7*cm, 2.5*cm, 4*cm, 3*cm])
+    vuln_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+    ]))
+    elements.append(vuln_table)
+
+    # Generar PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
 FILE:services\scanner_engine\services\nuclei_wrapper.py
 import subprocess
 import json
@@ -8701,100 +9834,144 @@ FILE:services\scanner_engine\services\zap_wrapper.py
 FILE:services\scanner_engine\tasks\__init__.py
 """Celery scanner tasks module"""
 FILE:services\scanner_engine\tasks\vuln_tasks.py
-"""Celery tasks for vulnerability scanning orchestration."""
+"""
+Celery tasks for vulnerability scanning orchestration — M3.
+Flujo orquestado: OpenVAS + Nuclei + ZAP con merge de resultados y stats.
+"""
 
 import asyncio
 import logging
-from typing import Dict, List, Optional
+import time
+from typing import Dict, List, Any
 from datetime import datetime
+from celery import group, chord
 
 from shared.celery_app import app
+from shared.database import SessionLocal
+from shared.scan_logger import ScanLogger
 from services.scanner_engine.clients.openvas_client import OpenVASClient
 from services.scanner_engine.clients.nuclei_client import NucleiClient
-from services.scanner_engine.clients.zap_client import ZAPClient
+from services.scanner_engine.clients.zap_client_rest import ZAPClientREST
+from services.scanner_engine.models.vulnerability import VulnFinding
+from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
 
-logger = logging.getLogger(__name__)
+logger = ScanLogger("scanner_tasks")
 
-@app.task(
-    name="scanner.openvas.scan_asset",
-    bind=True,
-    timeout=3600,
-    max_retries=3,
-    queue="scanner_tasks",
-)
-def run_openvvas_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> Dict:
-    """Execute OpenVAS vulnerability scan."""
-    from redis import Redis
-    import time
+# --- TAREA: NUCLEI (US-3.2) ---
+@app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities")
+def run_nuclei_task(asset_id: int, ip: str) -> List[Dict]:
+    """Ejecuta Nuclei y devuelve hallazgos sin persistir (el orquestador persiste)."""
+    logger.info("NUCLEI_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        findings = execute_nuclei_binary(ip)
+        return [{"scanner": "Nuclei", **f} for f in findings]
+    except Exception as e:
+        logger.error("NUCLEI_TASK_ERROR", error=str(e))
+        return []
 
-    redis_client = Redis(host='redis', port=6379, db=0, decode_responses=True)
+# --- TAREA: OPENVAS (US-3.1) ---
+@app.task(name="scanner.openvas.scan_asset", queue="scanner_tasks")
+def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict]:
+    """Ejecuta OpenVAS real y devuelve hallazgos normalizados."""
+    logger.info("OPENVAS_TASK_START", ip=asset_ip)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        from services.scanner_engine.clients.openvas_client import get_openvas_client
+        client = loop.run_until_complete(get_openvas_client())
+        findings = loop.run_until_complete(client.scan_asset(asset_id, asset_ip, asset_name))
+        return [{"scanner": "OpenVAS", **f.to_dict()} for f in findings]
+    except Exception as e:
+        logger.error("OPENVAS_TASK_ERROR", error=str(e))
+        return []
+    finally:
+        loop.close()
 
-    # Esperar slot disponible
-    while int(redis_client.get('active_scans') or 0) >= 5:
-        logger.info("⏳ Esperando slot de escaneo...")
-        time.sleep(2)
+# --- TAREA: ZAP DAST (US-3.3) ---
+@app.task(name="tasks.run_zap_vulnerability_scan", queue="vulnerabilities")
+def run_zap_task(asset_id: int, ip: str) -> List[Dict]:
+    """Ejecuta ZAP DAST vía API REST."""
+    logger.info("ZAP_TASK_START", target=ip)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        client = ZAPClientREST()
+        target_url = f"http://{ip}"
+        findings = loop.run_until_complete(client.scan_asset(asset_id, target_url))
+        return [{"scanner": "ZAP", **f.to_dict()} for f in findings]
+    except Exception as e:
+        logger.error("ZAP_TASK_ERROR", error=str(e))
+        return []
+    finally:
+        loop.close()
 
-    redis_client.incr('active_scans')
+# --- CALLBACK: MERGE & PERSIST (US-3.4) ---
+@app.task(name="tasks.merge_and_persist_results")
+def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
+    """
+    Recibe los resultados de todos los scanners, los une, persiste y genera stats.
+    """
+    all_findings = [finding for sublist in results_list for finding in sublist]
+    db = SessionLocal()
+    scan_id = f"scan_multi_{int(time.time())}"
+
+    stats = {"total": 0, "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
 
     try:
-        logger.info(f"→ OpenVAS scan: asset_id={asset_id}")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            client = OpenVASClient()
-            findings = loop.run_until_complete(
-                client.scan_asset(asset_id, asset_ip, asset_name)
+        for f in all_findings:
+            severity = f.get("severity", "INFO").upper()
+            vuln = VulnFinding(
+                asset_id=asset_id,
+                scan_id=scan_id,
+                vulnerability_id=f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC",
+                title=f.get("title", "Unknown Vulnerability"),
+                severity=severity,
+                description=f.get("description", ""),
+                scanner_name=f.get("scanner", "Generic"),
+                evidence=f.get("evidence", {}),
+                created_by="system-orchestrator"
             )
+            db.add(vuln)
+            stats["total"] += 1
+            if severity in stats:
+                stats[severity] += 1
 
-            result = {
-                "scanner": "OpenVAS",
-                "status": "success",
-                "findings_count": len(findings),
-                "findings": [f.to_dict() for f in findings],
-                "error": None,
-            }
-
-            logger.info(f"✓ OpenVAS: {len(findings)} hallazgos")
-
-            from shared.database import SessionLocal
-            from services.scanner_engine.models.vulnerability import VulnFinding
-
-            db = SessionLocal()
-            try:
-                for f in findings:
-                    vuln = VulnFinding(asset_id=asset_id, scan_id=f"scan_{int(time.time())}", vulnerability_id=f.cve_id or "UNKNOWN", title=f.title, severity=f.severity.value, cvss_v3_score=f.cvss_score, scanner_name="OpenVAS", evidence={"raw": f.evidence}, created_by="scanner")
-                    db.add(vuln)
-                db.commit()
-                logger.info(f"✓ Saved {len(findings)} findings to BD")
-            except Exception as e:
-                db.rollback()
-                logger.error(f"✗ DB save failed: {e}")
-            finally:
-                db.close()
-
-            return result
-        finally:
-            loop.close()
-
+        db.commit()
+        logger.info("SCAN_MERGE_COMPLETE", asset_id=asset_id, total=stats["total"])
+        return {"status": "completed", "asset_id": asset_id, "scan_id": scan_id, "stats": stats}
     except Exception as e:
-        logger.error(f"✗ OpenVAS error: {str(e)}")
-
-        if self.request.retries < self.max_retries:
-            logger.info(f"Reintentando OpenVAS (intento {self.request.retries + 1}/{self.max_retries})")
-            raise self.retry(exc=e, countdown=60 * (2 ** self.request.retries))
-
-        return {
-            "scanner": "OpenVAS",
-            "status": "error",
-            "findings_count": 0,
-            "findings": [],
-            "error": str(e),
-        }
-
+        db.rollback()
+        logger.error("MERGE_PERSIST_ERROR", error=str(e))
+        return {"status": "error", "message": str(e)}
     finally:
-        redis_client.decr('active_scans')
-        logger.info(f"✓ Escaneo liberado. Activos: {redis_client.get('active_scans')}")
+        db.close()
+
+# --- ORQUESTADOR PARALELO (US-3.4) ---
+@app.task(name="services.scanner_engine.tasks.vuln_tasks.scan_asset_parallel")
+def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_types: List[str] = None):
+    """
+    Lanza múltiples scanners en paralelo usando un Chord de Celery.
+    Nuclei || OpenVAS || ZAP -> merge_and_persist_results
+    """
+    if not scan_types:
+        scan_types = ["nuclei", "openvas", "zap"]
+
+    tasks = []
+    if "nuclei" in scan_types:
+        tasks.append(run_nuclei_task.s(asset_id, asset_ip))
+    if "openvas" in scan_types:
+        tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
+    if "zap" in scan_types:
+        tasks.append(run_zap_task.s(asset_id, asset_ip))
+
+    if not tasks:
+        return {"status": "no_scans_selected"}
+
+    # Ejecutar en paralelo y llamar al callback al finalizar
+    workflow = chord(group(tasks))(merge_and_persist_results.s(asset_id))
+
+    logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types)
+    return {"status": "parallel_scans_initiated", "task_id": workflow.id}
 FILE:services\scanner_engine\tests\__init__.py
 """Scanner Engine tests module."""
 FILE:services\scanner_engine\tests\conftest.py
@@ -8814,6 +9991,132 @@ def event_loop_policy():
     if sys.platform == "win32":
         import asyncio
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+FILE:services\scanner_engine\tests\test_export_results.py
+import pytest
+import io
+import json
+from unittest.mock import MagicMock, patch
+from services.scanner_engine.services.export_results import (
+    export_to_json,
+    export_to_csv,
+    export_to_pdf
+)
+from services.scanner_engine.models.vulnerability import VulnFinding
+
+@pytest.fixture
+def mock_db():
+    db = MagicMock()
+    # Simulamos un hallazgo en la BD
+    finding = VulnFinding(
+        id=1,
+        asset_id=10,
+        scan_id="scan_1",
+        vulnerability_id="CVE-2024-1234",
+        title="Test Vulnerability",
+        severity="HIGH",
+        description="This is a test",
+        scanner_name="Nuclei",
+        remediation_status="open"
+    )
+    db.query.return_value.filter.return_value.all.return_value = [finding]
+    # Caso para cuando se filtra por scan_id
+    db.query.return_value.filter.return_value.filter.return_value.all.return_value = [finding]
+    return db
+
+def test_export_to_json_format(mock_db):
+    """Verificar que la exportación JSON es válida y contiene los campos."""
+    result = export_to_json(mock_db, 10)
+    data = json.loads(result)
+
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["title"] == "Test Vulnerability"
+    assert data[0]["severity"] == "HIGH"
+
+def test_export_to_csv_content(mock_db):
+    """Verificar que el CSV tiene los headers y datos correctos."""
+    output_io = export_to_csv(mock_db, 10)
+    content = output_io.getvalue()
+
+    assert "Vulnerability,Severity,CVE/ID,Scanner,Description,Status" in content
+    assert "Test Vulnerability,HIGH,CVE-2024-1234,Nuclei" in content
+
+def test_export_to_pdf_generation(mock_db):
+    """Verificar que se genera un stream de bytes para el PDF."""
+    # Como reportlab genera binario, verificamos que no falle y retorne un buffer con datos
+    pdf_buffer = export_to_pdf(mock_db, 10)
+
+    assert isinstance(pdf_buffer, io.BytesIO)
+    content = pdf_buffer.getvalue()
+    assert len(content) > 0
+    # Los PDFs empiezan con %PDF
+    assert content.startswith(b"%PDF")
+
+def test_export_empty_results(mock_db):
+    """Verificar comportamiento con resultados vacíos."""
+    mock_db.query.return_value.filter.return_value.all.return_value = []
+
+    json_result = export_to_json(mock_db, 10)
+    assert json_result == "[]"
+
+    csv_result = export_to_csv(mock_db, 10).getvalue()
+    # Solo los headers
+    assert len(csv_result.strip().split("\n")) == 1
+FILE:services\scanner_engine\tests\test_openvas_client.py
+import pytest
+from unittest.mock import patch, MagicMock, AsyncMock
+from services.scanner_engine.clients.openvas_client import OpenVASClient
+
+@pytest.fixture
+def openvas_client():
+    with patch("services.scanner_engine.clients.openvas_client.settings") as mock_settings:
+        mock_settings.openvas_host = "test_host"
+        mock_settings.openvas_port = 9390
+        mock_settings.openvas_user = "admin"
+        mock_settings.openvas_pass = "admin"
+        return OpenVASClient()
+
+@pytest.mark.asyncio
+async def test_create_target_success(openvas_client):
+    """Verificar creación de target con mock de GMP."""
+    mock_gmp = MagicMock()
+    mock_gmp.create_target.return_value = {"id": "target_uuid_123"}
+    mock_gmp.is_connected.return_value = True
+
+    with patch.object(openvas_client, "_get_gmp", return_value=mock_gmp):
+        target_id = await openvas_client.create_target(["10.0.0.1"], "TestTarget")
+        assert target_id == "target_uuid_123"
+        mock_gmp.create_target.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_scan_asset_full_flow(openvas_client):
+    """Test del flujo completo de escaneo (Target -> Task -> Start -> Wait -> Report)."""
+    # Mocks de los métodos internos para no depender de la conexión real
+    with patch.object(openvas_client, "create_target", new_callable=AsyncMock) as m_tgt, \
+         patch.object(openvas_client, "create_task", new_callable=AsyncMock) as m_tsk, \
+         patch.object(openvas_client, "start_task", new_callable=AsyncMock) as m_start, \
+         patch.object(openvas_client, "wait_for_task_completion", new_callable=AsyncMock) as m_wait, \
+         patch.object(openvas_client, "get_report_findings", new_callable=AsyncMock) as m_report, \
+         patch.object(openvas_client, "disconnect", new_callable=AsyncMock):
+
+        m_tgt.return_value = "tgt_1"
+        m_tsk.return_value = "tsk_1"
+        m_start.return_value = "rpt_1"
+        m_wait.return_value = True
+        m_report.return_value = [MagicMock(title="Vuln 1")]
+
+        findings = await openvas_client.scan_asset(1, "1.1.1.1", "Asset1")
+
+        assert len(findings) == 1
+        assert findings[0].title == "Vuln 1"
+        m_wait.assert_awaited_once()
+
+@pytest.mark.asyncio
+async def test_openvas_connection_error(openvas_client):
+    """Verificar manejo de errores de conexión."""
+    with patch("services.scanner_engine.clients.openvas_client.TlsConnection", side_effect=Exception("Conn Failed")):
+        with pytest.raises(ConnectionError):
+            await openvas_client._get_gmp()
 FILE:services\scanner_engine\tests\test_scanner_engine.py
 """Comprehensive tests for Scanner Engine (M3) - >80% coverage."""
 
@@ -9551,7 +10854,7 @@ app.conf.update(
     }
 )
 FILE:shared\config.py
-﻿import os
+import os
 from typing import Optional, List
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9587,6 +10890,17 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: str = Field(default="INFO")
 
+    # --- OpenVAS ---
+    openvas_host: str = Field(default="openvas")
+    openvas_port: int = Field(default=9390)
+    openvas_user: str = Field(default="admin")
+    openvas_pass: str = Field(default="admin")
+
+    # --- ZAP (OWASP) ---
+    zap_host: str = Field(default="zap")
+    zap_port: int = Field(default=8080)
+    zap_api_key: Optional[str] = Field(default=None)
+
     # --- Pydantic Config ---
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -9598,8 +10912,8 @@ class Settings(BaseSettings):
     @field_validator('database_url')
     @classmethod
     def validate_database_url(cls, v: str) -> str:
-        if not v.startswith(('postgresql://', 'postgresql+psycopg2://')):
-            raise ValueError('Database URL debe ser una cadena de conexión válida de PostgreSQL')
+        if not v.startswith(('postgresql://', 'postgresql+psycopg2://', 'sqlite://')):
+            raise ValueError('Database URL debe ser una cadena de conexión válida de PostgreSQL o SQLite')
         return v
 
     @field_validator('vault_addr')
@@ -9614,15 +10928,41 @@ FILE:shared\database.py
 """Shared database helpers for ScanOPS microservices."""
 
 import os
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
+
+logger = logging.getLogger(__name__)
+
+# Intentar importar psycopg2 de forma opcional
+try:
+    import psycopg2
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    # psycopg2 not available, will fallback to sqlite if needed
+    PSYCOPG2_AVAILABLE = False
+    logger.warning("psycopg2 no está instalado. PostgreSQL no estará disponible.")
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://scanops:scanops@localhost:5432/scanops"
 )
 
-engine = create_engine(DATABASE_URL, echo=False)
+# Lógica de fallback para TESTS o falta de driver
+is_testing = os.getenv("TESTING", "false").lower() == "true"
+
+if not PSYCOPG2_AVAILABLE or is_testing or "sqlite" in DATABASE_URL:
+    if not DATABASE_URL.startswith("sqlite"):
+        logger.info("Cambiando a SQLite para tests o por falta de psycopg2")
+        DATABASE_URL = "sqlite:///./scanops_local.db"
+
+# Configuración específica según el dialecto
+engine_kwargs = {"echo": False}
+if DATABASE_URL.startswith("sqlite"):
+    # Necesario para SQLite en aplicaciones multihilo (FastAPI)
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Session:
@@ -9705,6 +11045,10 @@ class ScanLogger:
 
     def compliance(self, status: str, measure=None, **kwargs):
         self.info("COMPLIANCE", status=status, measure=measure, **kwargs)
+
+def get_logger(module_name: str) -> ScanLogger:
+    """Helper function for backward compatibility and convenience."""
+    return ScanLogger(module_name)
 FILE:shared\utils.py
 """Shared utility functions across ScanOPS microservices."""
 

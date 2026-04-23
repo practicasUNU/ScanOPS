@@ -5,7 +5,12 @@ import logging
 from typing import List, Optional
 from dataclasses import dataclass
 from datetime import datetime
-from zapv2 import ZAPv2
+try:
+    from zapv2 import ZAPv2
+    ZAP_AVAILABLE = True
+except ImportError:
+    ZAP_AVAILABLE = False
+    ZAPv2 = None
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +58,11 @@ class ZAPClient:
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.zap = ZAPv2(proxies={'http': f'http://{host}:{port}', 'https': f'http://{host}:{port}'})
+        if ZAP_AVAILABLE and ZAPv2:
+            self.zap = ZAPv2(proxies={'http': f'http://{host}:{port}', 'https': f'http://{host}:{port}'})
+        else:
+            self.zap = None
+            logger.warning("ZAP library not available, client will run in restricted/mock mode.")
 
     async def scan_asset(self, asset_id: int, asset_url: str, asset_name: str) -> List[Finding]:
         findings = []

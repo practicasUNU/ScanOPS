@@ -1,14 +1,34 @@
-"""OpenVAS Client - Scanner Engine M3"""
+"""
+OpenVAS Client - Scanner Engine M3
+Cliente real para OpenVAS/GVM usando la librería oficial python-gvm.
+Cumple con ENS Alto [op.exp.3] para la gestión segura de parámetros.
+"""
+
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
-import httpx
 import xml.etree.ElementTree as ET
 
-logger = logging.getLogger(__name__)
+try:
+    from gvm.connections import TLSConnection
+    from gvm.protocols.gmp import Gmp
+    from gvm.transforms import EtreeTransform
+    from gvm.errors import GvmError
+    GVM_AVAILABLE = True
+except ImportError:
+    # gvm not available, using mock/alternate
+    # needs: pip install gvm-tools
+    GVM_AVAILABLE = False
+    TLSConnection = None
+    Gmp = None
+    EtreeTransform = None
+    GvmError = Exception
 
+from shared.config import settings
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CVEFinding:
@@ -42,258 +62,196 @@ class CVEFinding:
             "created_at": self.created_at.isoformat(),
         }
 
-
 class OpenVASClient:
-    """Cliente para OpenVAS/GVM"""
+    """Cliente para OpenVAS/GVM real usando protocolo GMP"""
 
-    def __init__(
-        self,
-        host: str,
-        port: int = 9392,
-        username: str = "admin",
-        password: str = "admin",
-        verify_ssl: bool = False,
-        timeout: int = 30,
-    ):
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.verify_ssl = verify_ssl
-        self.timeout = timeout
-        self.session = httpx.AsyncClient(verify=self.verify_ssl, timeout=self.timeout)
-        self.base_url = f"https://{host}:{port}"
-        self.is_connected = False
+    def __init__(self):
+        self.host = settings.openvas_host
+        self.port = settings.openvas_port
+        self.username = settings.openvas_user
+        self.password = settings.openvas_pass
+        self._gmp = None
+        self._connection = None
 
-    async def connect(self) -> bool:
+    async def _get_gmp(self) -> Gmp:
+        """Inicializa y autentica el cliente GMP si no existe"""
+        if not GVM_AVAILABLE:
+            logger.error("✗ gvm-tools no está instalado. Ejecute 'pip install gvm-tools'")
+            raise ImportError("Librería 'gvm' no disponible. Instale python-gvm / gvm-tools.")
+
+        if self._gmp and self._gmp.is_connected():
+            return self._gmp
+
         try:
-            resp = await self.session.get(f"{self.base_url}/gmp", auth=(self.username, self.password))
-            self.is_connected = resp.status_code == 200
-            logger.info("✓ OpenVAS connected" if self.is_connected else "✗ OpenVAS failed")
-            return self.is_connected
+            logger.info(f"Conectando a OpenVAS en {self.host}:{self.port}...")
+            # La conexión TLS puede tardar si hay problemas de red
+            self._connection = TLSConnection(hostname=self.host, port=self.port)
+            self._gmp = Gmp(connection=self._connection, transform=EtreeTransform())
+            
+            # Autenticación (operación síncrona en hilo para no bloquear)
+            await asyncio.to_thread(self._gmp.authenticate, self.username, self.password)
+            logger.info(f"✓ Autenticación exitosa en OpenVAS GVM")
+            return self._gmp
+        except GvmError as ge:
+            logger.error(f"✗ Error de protocolo GVM: {str(ge)}")
+            raise ConnectionError(f"Protocolo GVM falló: {ge}")
         except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return False
+            logger.error(f"✗ Error de conexión física a OpenVAS: {str(e)}")
+            raise ConnectionError(f"No se pudo establecer conexión TLS con OpenVAS: {e}")
 
     async def disconnect(self):
         """Cerrar sesión"""
-        self.is_connected = False
-        logger.info("✓ OpenVAS desconectado")
+        if self._gmp:
+            await asyncio.to_thread(self._gmp.disconnect)
+            logger.info("✓ OpenVAS desconectado")
 
-    async def get_available_scanners(self) -> Dict[str, str]:
-        """Obtener scanners disponibles"""
-        if not self.is_connected:
-            return {}
+    async def create_target(self, target_ips: List[str], target_name: str) -> str:
+        """Crea un target real en GVM"""
+        gmp = await self._get_gmp()
+        hosts = ",".join(target_ips)
+        
+        response = await asyncio.to_thread(
+            gmp.create_target, 
+            name=target_name, 
+            hosts=target_ips,
+            port_list_id="33d0cd10-f6ec-11e0-815c-002264764cea"  # All IANA relevant TCP
+        )
+        target_id = response.get("id")
+        logger.info(f"✓ Target creado: {target_id}")
+        return target_id
 
-        try:
-            scanners = {
-                "08b69003-5fc2-45d1-a82e-ab9734732d91": "Full and fast",
-                "d2590a07-56a8-4249-a11c-1e6c9eb4eee6": "Full and very deep",
-                "daba56c8-73ec-11df-a475-002264764cea": "Full and deep",
-            }
-            logger.info(f"✓ Scanners disponibles: {list(scanners.values())}")
-            return scanners
-        except Exception as e:
-            logger.error(f"✗ Error obteniendo scanners: {str(e)}")
-            return {}
+    async def create_task(self, target_id: str, task_name: str, config_id: str = "daba56c8-73ec-11df-a475-002264764cea") -> str:
+        """Crea una tarea real en GVM (Default: Full and fast)"""
+        gmp = await self._get_gmp()
+        
+        # Scanner ID por defecto (OpenVAS Default)
+        scanner_id = "08b69003-5fc2-45d1-a82e-ab9734732d91"
+        
+        response = await asyncio.to_thread(
+            gmp.create_task,
+            name=task_name,
+            config_id=config_id,
+            target_id=target_id,
+            scanner_id=scanner_id
+        )
+        task_id = response.get("id")
+        logger.info(f"✓ Task creada: {task_id}")
+        return task_id
 
-    async def create_target(self, target_ips: List[str], target_name: str, allow_simultaneous_ips: bool = False) -> Optional[str]:
-        if not self.is_connected:
-            logger.error("OpenVAS not connected")
-            return None
-        try:
-            hosts = ",".join(target_ips)
-            xml_body = f'<create_target><name>{target_name}</name><hosts>{hosts}</hosts></create_target>'
-            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            target_id = root.find(".//target/uuid").text if root.find(".//target/uuid") is not None else None
-            logger.info(f"✓ Target created: {target_id}")
-            return target_id
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return None
-
-    async def create_task(self, target_id: str, task_name: str, scanner_id: str = "08b69003-5fc2-45d1-a82e-ab9734732d91") -> Optional[str]:
-        if not self.is_connected:
-            return None
-        try:
-            xml_body = f'<create_task><name>{task_name}</name><target id="{target_id}"/><config id="{scanner_id}"/></create_task>'
-            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            task_id = root.find(".//task/uuid").text if root.find(".//task/uuid") is not None else None
-            logger.info(f"✓ Task created: {task_id}")
-            return task_id
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return None
-
-    async def start_task(self, task_id: str) -> bool:
-        if not self.is_connected:
-            return False
-        try:
-            xml_body = f'<start_task task_id="{task_id}"/>'
-            resp = await self.session.post(f"{self.base_url}/gmp", data=xml_body, auth=(self.username, self.password))
-            logger.info(f"✓ Task started: {task_id}")
-            return resp.status_code == 200
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return False
+    async def start_task(self, task_id: str) -> str:
+        """Inicia la tarea y devuelve el ID del reporte"""
+        gmp = await self._get_gmp()
+        response = await asyncio.to_thread(gmp.start_task, task_id=task_id)
+        report_id = response.find(".//report_id").text
+        logger.info(f"✓ Task iniciada. Report ID: {report_id}")
+        return report_id
 
     async def get_task_status(self, task_id: str) -> Dict[str, Any]:
-        if not self.is_connected:
-            return {"status": "DISCONNECTED"}
-        try:
-            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_tasks&task_id={task_id}", auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            status = root.find(".//task/status").text if root.find(".//task/status") is not None else "Running"
-            progress = root.find(".//task/progress").text if root.find(".//task/progress") is not None else "0"
-            logger.debug(f"Status {task_id}: {status} {progress}%")
-            return {"task_id": task_id, "status": status, "progress": int(progress) if progress.isdigit() else 0, "report_count": 1}
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return {}
+        """Obtiene el progreso real de la tarea"""
+        gmp = await self._get_gmp()
+        response = await asyncio.to_thread(gmp.get_task, task_id=task_id)
+        
+        task = response.find(".//task")
+        status = task.find("status").text
+        progress = task.find("progress").text
+        
+        return {
+            "status": status,
+            "progress": int(progress) if progress and int(progress) >= 0 else 0
+        }
 
-    async def wait_for_task_completion(
-        self,
-        task_id: str,
-        max_wait: int = 3600,
-        poll_interval: int = 30,
-    ) -> bool:
-        """Esperar a que se complete una tarea"""
+    async def wait_for_task_completion(self, task_id: str, timeout: int = 3600) -> bool:
+        """Espera activa hasta que la tarea termine"""
         start_time = datetime.utcnow()
-        
-        while (datetime.utcnow() - start_time).total_seconds() < max_wait:
-            status = await self.get_task_status(task_id)
+        while (datetime.utcnow() - start_time).total_seconds() < timeout:
+            status_data = await self.get_task_status(task_id)
+            status = status_data["status"]
+            progress = status_data["progress"]
             
-            if status.get("status") == "Done":
-                logger.info(f"✓ Tarea {task_id} completada")
+            if status == "Done":
                 return True
+            if status in ["Stopped", "Error", "Internal Error"]:
+                logger.error(f"✗ Task {task_id} falló con estado: {status}")
+                return False
+                
+            logger.info(f"→ Escaneo OpenVAS progresando: {progress}% (Estado: {status})")
+            await asyncio.sleep(30)
             
-            logger.info(f"→ Esperando... {status.get('progress', 0)}%")
-            await asyncio.sleep(poll_interval)
-        
-        logger.warning(f"✗ Timeout esperando tarea {task_id}")
         return False
 
-    async def get_task_report(self, task_id: str) -> Optional[Dict[str, Any]]:
-        if not self.is_connected:
-            return None
-        try:
-            resp = await self.session.get(f"{self.base_url}/gmp?cmd=get_reports&task_id={task_id}", auth=(self.username, self.password))
-            root = ET.fromstring(resp.text)
-            results = []
-            for result in root.findall(".//result"):
-                name = result.find("name").text if result.find("name") is not None else "Unknown"
-                severity = result.find("severity").text if result.find("severity") is not None else "0"
-                cve = result.find("cve").text if result.find("cve") is not None else None
-                host = result.find("host").text if result.find("host") is not None else "N/A"
-                cvss = float(severity) if severity.replace(".", "").isdigit() else 0
-                results.append({"name": name, "severity": severity, "cvss": cvss, "cve": cve, "host": host, "description": ""})
-            logger.info(f"✓ Report: {len(results)} findings")
-            return {"task_id": task_id, "created": datetime.utcnow().isoformat(), "results": results}
-        except Exception as e:
-            logger.error(f"✗ Error: {e}")
-            return None
-
-    async def normalize_findings(
-        self,
-        report: Dict[str, Any],
-        asset_id: int,
-    ) -> List[CVEFinding]:
-        """Normalizar hallazgos de OpenVAS al schema común"""
-        findings = []
+    async def get_report_findings(self, report_id: str, asset_id: int) -> List[CVEFinding]:
+        """Descarga y parsea el reporte real en formato XML"""
+        gmp = await self._get_gmp()
+        # Filtro para obtener solo resultados relevantes (niveles High, Medium, Low)
+        response = await asyncio.to_thread(gmp.get_report, report_id=report_id, filter_string="levels=hml")
         
+        findings = []
         severity_map = {
             "High": "HIGH",
             "Medium": "MEDIUM",
             "Low": "LOW",
-            "None": "INFO",
+            "Log": "INFO",
+            "Debug": "INFO"
         }
-        
-        for result in report.get("results", []):
+
+        results = response.findall(".//result")
+        for res in results:
+            nvt = res.find("nvt")
+            severity_text = res.find("threat").text
+            
+            # Extraer CVEs
+            cves = nvt.find("cve").text if nvt.find("cve") is not None else None
+            
             finding = CVEFinding(
                 asset_id=asset_id,
-                title=result.get("name", "Unknown"),
-                description=result.get("description", ""),
-                severity=severity_map.get(result.get("severity"), "INFO"),
-                cvss_score=result.get("cvss"),
-                cve_id=result.get("cve"),
-                evidence=f"Host: {result.get('host', 'N/A')}",
-                remediation="Refer to vendor guidance or CVE details",
+                title=res.find("name").text,
+                description=nvt.find("description").text if nvt.find("description") is not None else "",
+                severity=severity_map.get(severity_text, "INFO"),
+                cvss_score=float(res.find("severity").text) if res.find("severity") is not None else 0.0,
+                cve_id=cves.split(",")[0] if cves and cves != "NOCVE" else None,
+                evidence=res.find("description").text if res.find("description") is not None else "Ver reporte completo en GVM",
+                remediation=nvt.find("solution").text if nvt.find("solution") is not None else "No especificada"
             )
             findings.append(finding)
-        
-        logger.info(f"✓ Normalizados {len(findings)} hallazgos")
+            
         return findings
 
-    async def scan_asset(
-        self,
-        asset_id: int,
-        asset_ip: str,
-        asset_name: str,
-    ) -> List[CVEFinding]:
-        """Ejecutar escaneo completo de un activo"""
-        if not self.is_connected:
-            logger.error("OpenVAS no conectado")
-            return []
-
+    async def scan_asset(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
+        """Flujo completo de producción: Target -> Task -> Start -> Wait -> Report"""
         try:
-            # 1. Crear target
-            target_id = await self.create_target(
-                target_ips=[asset_ip],
-                target_name=f"Target_{asset_name}_{asset_id}",
-            )
-            if not target_id:
+            logger.info(f"Iniciando escaneo OpenVAS real para {asset_name} ({asset_ip})")
+            
+            # 1. Crear Target
+            target_id = await self.create_target([asset_ip], f"TGT_{asset_name}_{asset_id}")
+            
+            # 2. Crear Task
+            task_id = await self.create_task(target_id, f"TSK_{asset_name}_{asset_id}")
+            
+            # 3. Iniciar
+            report_id = await self.start_task(task_id)
+            
+            # 4. Esperar
+            if await self.wait_for_task_completion(task_id):
+                # 5. Obtener resultados
+                findings = await self.get_report_findings(report_id, asset_id)
+                logger.info(f"✓ Escaneo finalizado: {len(findings)} vulnerabilidades encontradas")
+                return findings
+            else:
+                logger.error(f"✗ El escaneo no se completó correctamente")
                 return []
-
-            # 2. Crear tarea
-            task_id = await self.create_task(
-                target_id=target_id,
-                task_name=f"Scan_{asset_name}_{asset_id}",
-            )
-            if not task_id:
-                return []
-
-            # 3. Iniciar escaneo
-            if not await self.start_task(task_id):
-                return []
-
-            # 4. Esperar a completación
-            if not await self.wait_for_task_completion(task_id):
-                logger.warning(f"Escaneo de {asset_name} no completado en tiempo")
-                return []
-
-            # 5. Obtener reporte
-            report = await self.get_task_report(task_id)
-            if not report:
-                return []
-
-            # 6. Normalizar hallazgos
-            findings = await self.normalize_findings(report, asset_id)
-
-            logger.info(
-                f"✓ Escaneo completado para {asset_name}: {len(findings)} hallazgos"
-            )
-            return findings
-
+                
         except Exception as e:
-            logger.error(f"✗ Error escaneando {asset_name}: {str(e)}")
+            logger.error(f"✗ Error crítico en scan_asset: {str(e)}")
             return []
+        finally:
+            await self.disconnect()
 
-
-# Global client instance
-openvas_client = None
-
+# Singleton instance
+_client_instance = None
 
 async def get_openvas_client() -> OpenVASClient:
-    """Obtener instancia global de OpenVAS client"""
-    global openvas_client
-    if openvas_client is None:
-        openvas_client = OpenVASClient(
-            host="openvas",
-            port=9392,
-            username="admin",
-            password="admin",
-        )
-        await openvas_client.connect()
-    return openvas_client
+    """Obtiene el cliente configurado desde settings"""
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = OpenVASClient()
+    return _client_instance

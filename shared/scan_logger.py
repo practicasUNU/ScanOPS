@@ -62,3 +62,7 @@ class ScanLogger:
  
     def compliance(self, status: str, measure=None, **kwargs):
         self.info("COMPLIANCE", status=status, measure=measure, **kwargs)
+
+def get_logger(module_name: str) -> ScanLogger:
+    """Helper function for backward compatibility and convenience."""
+    return ScanLogger(module_name)
