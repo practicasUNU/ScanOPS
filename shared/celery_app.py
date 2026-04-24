@@ -12,7 +12,8 @@ app = Celery(
     include=[
         "services.asset_manager.tasks.discovery",
         "services.recon_engine.tasks.scan_tasks",
-        "services.scanner_engine.tasks.vuln_tasks" # Nueva línea
+        "services.scanner_engine.tasks.vuln_tasks",
+        "services.ai_reasoning.tasks"
     ]
 )
 
