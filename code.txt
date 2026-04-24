@@ -943,11 +943,15 @@ shared = ["*.py"]
 services = ["**/*.py"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "services/recon_engine/tests", "services/asset_manager/tests", "services/scanner_engine/tests"]
+testpaths = ["tests", "services/recon_engine/tests", "services/asset_manager/tests", "services/scanner_engine/tests", "services/ai_reasoning/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+asyncio_mode = "strict"
+markers = [
+    "integration: tests E2E que requieren servicios externos activos (Ollama, BD, Redis)",
+]
 FILE:requirements-dev.txt
 # Development dependencies
 pytest>=7.0.0
@@ -1756,6 +1760,835 @@ if __name__ == "__main__":
     merge_reports(network_results)
 FILE:services\__init__.py
 """Top-level services package for ScanOPS."""
+FILE:services\ai_reasoning\.env.example
+
+FILE:services\ai_reasoning\__init__.py
+
+FILE:services\ai_reasoning\config.py
+
+FILE:services\ai_reasoning\ens_mapper.py
+
+FILE:services\ai_reasoning\false_positive_filter.py
+
+FILE:services\ai_reasoning\human_validation.py
+
+FILE:services\ai_reasoning\models.py
+
+FILE:services\ai_reasoning\ollama_client.py
+"""
+ollama_client.py — Cliente asíncrono para la API local de Ollama.
+
+Módulo: M8 - AI Reasoning (ScanOPS)
+User Story: US-4.1 — Integración LLM local mediante Ollama
+Licencia: ENS Alto
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import AsyncGenerator, Dict, List, Optional
+
+import httpx
+
+# ---------------------------------------------------------------------------
+# Logger
+# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constantes por defecto
+# ---------------------------------------------------------------------------
+DEFAULT_BASE_URL: str = "http://localhost:11434"
+DEFAULT_MODEL: str = "llama2"
+DEFAULT_EMBED_MODEL: str = "nomic-embed-text"
+DEFAULT_TEMPERATURE: float = 0.7
+DEFAULT_TOP_P: float = 0.9
+DEFAULT_TIMEOUT: float = 120.0  # segundos
+
+# ---------------------------------------------------------------------------
+# Excepciones personalizadas
+# ---------------------------------------------------------------------------
+class OllamaConnectionError(Exception):
+    """Excepción lanzada cuando no se puede establecer conexión con Ollama.
+
+    Se utiliza para diferenciar errores de conectividad de otros errores
+    de la API, facilitando el manejo específico en capas superiores.
+    """
+
+    def __init__(self, message: str = "No se puede conectar con el servidor Ollama", url: str = "") -> None:
+        self.url = url
+        full_message = f"{message}" + (f" [{url}]" if url else "")
+        super().__init__(full_message)
+
+# ---------------------------------------------------------------------------
+# Cliente principal
+# ---------------------------------------------------------------------------
+class OllamaClient:
+    """Cliente asíncrono de alto nivel para interactuar con Ollama.
+
+    Proporciona métodos para generación de texto, streaming, gestión de
+    modelos y generación de embeddings, todo a través de la API REST
+    local de Ollama (http://localhost:11434 por defecto).
+
+    Attributes:
+        base_url: URL base del servidor Ollama.
+        model: Nombre del modelo predeterminado para inferencia.
+        embed_model: Nombre del modelo predeterminado para embeddings.
+        timeout: Tiempo máximo de espera para las peticiones HTTP.
+
+    Example::
+
+        from services.ai_reasoning.ollama_client import ollama
+
+        if await ollama.is_available():
+            result = await ollama.analyze("Explica qué es un CVE.")
+            print(result)
+    """
+
+    def __init__(
+        self,
+        base_url: str = DEFAULT_BASE_URL,
+        model: str = DEFAULT_MODEL,
+        embed_model: str = DEFAULT_EMBED_MODEL,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> None:
+        """Inicializa el cliente con la configuración de conexión.
+
+        Args:
+            base_url: URL base del servidor Ollama. Por defecto
+                ``http://localhost:11434``.
+            model: Modelo de lenguaje predeterminado para inferencia.
+            embed_model: Modelo de embeddings predeterminado.
+            timeout: Tiempo límite en segundos para las peticiones HTTP.
+        """
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.embed_model = embed_model
+        self.timeout = timeout
+        logger.info(
+            "OllamaClient inicializado | base_url=%s | model=%s | embed_model=%s | timeout=%ss",
+            self.base_url,
+            self.model,
+            self.embed_model,
+            self.timeout,
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers privados
+    # ------------------------------------------------------------------
+
+    def _client(self) -> httpx.AsyncClient:
+        """Crea un cliente HTTP asíncrono configurado.
+
+        Returns:
+            Instancia de ``httpx.AsyncClient`` lista para usar.
+        """
+        return httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
+
+    # ------------------------------------------------------------------
+    # Métodos públicos
+    # ------------------------------------------------------------------
+
+    async def is_available(self) -> bool:
+        """Comprueba si el servidor Ollama está disponible y responde.
+
+        Realiza una petición GET al endpoint raíz (``/``) y verifica que
+        la respuesta sea 200 OK.
+
+        Returns:
+            ``True`` si Ollama está activo y responde correctamente,
+            ``False`` en cualquier otro caso.
+
+        Raises:
+            OllamaConnectionError: Si hay un error de red inesperado que
+                no sea simplemente "servidor no disponible".
+        """
+        logger.debug("Verificando disponibilidad de Ollama en %s", self.base_url)
+        try:
+            async with self._client() as client:
+                response = await client.get("/")
+                available = response.status_code == 200
+                logger.info("Ollama disponible: %s (HTTP %s)", available, response.status_code)
+                return available
+        except httpx.ConnectError as exc:
+            logger.warning("Ollama no disponible — error de conexión: %s", exc)
+            return False
+        except httpx.TimeoutException as exc:
+            logger.warning("Ollama no disponible — timeout: %s", exc)
+            return False
+        except httpx.RequestError as exc:
+            logger.error("Error de red inesperado al verificar Ollama: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+
+    async def analyze(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = DEFAULT_TEMPERATURE,
+        top_p: float = DEFAULT_TOP_P,
+    ) -> Optional[str]:
+        """Envía un prompt al modelo y devuelve la respuesta completa.
+
+        Utiliza el endpoint ``/api/generate`` de Ollama en modo
+        no-streaming (``stream: false``).
+
+        Args:
+            prompt: Texto de entrada para el modelo. Si está vacío,
+                retorna ``None`` sin realizar ninguna petición.
+            system_prompt: Instrucción de sistema opcional que condiciona
+                el comportamiento del modelo.
+            temperature: Controla la aleatoriedad de la salida
+                (0.0 = determinista, 1.0 = máxima creatividad).
+            top_p: Muestreo por núcleo. Solo se consideran los tokens
+                cuya probabilidad acumulada supera este umbral.
+
+        Returns:
+            Texto generado por el modelo, o ``None`` si el prompt está
+            vacío o se produce algún error.
+        """
+        if not prompt or not prompt.strip():
+            logger.warning("analyze() llamado con prompt vacío — se omite la petición")
+            return None
+
+        payload: Dict = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "top_p": top_p,
+            },
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+            logger.debug("analyze() con system_prompt de %d caracteres", len(system_prompt))
+
+        logger.info(
+            "analyze() → model=%s | prompt_len=%d | temperature=%.2f | top_p=%.2f",
+            self.model,
+            len(prompt),
+            temperature,
+            top_p,
+        )
+
+        try:
+            async with self._client() as client:
+                response = await client.post("/api/generate", json=payload)
+                response.raise_for_status()
+                data = response.json()
+                result: str = data.get("response", "")
+                logger.info("analyze() completado — respuesta de %d caracteres", len(result))
+                return result
+        except httpx.ConnectError as exc:
+            logger.error("analyze() — error de conexión con Ollama: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "analyze() — error HTTP %s: %s",
+                exc.response.status_code,
+                exc.response.text[:200],
+            )
+            return None
+        except (httpx.RequestError, json.JSONDecodeError) as exc:
+            logger.error("analyze() — error inesperado: %s", exc)
+            return None
+
+    async def stream_analyze(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = DEFAULT_TEMPERATURE,
+    ) -> AsyncGenerator[str, None]:
+        """Envía un prompt y produce la respuesta token a token (streaming).
+
+        Utiliza el endpoint ``/api/generate`` con ``stream: true``.
+        Cada fragmento de texto se cede (``yield``) en cuanto llega,
+        lo que permite mostrar la respuesta de forma progresiva.
+
+        Args:
+            prompt: Texto de entrada para el modelo.
+            system_prompt: Instrucción de sistema opcional.
+            temperature: Controla la aleatoriedad de la salida.
+
+        Yields:
+            Fragmentos de texto según los genera el modelo.
+
+        Raises:
+            OllamaConnectionError: Si no se puede conectar con el servidor.
+        """
+        payload: Dict = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,
+            "options": {"temperature": temperature},
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        logger.info(
+            "stream_analyze() → model=%s | prompt_len=%d | temperature=%.2f",
+            self.model,
+            len(prompt),
+            temperature,
+        )
+
+        try:
+            async with self._client() as client:
+                async with client.stream("POST", "/api/generate", json=payload) as response:
+                    response.raise_for_status()
+                    token_count = 0
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                            text: str = chunk.get("response", "")
+                            if text:
+                                token_count += 1
+                                yield text
+                            if chunk.get("done", False):
+                                break
+                        except json.JSONDecodeError:
+                            logger.warning("stream_analyze() — línea no JSON ignorada: %r", line[:80])
+                    logger.info("stream_analyze() completado — %d fragmentos emitidos", token_count)
+        except httpx.ConnectError as exc:
+            logger.error("stream_analyze() — error de conexión: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "stream_analyze() — error HTTP %s: %s",
+                exc.response.status_code,
+                exc.response.text[:200],
+            )
+            return
+
+    async def pull_model(self, model_name: str) -> bool:
+        """Descarga un modelo desde el registro de Ollama.
+
+        Invoca ``/api/pull`` y espera la respuesta completa (puede tardar
+        varios minutos para modelos grandes).
+
+        Args:
+            model_name: Nombre del modelo a descargar, p.ej. ``"llama2"``
+                o ``"mistral:7b"``.
+
+        Returns:
+            ``True`` si la descarga finalizó correctamente,
+            ``False`` en caso de error.
+        """
+        logger.info("pull_model() → descargando modelo '%s'", model_name)
+        payload = {"name": model_name, "stream": False}
+        try:
+            async with self._client() as client:
+                response = await client.post("/api/pull", json=payload, timeout=600.0)
+                response.raise_for_status()
+                data = response.json()
+                status: str = data.get("status", "")
+                success = "success" in status.lower()
+                logger.info("pull_model('%s') → status='%s' | éxito=%s", model_name, status, success)
+                return success
+        except httpx.ConnectError as exc:
+            logger.error("pull_model() — error de conexión: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "pull_model('%s') — error HTTP %s: %s",
+                model_name,
+                exc.response.status_code,
+                exc.response.text[:200],
+            )
+            return False
+        except (httpx.RequestError, json.JSONDecodeError) as exc:
+            logger.error("pull_model('%s') — error inesperado: %s", model_name, exc)
+            return False
+
+    async def list_models(self) -> List[Dict]:
+        """Obtiene la lista de modelos instalados localmente en Ollama.
+
+        Invoca ``/api/tags`` y devuelve la lista de modelos con sus
+        metadatos (nombre, tamaño, familia, etc.).
+
+        Returns:
+            Lista de diccionarios con información de cada modelo.
+            Lista vacía si hay algún error.
+        """
+        logger.debug("list_models() → consultando modelos disponibles")
+        try:
+            async with self._client() as client:
+                response = await client.get("/api/tags")
+                response.raise_for_status()
+                data = response.json()
+                models: List[Dict] = data.get("models", [])
+                logger.info("list_models() → %d modelos encontrados", len(models))
+                return models
+        except httpx.ConnectError as exc:
+            logger.error("list_models() — error de conexión: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+        except httpx.HTTPStatusError as exc:
+            logger.error("list_models() — error HTTP %s", exc.response.status_code)
+            return []
+        except (httpx.RequestError, json.JSONDecodeError) as exc:
+            logger.error("list_models() — error inesperado: %s", exc)
+            return []
+
+    async def get_model_info(self, model_name: str) -> Optional[Dict]:
+        """Obtiene los metadatos detallados de un modelo específico.
+
+        Invoca ``/api/show`` con el nombre del modelo.
+
+        Args:
+            model_name: Nombre del modelo, p.ej. ``"llama2"`` o
+                ``"mistral:7b"``.
+
+        Returns:
+            Diccionario con los metadatos del modelo (modelfile, params,
+            template, details…), o ``None`` si el modelo no existe o
+            hay un error.
+        """
+        logger.debug("get_model_info('%s') → solicitando metadatos", model_name)
+        try:
+            async with self._client() as client:
+                response = await client.post("/api/show", json={"name": model_name})
+                response.raise_for_status()
+                data = response.json()
+                logger.info("get_model_info('%s') → OK", model_name)
+                return data
+        except httpx.ConnectError as exc:
+            logger.error("get_model_info() — error de conexión: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                logger.warning("get_model_info('%s') — modelo no encontrado (404)", model_name)
+            else:
+                logger.error(
+                    "get_model_info('%s') — error HTTP %s",
+                    model_name,
+                    exc.response.status_code,
+                )
+            return None
+        except (httpx.RequestError, json.JSONDecodeError) as exc:
+            logger.error("get_model_info('%s') — error inesperado: %s", model_name, exc)
+            return None
+
+    async def generate_embedding(
+        self,
+        text: str,
+        model: Optional[str] = None,
+    ) -> Optional[List[float]]:
+        """Genera un vector de embedding para el texto dado.
+
+        Utilizado por el motor RAG (``rag_engine.py``) para convertir
+        textos en representaciones vectoriales densas. Invoca
+        ``/api/embeddings``.
+
+        Args:
+            text: Texto a vectorizar.
+            model: Nombre del modelo de embeddings. Si es ``None`` se
+                utiliza ``self.embed_model`` (``nomic-embed-text``
+                por defecto).
+
+        Returns:
+            Lista de floats con el vector de embedding, o ``None``
+            si ocurre algún error.
+        """
+        embed_model = model or self.embed_model
+        logger.debug(
+            "generate_embedding() → model=%s | text_len=%d",
+            embed_model,
+            len(text),
+        )
+        try:
+            async with self._client() as client:
+                response = await client.post(
+                    "/api/embeddings",
+                    json={"model": embed_model, "prompt": text},
+                )
+                response.raise_for_status()
+                data = response.json()
+                embedding: List[float] = data.get("embedding", [])
+                logger.info(
+                    "generate_embedding() → vector de %d dimensiones generado",
+                    len(embedding),
+                )
+                return embedding if embedding else None
+        except httpx.ConnectError as exc:
+            logger.error("generate_embedding() — error de conexión: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "generate_embedding() — error HTTP %s: %s",
+                exc.response.status_code,
+                exc.response.text[:200],
+            )
+            return None
+        except (httpx.RequestError, json.JSONDecodeError) as exc:
+            logger.error("generate_embedding() — error inesperado: %s", exc)
+            return None
+
+# ---------------------------------------------------------------------------
+# Instancia global
+# ---------------------------------------------------------------------------
+ollama = OllamaClient()
+"""Instancia global de OllamaClient lista para importar.
+
+Uso::
+
+    from services.ai_reasoning.ollama_client import ollama
+
+    result = await ollama.analyze("¿Qué es un CVE?")
+"""
+FILE:services\ai_reasoning\pentestgpt_integration.py
+
+FILE:services\ai_reasoning\prioritizer.py
+
+FILE:services\ai_reasoning\rag_engine.py
+
+FILE:services\ai_reasoning\report_generator.py
+
+FILE:services\ai_reasoning\streaming_processor.py
+
+FILE:services\ai_reasoning\tasks.py
+
+FILE:services\ai_reasoning\api\__init__.py
+
+FILE:services\ai_reasoning\api\router.py
+
+FILE:services\ai_reasoning\docker\Dockerfile.ollama
+
+FILE:services\ai_reasoning\prompts\system_attack_vector.yaml
+
+FILE:services\ai_reasoning\prompts\system_ens_mapper.yaml
+
+FILE:services\ai_reasoning\prompts\system_filter_fp.yaml
+
+FILE:services\ai_reasoning\prompts\system_prioritizer.yaml
+
+FILE:services\ai_reasoning\rag_data\ens_alto_requirements.txt
+
+FILE:services\ai_reasoning\rag_data\rd_311_2022.txt
+
+FILE:services\ai_reasoning\rag_data\vulnerability_mapping.json
+
+FILE:services\ai_reasoning\tests\__init__.py
+
+FILE:services\ai_reasoning\tests\conftest.py
+
+FILE:services\ai_reasoning\tests\test_ollama_client.py
+"""
+test_ollama_client.py — Suite de tests para OllamaClient.
+
+Módulo: M8 - AI Reasoning (ScanOPS)
+User Story: US-4.1
+Cobertura objetivo: > 90 %
+
+Estructura:
+    TestOllamaClientUnit        — 11 tests unitarios con mocks (sin Ollama real)
+    TestOllamaClientIntegration — 5 tests E2E (requieren Ollama activo)
+"""
+
+from __future__ import annotations
+
+import json
+from typing import AsyncGenerator
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
+import pytest_asyncio
+
+from services.ai_reasoning.ollama_client import OllamaClient, OllamaConnectionError
+
+# ---------------------------------------------------------------------------
+# Fixtures compartidas
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def client() -> OllamaClient:
+    """Fixture que proporciona una instancia de OllamaClient para tests unitarios.
+
+    No realiza ninguna petición real al servidor.
+    """
+    return OllamaClient(
+        base_url="http://localhost:11434",
+        model="llama2",
+        embed_model="nomic-embed-text",
+        timeout=30.0,
+    )
+
+@pytest.fixture
+def mock_httpx_client():
+    """Fixture que parchea ``httpx.AsyncClient`` con un mock asíncrono.
+
+    Yields:
+        Mock del cliente HTTP listo para configurar respuestas.
+    """
+    with patch("services.ai_reasoning.ollama_client.httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+        yield mock_instance
+
+def _make_response(status_code: int = 200, json_data: dict | None = None, text: str = "") -> MagicMock:
+    """Helper para construir respuestas HTTP falsas.
+
+    Args:
+        status_code: Código HTTP de la respuesta.
+        json_data: Datos JSON que devolverá ``.json()``.
+        text: Texto plano de la respuesta.
+
+    Returns:
+        MagicMock configurado como respuesta httpx.
+    """
+    response = MagicMock()
+    response.status_code = status_code
+    response.text = text or json.dumps(json_data or {})
+    response.json = MagicMock(return_value=json_data or {})
+    if status_code >= 400:
+        response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError(
+                message=f"HTTP {status_code}",
+                request=MagicMock(),
+                response=response,
+            )
+        )
+    else:
+        response.raise_for_status = MagicMock(return_value=None)
+    return response
+
+# ---------------------------------------------------------------------------
+# TestOllamaClientUnit — Tests unitarios con mocks
+# ---------------------------------------------------------------------------
+
+class TestOllamaClientUnit:
+    """Tests unitarios para OllamaClient que no requieren Ollama activo.
+
+    Todos los métodos HTTP son reemplazados por mocks para garantizar
+    ejecución aislada y determinista.
+    """
+
+    def test_client_init(self, client: OllamaClient) -> None:
+        """Verifica que el cliente se inicializa con los valores correctos.
+
+        Comprueba que ``base_url``, ``model``, ``embed_model`` y
+        ``timeout`` se almacenan según los parámetros recibidos.
+        """
+        assert client.base_url == "http://localhost:11434"
+        assert client.model == "llama2"
+        assert client.embed_model == "nomic-embed-text"
+        assert client.timeout == 30.0
+
+    @pytest.mark.asyncio
+    async def test_is_available_success(self, mock_httpx_client) -> None:
+        """Verifica que ``is_available()`` retorna ``True`` cuando Ollama responde 200."""
+        mock_httpx_client.get = AsyncMock(return_value=_make_response(200))
+        c = OllamaClient()
+        result = await c.is_available()
+        assert result is True
+        mock_httpx_client.get.assert_awaited_once_with("/")
+
+    @pytest.mark.asyncio
+    async def test_is_available_failure(self, mock_httpx_client) -> None:
+        """Verifica que ``is_available()`` retorna ``False`` cuando Ollama responde 503."""
+        mock_httpx_client.get = AsyncMock(return_value=_make_response(503))
+        c = OllamaClient()
+        result = await c.is_available()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_is_available_connection_error(self, mock_httpx_client) -> None:
+        """Verifica que ``is_available()`` retorna ``False`` ante ``ConnectError``.
+
+        Un error de conexión no debe propagar excepción, sino retornar
+        ``False`` para que el caller pueda degradar graciosamente.
+        """
+        mock_httpx_client.get = AsyncMock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        c = OllamaClient()
+        result = await c.is_available()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_analyze_success(self, mock_httpx_client) -> None:
+        """Verifica que ``analyze()`` devuelve el texto generado por el modelo."""
+        expected = "Un CVE es un identificador de vulnerabilidad conocida."
+        mock_httpx_client.post = AsyncMock(
+            return_value=_make_response(200, {"response": expected})
+        )
+        c = OllamaClient()
+        result = await c.analyze("¿Qué es un CVE?")
+        assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_analyze_with_system_prompt(self, mock_httpx_client) -> None:
+        """Verifica que ``analyze()`` incluye ``system`` en el payload cuando se proporciona.
+
+        Comprueba que el campo ``system`` llega al cuerpo de la petición
+        POST correctamente.
+        """
+        mock_httpx_client.post = AsyncMock(
+            return_value=_make_response(200, {"response": "Respuesta segura."})
+        )
+        c = OllamaClient()
+        result = await c.analyze(
+            prompt="Describe el riesgo.",
+            system_prompt="Eres un experto en ciberseguridad ENS.",
+        )
+        assert result == "Respuesta segura."
+        call_kwargs = mock_httpx_client.post.call_args
+        payload = call_kwargs[1]["json"]
+        assert "system" in payload
+        assert payload["system"] == "Eres un experto en ciberseguridad ENS."
+
+    @pytest.mark.asyncio
+    async def test_analyze_empty_prompt(self, client: OllamaClient) -> None:
+        """Verifica que ``analyze()`` retorna ``None`` para prompts vacíos.
+
+        Un prompt vacío o solo espacios no debe generar ninguna petición HTTP.
+        """
+        result = await client.analyze("")
+        assert result is None
+
+        result_spaces = await client.analyze("   ")
+        assert result_spaces is None
+
+    @pytest.mark.asyncio
+    async def test_analyze_api_error(self, mock_httpx_client) -> None:
+        """Verifica que ``analyze()`` retorna ``None`` ante un error HTTP 500.
+
+        Los errores del servidor no deben propagar excepciones,
+        sino ser capturados y registrados.
+        """
+        mock_httpx_client.post = AsyncMock(
+            return_value=_make_response(500, text="Internal Server Error")
+        )
+        c = OllamaClient()
+        result = await c.analyze("Prompt de prueba")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_list_models_success(self, mock_httpx_client) -> None:
+        """Verifica que ``list_models()`` devuelve la lista de modelos correctamente."""
+        models_data = {
+            "models": [
+                {"name": "llama2", "size": 3_800_000_000},
+                {"name": "mistral:7b", "size": 7_200_000_000},
+            ]
+        }
+        mock_httpx_client.get = AsyncMock(
+            return_value=_make_response(200, models_data)
+        )
+        c = OllamaClient()
+        result = await c.list_models()
+        assert len(result) == 2
+        assert result[0]["name"] == "llama2"
+        assert result[1]["name"] == "mistral:7b"
+
+    @pytest.mark.asyncio
+    async def test_pull_model_success(self, mock_httpx_client) -> None:
+        """Verifica que ``pull_model()`` retorna ``True`` cuando la descarga es exitosa."""
+        mock_httpx_client.post = AsyncMock(
+            return_value=_make_response(200, {"status": "success"})
+        )
+        c = OllamaClient()
+        result = await c.pull_model("llama2")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_stream_analyze_success(self, mock_httpx_client) -> None:
+        """Verifica que ``stream_analyze()`` produce fragmentos de texto en orden.
+
+        Simula una respuesta de streaming con dos fragmentos y un chunk
+        final ``done: true``.
+        """
+        chunks = [
+            json.dumps({"response": "Hola", "done": False}),
+            json.dumps({"response": " mundo", "done": False}),
+            json.dumps({"response": "", "done": True}),
+        ]
+
+        async def _aiter_lines():
+            for chunk in chunks:
+                yield chunk
+
+        mock_stream_response = AsyncMock()
+        mock_stream_response.raise_for_status = MagicMock(return_value=None)
+        mock_stream_response.aiter_lines = _aiter_lines
+        mock_stream_response.__aenter__ = AsyncMock(return_value=mock_stream_response)
+        mock_stream_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_httpx_client.stream = MagicMock(return_value=mock_stream_response)
+
+        c = OllamaClient()
+        collected: list[str] = []
+        async for token in c.stream_analyze("Di hola"):
+            collected.append(token)
+
+        assert collected == ["Hola", " mundo"]
+
+# ---------------------------------------------------------------------------
+# TestOllamaClientIntegration — Tests E2E (requieren Ollama real)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+class TestOllamaClientIntegration:
+    """Tests de integración end-to-end que requieren un servidor Ollama activo.
+
+    Ejecutar solo en entornos donde Ollama esté instalado y corriendo::
+
+        pytest -m integration services/ai_reasoning/tests/test_ollama_client.py
+
+    Los tests asumen que el modelo ``llama2`` está descargado.
+    """
+
+    @pytest.mark.asyncio
+    async def test_ollama_available(self) -> None:
+        """Verifica (E2E) que Ollama está activo y responde en localhost:11434."""
+        c = OllamaClient()
+        available = await c.is_available()
+        assert available is True, (
+            "Ollama no está disponible. Asegúrate de que el servicio esté corriendo: "
+            "`ollama serve`"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ollama_list_models(self) -> None:
+        """Verifica (E2E) que ``list_models()`` devuelve al menos un modelo instalado."""
+        c = OllamaClient()
+        models = await c.list_models()
+        assert isinstance(models, list)
+        assert len(models) >= 1, "No hay modelos instalados en Ollama."
+
+    @pytest.mark.asyncio
+    async def test_ollama_analyze_simple(self) -> None:
+        """Verifica (E2E) que ``analyze()`` genera una respuesta no vacía con llama2."""
+        c = OllamaClient()
+        result = await c.analyze("Responde solo con 'OK' y nada más.")
+        assert result is not None
+        assert len(result) > 0
+
+    @pytest.mark.asyncio
+    async def test_ollama_analyze_with_system_prompt(self) -> None:
+        """Verifica (E2E) que el system_prompt condiciona correctamente la respuesta."""
+        c = OllamaClient()
+        result = await c.analyze(
+            prompt="¿Cómo te llamas?",
+            system_prompt="Eres un asistente de seguridad llamado ScanBot. Preséntate siempre así.",
+        )
+        assert result is not None
+        assert len(result) > 0
+
+    @pytest.mark.asyncio
+    async def test_ollama_has_llama2_model(self) -> None:
+        """Verifica (E2E) que el modelo llama2 está disponible en la instalación local."""
+        c = OllamaClient()
+        models = await c.list_models()
+        model_names = [m.get("name", "") for m in models]
+        assert any("llama2" in name for name in model_names), (
+            f"El modelo llama2 no está instalado. Modelos disponibles: {model_names}. "
+            "Ejecuta: `ollama pull llama2`"
+        )
 FILE:services\asset_manager\__init__.py
 """Placeholder package for the ScanOPS asset manager microservice."""
 FILE:services\asset_manager\main.py
@@ -4578,8 +5411,11 @@ EXPLOITS = [
 ]
 FILE:services\exploit_engine\m4_orchestrator.py
 import psycopg2
+from psycopg2.extras import RealDictCursor
 import sys
 import os
+import json
+from datetime import datetime
 
 # Asegurar que podemos importar config
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -4587,81 +5423,138 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from config import DB_CONFIG
 except ImportError:
-    print("CRITICAL: No se pudo encontrar config.py o DB_CONFIG no está definido.")
+    print("[M4] CRITICAL: No se pudo encontrar config.py o DB_CONFIG no está definido.")
     sys.exit(1)
 
 class M4Orchestrator:
     def __init__(self):
-        print("--- [DEBUG] M4Orchestrator: Entrando en __init__ ---")
         self.db = None
         self.cursor = None
+        self.connect_db()
 
-        # Verificar config
-        print(f"[DEBUG] Verificando DB_CONFIG: {DB_CONFIG}")
-
-        if not DB_CONFIG or 'password' not in DB_CONFIG or DB_CONFIG['password'] == 'xxxxx':
-            print("WARNING: DB_CONFIG parece no estar configurado correctamente (password por defecto).")
-
-        # Probar conexión
+    def connect_db(self):
+        """Establece la conexión con la base de datos."""
         try:
-            print(f"[DEBUG] Intentando conectar a {DB_CONFIG.get('host')}:{DB_CONFIG.get('port')}...")
             self.db = psycopg2.connect(**DB_CONFIG)
-            self.cursor = self.db.cursor()
-            print("Conectado a BD")
+            # Usamos RealDictCursor para obtener los resultados como diccionarios
+            self.cursor = self.db.cursor(cursor_factory=RealDictCursor)
+            print("[M4] Conectado a BD")
         except Exception as e:
-            print(f"Error de conexión a BD: {str(e)}")
+            print(f"[M4] Error de conexión a BD: {str(e)}")
             self.db = None
             self.cursor = None
 
-        print(f"[DEBUG] self.db: {self.db}")
-        print(f"[DEBUG] self.cursor: {self.cursor}")
-        print("--- [DEBUG] M4Orchestrator: Saliendo de __init__ ---\n")
+    def get_critical_vulnerabilities(self):
+        """Consulta vulnerabilidades críticas aprobadas para explotación."""
+        if not self.cursor:
+            return []
+
+        query = """
+            SELECT id, cve_id, target_ip, target_port, service
+            FROM vulnerabilities
+            WHERE severity = 'CRITICAL'
+              AND approved_for_exploitation = true
+              AND status = 'NEW';
+        """
+        try:
+            self.cursor.execute(query)
+            vulns = self.cursor.fetchall()
+            return vulns
+        except psycopg2.Error as e:
+            if "does not exist" in str(e):
+                print("[M4] Error: La tabla 'vulnerabilities' no existe.")
+            else:
+                print(f"[M4] Error al consultar vulnerabilidades: {e}")
+            return []
+
+    def log_exploitation_result(self, cve_id, target_ip, status, evidence):
+        """Registra el resultado de la explotación en la base de datos."""
+        if not self.db or not self.cursor:
+            print("[M4] Error: No hay conexión a la BD para registrar el resultado.")
+            return False
+
+        query = """
+            INSERT INTO exploit_results (cve_id, target_ip, status, evidence, exploitation_date)
+            VALUES (%s, %s, %s, %s, %s);
+        """
+        try:
+            self.cursor.execute(query, (
+                cve_id,
+                target_ip,
+                status,
+                json.dumps(evidence),
+                datetime.now()
+            ))
+            self.db.commit()
+            return True
+        except psycopg2.Error as e:
+            print(f"[M4] Error al insertar resultado de explotación: {e}")
+            self.db.rollback()
+            return False
 
     def run(self):
-        print("--- [DEBUG] M4Orchestrator: Entrando en run ---")
+        """Ejecuta el ciclo principal de orquestación."""
+        if not self.db:
+            print("[M4] Abortando: Error de conexión")
+            return
 
+        print("[M4] Iniciando búsqueda de vulnerabilidades críticas...")
+        vulns = self.get_critical_vulnerabilities()
+
+        if not vulns:
+            print("[M4] No hay vulnerabilidades críticas pendientes")
+            print("[M4] Estado final: Finalizado sin tareas")
+            return
+
+        print(f"[M4] Encontradas {len(vulns)} vulnerabilidades para procesar")
+
+        success_count = 0
+        fail_count = 0
+
+        for vuln in vulns:
+            print(f"[M4] Procesando {vuln['cve_id']} en {vuln['target_ip']}:{vuln['target_port']}...")
+
+            # Simulación de explotación
+            # En un entorno real, aquí se llamaría a Metasploit u otra herramienta
+            success = True # Simulamos éxito
+
+            status = "SUCCESS" if success else "FAILED"
+            evidence = {
+                "message": "Exploit ejecutado exitosamente (simulado)",
+                "service": vuln['service'],
+                "port": vuln['target_port'],
+                "timestamp": datetime.now().isoformat()
+            }
+
+            if self.log_exploitation_result(vuln['cve_id'], vuln['target_ip'], status, evidence):
+                if success:
+                    success_count += 1
+                else:
+                    fail_count += 1
+            else:
+                fail_count += 1
+
+        print(f"[M4] Resumen: {success_count} exitosas, {fail_count} fallidas")
+        print("[M4] Estado final: Completado")
+
+    def __del__(self):
+        """Cierra la conexión al destruir el objeto."""
         try:
-            if not self.db or not self.cursor:
-                print("Error: Sin conexión a base de datos. Abortando run().")
-                print("Estado final: Error de conexión")
-                return
-
-            # Aquí iría la lógica de orquestación
-            # Por ahora, verificamos si hay vulnerabilidades pendientes de explotar
-            print("[DEBUG] Ejecutando consulta de vulnerabilidades...")
-
-            # Nota: Asumimos que existe una tabla 'vulnerabilities' o similar.
-            # Si no existe, esto fallará y el try-except lo capturará.
-            try:
-                self.cursor.execute("SELECT COUNT(*) FROM vuln_findings;")
-                count = self.cursor.fetchone()[0]
-                print(f"Encontradas {count} vulnerabilidades")
-            except psycopg2.Error as db_err:
-                print(f"Error al consultar tabla 'vuln_findings': {db_err}")
-                print("No hay vulnerabilidades (o la tabla no existe)")
-
-            print("Estado final: Completado")
-
-        except Exception as e:
-            print(f"Ocurrió una excepción inesperada en run(): {str(e)}")
-            import traceback
-            traceback.print_exc()
-            print("Estado final: Error inesperado")
-
-        finally:
             if self.cursor:
                 self.cursor.close()
             if self.db:
                 self.db.close()
-            print("--- [DEBUG] M4Orchestrator: Saliendo de run ---")
+        except:
+            pass
 
 if __name__ == "__main__":
-    print("Iniciando script m4_orchestrator.py...")
+    orchestrator = M4Orchestrator()
     try:
-        orchestrator = M4Orchestrator()
         orchestrator.run()
+    except KeyboardInterrupt:
+        print("\n[M4] Interrumpido por el usuario")
     except Exception as e:
-        print(f"Error fatal al iniciar el orquestador: {e}")
+        print(f"[M4] Error fatal: {e}")
 FILE:services\exploit_engine\tasks.py
 
 FILE:services\recon_engine\__init__.py
