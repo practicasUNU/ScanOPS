@@ -4543,6 +4543,127 @@ class TestVaultIntegration:
         payload = {"ip": "10.0.0.14", "responsable": "Admin"}
         resp = client.post("/assets", json=payload, headers=auth_headers)
         assert resp.json()["vault_path"] is None
+FILE:services\exploit_engine\__init__.py
+
+FILE:services\exploit_engine\config.py
+# config.py
+
+MSF_CONFIG = {
+    'host': 'localhost',  # Via tunnel SSH
+    'port': 55553,
+    'username': 'msf',
+    'password': 'scanops2024'
+}
+
+DB_CONFIG = {
+    'host': 'localhost',  # Docker en Windows
+    'port': 5432,
+    'database': 'scanops',
+    'user': 'scanops',
+    'password': 'scanops'
+}
+
+TARGETS = [
+    {
+        'name': 'metasploitable',
+        'ip': '192.168.110.131',
+        'port': 8080,
+        'type': 'tomcat'
+    }
+]
+
+EXPLOITS = [
+    'exploit/multi/http/log4shell_header_injection',
+    'exploit/multi/http/tomcat_partial_put_deserialization'
+]
+FILE:services\exploit_engine\m4_orchestrator.py
+import psycopg2
+import sys
+import os
+
+# Asegurar que podemos importar config
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from config import DB_CONFIG
+except ImportError:
+    print("CRITICAL: No se pudo encontrar config.py o DB_CONFIG no está definido.")
+    sys.exit(1)
+
+class M4Orchestrator:
+    def __init__(self):
+        print("--- [DEBUG] M4Orchestrator: Entrando en __init__ ---")
+        self.db = None
+        self.cursor = None
+
+        # Verificar config
+        print(f"[DEBUG] Verificando DB_CONFIG: {DB_CONFIG}")
+
+        if not DB_CONFIG or 'password' not in DB_CONFIG or DB_CONFIG['password'] == 'xxxxx':
+            print("WARNING: DB_CONFIG parece no estar configurado correctamente (password por defecto).")
+
+        # Probar conexión
+        try:
+            print(f"[DEBUG] Intentando conectar a {DB_CONFIG.get('host')}:{DB_CONFIG.get('port')}...")
+            self.db = psycopg2.connect(**DB_CONFIG)
+            self.cursor = self.db.cursor()
+            print("Conectado a BD")
+        except Exception as e:
+            print(f"Error de conexión a BD: {str(e)}")
+            self.db = None
+            self.cursor = None
+
+        print(f"[DEBUG] self.db: {self.db}")
+        print(f"[DEBUG] self.cursor: {self.cursor}")
+        print("--- [DEBUG] M4Orchestrator: Saliendo de __init__ ---\n")
+
+    def run(self):
+        print("--- [DEBUG] M4Orchestrator: Entrando en run ---")
+
+        try:
+            if not self.db or not self.cursor:
+                print("Error: Sin conexión a base de datos. Abortando run().")
+                print("Estado final: Error de conexión")
+                return
+
+            # Aquí iría la lógica de orquestación
+            # Por ahora, verificamos si hay vulnerabilidades pendientes de explotar
+            print("[DEBUG] Ejecutando consulta de vulnerabilidades...")
+
+            # Nota: Asumimos que existe una tabla 'vulnerabilities' o similar.
+            # Si no existe, esto fallará y el try-except lo capturará.
+            try:
+                self.cursor.execute("SELECT COUNT(*) FROM vuln_findings;")
+                count = self.cursor.fetchone()[0]
+                print(f"Encontradas {count} vulnerabilidades")
+            except psycopg2.Error as db_err:
+                print(f"Error al consultar tabla 'vuln_findings': {db_err}")
+                print("No hay vulnerabilidades (o la tabla no existe)")
+
+            print("Estado final: Completado")
+
+        except Exception as e:
+            print(f"Ocurrió una excepción inesperada en run(): {str(e)}")
+            import traceback
+            traceback.print_exc()
+            print("Estado final: Error inesperado")
+
+        finally:
+            if self.cursor:
+                self.cursor.close()
+            if self.db:
+                self.db.close()
+            print("--- [DEBUG] M4Orchestrator: Saliendo de run ---")
+
+if __name__ == "__main__":
+    print("Iniciando script m4_orchestrator.py...")
+    try:
+        orchestrator = M4Orchestrator()
+        orchestrator.run()
+    except Exception as e:
+        print(f"Error fatal al iniciar el orquestador: {e}")
+FILE:services\exploit_engine\tasks.py
+
 FILE:services\recon_engine\__init__.py
 """ScanOPS recon engine microservice package."""
 FILE:services\recon_engine\main.py
