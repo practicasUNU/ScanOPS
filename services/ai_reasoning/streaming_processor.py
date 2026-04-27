@@ -1,15 +1,22 @@
+# services/ai_reasoning/streaming_processor.py
+
 import json
 import logging
 import asyncio
 from typing import Optional, Callable, Dict, Any
 import redis.asyncio as redis
 
-from services.ai_reasoning.config import REDIS_URL, REDIS_FINDINGS_CHANNEL
+from services.ai_reasoning import config
 from services.ai_reasoning.ollama_client import OllamaClient
 from services.ai_reasoning.models import Finding, AIAnalysis, ProcessingResult
 from shared.celery_app import app as celery_app
 from pydantic import ValidationError
 from datetime import datetime
+
+# Nuevos imports para conectar el pipeline real de IA (US-4.2)
+from services.ai_reasoning.false_positive_filter import FalsePositiveFilter
+from services.ai_reasoning.prioritizer import Prioritizer
+from services.ai_reasoning.ens_mapper import map_to_ens
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +29,11 @@ class StreamingProcessor:
             redis_url: URL de Redis (default: config.REDIS_URL)
             ollama_client: Cliente Ollama para análisis (default: OllamaClient())
         """
-        self.redis_url = redis_url or REDIS_URL
+        self.redis_url = redis_url or config.REDIS_URL
         self.redis = None
-        self.channel = REDIS_FINDINGS_CHANNEL  # "findings:scan:*"
+        self.channel = config.REDIS_FINDINGS_CHANNEL  # "findings:scan:*"
         self.running = False
         self.ollama_client = ollama_client or OllamaClient()
-        self.process_callback: Optional[Callable] = None
         logger.info(f"StreamingProcessor initialized: redis={self.redis_url}, ollama={self.ollama_client.model}")
 
     async def initialize(self) -> bool:
@@ -73,8 +79,7 @@ class StreamingProcessor:
                     
                     if message:
                         # Procesar mensaje
-                        if message['type'] == 'pmessage':
-                            await self._handle_message(message['data'])
+                        await self._handle_message(message['data'])
                         
                 except asyncio.CancelledError:
                     logger.info("Streaming cancelled")
@@ -101,106 +106,95 @@ class StreamingProcessor:
 
     async def process_finding(self, finding: dict) -> ProcessingResult:
         """
-        Procesa un hallazgo individual
-        
-        Pasos:
-        1. Validar estructura (Finding model)
-        2. Analizar con OllamaClient
-        3. Filtrar falsos positivos
-        4. Mapear a RD 311/2022
-        5. Emitir a Celery para async processing
-        6. Retornar resultado
-        
+        Procesa un hallazgo individual a través del pipeline completo de IA (US-4.2).
+
+        Pipeline:
+        1. Validar estructura con Pydantic (Finding model)
+        2. Paso 1 IA: FalsePositiveFilter — si es FP, termina aquí
+        3. Paso 2 IA: Prioritizer — calcula prioridad real y accion_recomendada
+        4. Paso 3 IA: ENSMapper — mapea al artículo exacto del RD 311/2022
+        5. Construir AIAnalysis y emitir a Celery para persistencia
+
         Args:
-            finding: Dict con hallazgo de M3
-        
+            finding: Dict con hallazgo de M3. Puede incluir asset_context como campo extra.
+
         Returns:
-            ProcessingResult: {finding_id, status, analysis, error, processed_at}
+            ProcessingResult con status "success", "false_positive", "skipped" o "error"
         """
         finding_id = finding.get("finding_id", "unknown")
-        
+
         try:
-            # PASO 1: Validar Finding
+            # PASO 1: Validar Finding con Pydantic
             validated_finding = await self._validate_finding(finding)
-            logger.debug(f"Finding {finding_id} validated")
-            
-            # PASO 2: Analizar con OllamaClient
-            if not await self.ollama_client.is_available():
-                logger.warning("OllamaClient not available - skipping analysis")
+            asset_context = finding.get("asset_context") or {}
+
+            # PASO 2: Filtro de falso positivo (FalsePositiveFilter)
+            fp_filter = FalsePositiveFilter(ollama_client=self.ollama_client)
+            filter_result = await fp_filter.filter(validated_finding, asset_context=asset_context)
+
+            if filter_result.is_false_positive:
+                logger.info(f"[{finding_id}] Descartado como FP: {filter_result.reason}")
+                return ProcessingResult(
+                    finding_id=finding_id,
+                    status="false_positive",
+                    error=filter_result.reason
+                )
+
+            # PASO 3: Priorización (Prioritizer)
+            prio = Prioritizer(ollama_client=self.ollama_client)
+            priority_data = await prio.prioritize(validated_finding, asset_context=asset_context)
+
+            # Si la acción es descartar, terminar sin pasar a ENS ni Celery
+            if priority_data.get("accion_recomendada") == "descartar":
+                logger.info(f"[{finding_id}] Descartado por prioridad baja: {priority_data.get('justificacion')}")
                 return ProcessingResult(
                     finding_id=finding_id,
                     status="skipped",
-                    error="OllamaClient not available"
+                    error=f"Prioridad baja: {priority_data.get('justificacion')}"
                 )
-            
-            # Preparar prompt de análisis
-            prompt = f"""
-Analiza este hallazgo de seguridad:
 
-Título: {validated_finding.title}
-Descripción: {validated_finding.description}
-CVSS: {validated_finding.cvss}
-CWE: {validated_finding.cwe}
-Scanner: {validated_finding.scanner}
+            # PASO 4: Mapeo ENS (ENSMapper)
+            ens_result = await map_to_ens(finding, asset_context)
+            medidas = ens_result.get("medidas_ens", ["op.exp.2"])
 
-Por favor responde:
-1. ¿Es este hallazgo un falso positivo? (Sí/No)
-2. Si es real, ¿cuál es el riesgo real? (en 1-2 frases)
-3. ¿Qué artículos de RD 311/2022 aplican?
-4. ¿Cuál es la acción recomendada?
-        """
-            
-            analysis_text = await self.ollama_client.analyze(
-                prompt=prompt,
-                system_prompt="Eres un experto en ciberseguridad ENS Alto. Analiza hallazgos de pentesting."
-            )
-            
-            # PASO 3: Parsear análisis (falsos positivos, confidence, etc.)
-            is_false_positive = "falso positivo" in analysis_text.lower() or "no es real" in analysis_text.lower()
-            confidence = 0.8 if not is_false_positive else 0.6  # Simplificado
-            
-            # PASO 4: Mapear a RD 311/2022
-            ens_articles = await self._map_to_ens_articles(validated_finding, analysis_text)
-            
-            # PASO 5: Crear AIAnalysis model
+            # PASO 5: Construir AIAnalysis con los datos de los tres pasos
+            # priority_score se limita a 10.0 para cumplir el campo del modelo
+            raw_score = priority_data.get("prioridad_real", validated_finding.cvss)
+            priority_score = min(float(raw_score), 10.0)
+
             ai_analysis = AIAnalysis(
                 finding_id=finding_id,
-                is_false_positive=is_false_positive,
-                confidence=confidence,
-                priority_score=validated_finding.cvss if not is_false_positive else 0,
-                ens_articles=ens_articles,
-                recommended_action=self._extract_recommendation(analysis_text),
-                analysis_text=analysis_text
+                is_false_positive=False,
+                confidence=filter_result.confidence,
+                priority_score=priority_score,
+                ens_articles=medidas,
+                recommended_action=priority_data.get("accion_recomendada", "monitorizar"),
+                analysis_text=priority_data.get("justificacion", "")
             )
-            
-            logger.info(f"Finding {finding_id} analyzed - FP:{is_false_positive}, Priority:{ai_analysis.priority_score}")
-            
-            # PASO 6: Emitir a Celery para async processing
+
+            logger.info(
+                f"[{finding_id}] Pipeline completo: "
+                f"prioridad={priority_score} accion={ai_analysis.recommended_action} "
+                f"ens={medidas[0] if medidas else 'N/A'}"
+            )
+
+            # PASO 6: Emitir a Celery para persistencia
             await self._emit_to_celery(validated_finding, ai_analysis)
-            
-            # Retornar resultado exitoso
+
             return ProcessingResult(
                 finding_id=finding_id,
                 status="success",
                 analysis=ai_analysis,
                 processed_at=datetime.utcnow()
             )
-        
+
         except ValidationError as e:
-            logger.warning(f"Finding {finding_id} validation failed: {e}")
-            return ProcessingResult(
-                finding_id=finding_id,
-                status="error",
-                error=f"Validation error: {str(e)}"
-            )
-        
+            logger.warning(f"[{finding_id}] Validación fallida: {e}")
+            return ProcessingResult(finding_id=finding_id, status="error", error=f"Validation: {str(e)}")
+
         except Exception as e:
-            logger.error(f"Error processing finding {finding_id}: {e}", exc_info=True)
-            return ProcessingResult(
-                finding_id=finding_id,
-                status="error",
-                error=str(e)
-            )
+            logger.error(f"[{finding_id}] Error en pipeline: {e}", exc_info=True)
+            return ProcessingResult(finding_id=finding_id, status="error", error=str(e))
 
     async def emit_finding(self, finding_data: dict) -> bool:
         """
@@ -210,7 +204,7 @@ Por favor responde:
             if not self.redis:
                 # Intentar inicializar si no está conectado
                 if not await self.initialize():
-                    logger.warning("Redis not connected and initialization failed")
+                    logger.warning("Redis not connected")
                     return False
             
             message = json.dumps(finding_data)
@@ -257,44 +251,12 @@ Por favor responde:
             # Emitir task a Celery
             celery_app.send_task(
                 'services.ai_reasoning.tasks.analyze_finding_task',
-                args=[finding.finding_id, analysis.dict()],
+                args=[finding.finding_id, analysis.model_dump()],
                 queue='ai_reasoning'
             )
             logger.debug(f"Finding {finding.finding_id} emitted to Celery")
         except Exception as e:
             logger.error(f"Error emitting to Celery: {e}")
-
-    async def _map_to_ens_articles(self, finding: Finding, analysis_text: str) -> list:
-        """
-        Mapear hallazgo a artículos RD 311/2022
-        
-        Simplificado: buscar palabras clave en el análisis
-        En producción, usar RAG engine
-        """
-        articles = []
-        
-        # Mapeo simplificado CWE → Artículos ENS
-        cwe_mapping = {
-            "CWE-89": ["Art. 5.1.6"],  # SQL Injection → Control de entrada
-            "CWE-79": ["Art. 5.1.6"],  # XSS → Control de entrada
-            "CWE-22": ["Art. 5.1.6"],  # Path Traversal → Control de entrada
-            "CWE-434": ["Art. 6.2.1"], # File Upload → Gestión de archivos
-            "CWE-200": ["Art. 5.1.5"], # Information Disclosure → Restricción acceso
-        }
-        
-        if finding.cwe in cwe_mapping:
-            articles = cwe_mapping[finding.cwe]
-        
-        return articles
-
-    def _extract_recommendation(self, analysis_text: str) -> str:
-        """
-        Extraer acción recomendada del análisis
-        
-        Simplificado: primeras 200 caracteres
-        En producción, usar NLP/IA más sofisticado
-        """
-        return analysis_text[:200] if analysis_text else "Review by security team"
 
 # Instancia global
 processor = StreamingProcessor()
