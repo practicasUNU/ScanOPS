@@ -47,8 +47,12 @@ shared = ["*.py"]
 services = ["**/*.py"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "services/recon_engine/tests", "services/asset_manager/tests", "services/scanner_engine/tests"]
+testpaths = ["tests", "services/recon_engine/tests", "services/asset_manager/tests", "services/scanner_engine/tests", "services/ai_reasoning/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+asyncio_mode = "strict"
+markers = [
+    "integration: tests E2E que requieren servicios externos activos (Ollama, BD, Redis)",
+]

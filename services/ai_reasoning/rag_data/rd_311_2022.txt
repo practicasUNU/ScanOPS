@@ -1,0 +1,60 @@
+op.exp.2 — Gestión de vulnerabilidades
+Medida que exige la realización de análisis de vulnerabilidades de forma periódica
+sobre los sistemas de información. Incluye pruebas de penetración realizadas por
+terceros con periodicidad anual en categoría Alto. Requiere gestión del ciclo de vida
+completo de la vulnerabilidad: detección, análisis, priorización, remediación y verificación.
+
+op.exp.3 — Gestión de la configuración
+Medida que exige mantener un inventario actualizado de activos y su configuración de
+seguridad. Incluye la gestión de cambios con procedimientos formales de aprobación y
+registro de modificaciones en sistemas de información críticos.
+
+op.exp.4 — Mantenimiento y actualizaciones
+Medida que exige aplicar parches de seguridad en los plazos establecidos según la
+criticidad de la vulnerabilidad. CVE crítico (CVSS >= 9.0): 24 horas. CVE alto
+(CVSS >= 7.0): 72 horas. CVE medio: 30 días.
+
+op.exp.5 — Registro de actividad (logs)
+Medida que exige el registro de toda actividad relevante de seguridad con trazabilidad
+completa. Los logs deben ser inmutables, con retención mínima de 2 años en categoría
+Alto. Incluye registro de accesos, cambios de configuración, ejecución de herramientas
+de seguridad y decisiones del personal responsable.
+
+op.pl.1 — Análisis de riesgos
+Medida que exige realizar un análisis de riesgos formal con metodología MAGERIT o
+equivalente. La planificación de la seguridad debe basarse en los resultados del
+análisis de riesgos. Toda decisión de seguridad debe estar justificada en términos
+de riesgo.
+
+mp.info.3 — Cifrado de información
+Medida que exige que la información clasificada no salga del perímetro de seguridad
+sin cifrado. En categoría Alto, los datos de auditoría, hallazgos de vulnerabilidades
+y configuración de sistemas no pueden procesarse en sistemas externos no controlados
+(como APIs de IA en la nube pública).
+
+mp.com.1 — Perímetro seguro
+Medida que exige la definición y protección del perímetro de seguridad de la red.
+Incluye segmentación de red, control de acceso perimetral y monitorización del
+tráfico entrante y saliente.
+
+mp.com.2 — Protección de la confidencialidad en las comunicaciones
+Medida que exige el cifrado de las comunicaciones que transporten información
+sensible. Incluye uso de TLS 1.2 o superior para todas las comunicaciones entre
+microservicios y con el exterior.
+
+op.acc.5 — Mecanismos de autenticación
+Medida que exige el uso de autenticación fuerte para el acceso a sistemas críticos.
+En categoría Alto se requiere autenticación multifactor (MFA/TOTP) para todas las
+operaciones que impliquen modificación de configuración o autorización de acciones
+con impacto en la seguridad.
+
+op.exp.6 — Protección frente a código dañino
+Medida que exige disponer de mecanismos de protección frente a malware y código
+dañino en todos los sistemas. Incluye entornos de prueba aislados (sandbox) para
+la validación de exploits antes de su ejecución en entornos de producción.
+
+op.exp.7 — Gestión de incidentes de seguridad
+Medida que exige disponer de procedimientos formales de gestión de incidentes.
+En categoría Alto incluye la notificación obligatoria al CCN-CERT a través del
+sistema LUCIA para incidentes graves. Los incidentes deben clasificarse, registrarse
+y resolverse en los plazos establecidos según su severidad.

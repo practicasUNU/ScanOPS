@@ -1,0 +1,13 @@
+FROM ollama/ollama:latest
+
+# Directorio de modelos persistente
+VOLUME ["/root/.ollama"]
+
+# Puerto de la API de Ollama
+EXPOSE 11434
+
+# Script de inicio: arranca ollama y descarga llama3 si no está presente
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
