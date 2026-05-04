@@ -2,8 +2,9 @@ import asyncio
 import re
 import logging
 from shared.celery_app import app
-from ..services.scanner_network import start_scan
+from ..services.scanner_network import perform_full_recon
 from ..services.dns_whois import get_domain_recon
+from shared.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +16,23 @@ def run_recon_complete(self, target, asset_id=None):
     """
     logger.info(f"🚀 Iniciando orquestación M2 para: {target}")
     
+    db = SessionLocal()
     try:
         # 1. Escaneo de red, subdominios y banner grabbing (en scanner_network.py)
         # Esto guarda resultados en BD (ReconSnapshot, ReconFinding, ReconSubdomain)
-        resultado = asyncio.run(start_scan(target=target))
+        snapshot_id = self.request.id or f"recon-{target}"
+        
+        snapshot_data = asyncio.run(perform_full_recon(
+            snapshot_id=snapshot_id,
+            target=target,
+            db=db
+        ))
+        
+        # Convertimos a dict (compatibilidad Pydantic v1/v2)
+        if hasattr(snapshot_data, "model_dump"):
+            resultado = snapshot_data.model_dump(mode='json')
+        else:
+            resultado = snapshot_data.dict()
         
         # 2. Información DNS/WHOIS (US-2.8)
         domains_to_check = []
@@ -39,13 +53,17 @@ def run_recon_complete(self, target, asset_id=None):
 
         # 3. Disparar M3 (Escaneo de Vulnerabilidades) para cada host descubierto
         # [ENS Alto: op.acc.1] Interconexión de sistemas de auditoría
-        hosts_detectados = resultado.get("hosts_detected", [])
+        # El target se considera host detectado si tiene puertos abiertos
+        hosts_detectados = []
+        recon_data = resultado.get("reconnaissance", {})
+        if recon_data.get("ports_discovered"):
+            hosts_detectados.append(target)
+            
         if hosts_detectados:
             logger.info(f"📡 Disparando M3 para {len(hosts_detectados)} hosts descubiertos")
             for ip in hosts_detectados:
                 try:
                     # Llamamos a M3 de forma asíncrona vía Celery
-                    # Si no tenemos asset_id (es Shadow IT), pasamos None o creamos uno si fuera necesario
                     app.send_task(
                         "services.scanner_engine.tasks.vuln_tasks.scan_asset_parallel",
                         args=[asset_id or 0, ip, f"Discovered_{ip}"],
@@ -60,3 +78,5 @@ def run_recon_complete(self, target, asset_id=None):
     except Exception as e:
         logger.error(f"❌ Fallo crítico en orquestación M2: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
+    finally:
+        db.close()

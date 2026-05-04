@@ -17,6 +17,12 @@ from shared.scan_logger import ScanLogger
 # Inicialización del Logger de Auditoría para trazabilidad ENS [op.exp.5]
 logger = ScanLogger("main_orchestrator")
 
+MICROSERVICES = {
+    "m1": {"url": "http://localhost:8001", "name": "Asset Manager", "port": 8001},
+    "m2": {"url": "http://localhost:8003", "name": "Recon Engine", "port": 8003},
+    "m8": {"url": "http://localhost:8000", "name": "AI Reasoning", "port": 8000},
+}
+
 def run_scanners():
     """Ejecuta de forma secuencial los agentes del Recon Engine (M2)."""
     now = datetime.datetime.now()

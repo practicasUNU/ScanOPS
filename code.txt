@@ -81,11 +81,85 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN chmod +x run_migrations.sh
 RUN pip install --no-cache-dir .
 
 EXPOSE 8001 8002
 
 CMD ["uvicorn", "services.asset_manager.main:app", "--host", "0.0.0.0", "--port", "8001"]
+FILE:Dockerfile.asset
+FROM python:3.11-slim
+
+# Instalar dependencias del sistema mínimas si es necesario
+RUN apt-get update && apt-get install -y \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Instalar dependencias de Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN chmod +x run_migrations.sh
+RUN pip install --no-cache-dir .
+
+EXPOSE 8001
+
+# CMD para M1 - Asset Manager
+CMD ["uvicorn", "services.asset_manager.main:app", "--host", "0.0.0.0", "--port", "8001"]
+FILE:Dockerfile.m2
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --break-system-packages --no-cache-dir -r requirements.txt
+RUN apt-get update && apt-get install -y nmap && rm -rf /var/lib/apt/lists/*
+COPY services/recon_engine /app/services/recon_engine
+COPY shared /app/shared
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD python3 -c "import requests; requests.get('http://localhost:8003/health')" || exit 1
+EXPOSE 8003
+CMD ["python3", "-m", "uvicorn", "services.recon_engine.main:app", "--host", "0.0.0.0", "--port", "8003"]
+FILE:Dockerfile.scanner
+FROM python:3.11-slim
+
+# 1. Instalar dependencias del sistema y Nmap
+RUN apt-get update && apt-get install -y \
+    nmap \
+    wget \
+    unzip \
+    whois \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Instalar Nuclei (US-3.2)
+RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.8/nuclei_3.1.8_linux_amd64.zip \
+    && unzip nuclei_3.1.8_linux_amd64.zip \
+    && mv nuclei /usr/local/bin/ \
+    && rm nuclei_3.1.8_linux_amd64.zip
+
+# 3. Instalar Subfinder
+RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_amd64.zip \
+    && unzip subfinder_2.6.6_linux_amd64.zip \
+    && mv subfinder /usr/local/bin/ \
+    && rm subfinder_2.6.6_linux_amd64.zip
+
+# 4. Descargar plantillas de vulnerabilidades
+RUN nuclei -update-templates
+
+WORKDIR /app
+
+# 5. Instalar dependencias de Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN chmod +x run_migrations.sh
+RUN pip install --no-cache-dir .
+
+EXPOSE 8002
+
+# ✅ CMD correcto para M3 - Scanner Engine
+CMD ["uvicorn", "services.scanner_engine.main:app", "--host", "0.0.0.0", "--port", "8002"]
 FILE:activos_hito1.json
 ﻿{
     "total":  18,
@@ -580,100 +654,6 @@ FILE:activos_hito1.json
                   }
               ]
 }
-FILE:alembic.ini
-[alembic]
-# path to migration scripts
-script_location = alembic
-
-# template used to generate migration files
-# file_template = %%(rev)s_%%(slug)s
-
-# timezone to use when rendering the date in the migration file
-# as well as the filename.
-# string value is passed to dateutil.tz.gettz()
-# leave blank for localtime
-timezone = UTC
-
-# max length of characters to apply to the
-# "slug" field
-# truncate_slug_length = 40
-
-# set to 'true' to run the environment file as a
-# standalone script, rather than emitting the string
-# run it
-# standalone_mode = false
-
-# enable logging file rotation.
-# max bytes for each log file
-# logging_file_max_bytes = 100000
-
-# number of log files to keep
-# logging_file_max_count = 3
-
-# 'logging_config_file' - path to .ini file, relative to this
-# directory
-# The string value below points to file in the Alembic project
-# directory that should be present
-# Cambia esto en tu alembic.ini
-logging_config_file = alembic.ini
-
-# set to 'true' to use colors to format the status output
-# console_command = false
-
-# If set to true, "alembic current" will show the revision hash
-# in addition to the revision number.  Defaults to False.
-# revision_environment = false
-
-# set the URL to the database
-# sqlAlchemy.url = postgresql://scanops:scanops@localhost:5432/scanops
-
-# set to 'true' to have the command otherwise printed
-# echo = true
-
-[post_write_hooks]
-# post_write_hooks defines scripts or Python functions that are run
-# on newly generated revision scripts.  See the documentation for further
-# detail and examples
-
-# format using "black" - use the console_command setting above if using the -c option
-# hooks = black
-# black.type = console_scripts
-# black.entrypoint = black
-# black.options = -l 79
-
-[loggers]
-keys = root,sqlalchemy,alembic
-
-[handlers]
-keys = console
-
-[formatters]
-keys = generic
-
-[logger_root]
-level = WARN
-handlers = console
-qualname =
-
-[logger_sqlalchemy]
-level = WARN
-handlers =
-qualname = sqlalchemy.engine
-
-[logger_alembic]
-level = INFO
-handlers =
-qualname = alembic
-
-[handler_console]
-class = StreamHandler
-args = (sys.stderr,)
-level = NOTSET
-formatter = generic
-
-[formatter_generic]
-format = %(levelname)-5.5s [%(name)s] %(message)s
-datefmt = %H:%M:%S
 FILE:celerybeat-schedule
 BINARY:true
 
@@ -852,7 +832,7 @@ services:
     networks:
       - scanops
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scanops"]
+      test: [ "CMD-SHELL", "pg_isready -U scanops" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -865,10 +845,216 @@ services:
     networks:
       - scanops
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # services/asset_manager (M1)
+  m1:
+    build:
+      context: .
+      dockerfile: Dockerfile.asset
+    container_name: scanops-m1
+    ports:
+      - "8001:8001"
+    command: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: [REDACTED]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+
+  celery-worker:
+    build: .
+    container_name: scanops-celery-worker
+    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      OPENVAS_USER: admin
+      OPENVAS_PASS: [REDACTED]
+      ZAP_HOST: localhost
+      ZAP_PORT: 8080
+      OLLAMA_MODEL: "qwen3.5:latest"
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+
+  m2:
+    build:
+      context: .
+      dockerfile: Dockerfile.m2
+    container_name: scanops-m2
+    ports:
+      - "8003:8003"
+    depends_on:
+      m1:
+        condition: service_healthy
+    environment:
+      - M2_PORT=8003
+      - M1_URL=http://m1:8001
+      - LOG_LEVEL=info
+    volumes:
+      - ./services/recon_engine:/app/services/recon_engine
+    networks:
+      - scanops
+    restart: unless-stopped
+  # services/scanner_engine (M3)
+  scanner-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.scanner
+    container_name: scanops-scanner-engine
+    ports:
+      - "8002:8002"
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - scanops
+
+  trivy:
+    image: aquasec/trivy:latest
+    container_name: scanops-trivy
+    ports:
+      - "8090:8090"
+    command: server --listen 0.0.0.0:8090
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: scanops-zap
+    ports:
+      - "8080:8080"
+    command: zap.sh -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
+    volumes:
+      - zap_data:/root/.ZAP
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "http://localhost:8080/json/core/action/version" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  trivy_data:
+  zap_data:
+FILE:docker-compose.yml.bak
+version: "3.9"
+
+networks:
+  scanops:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: scanops-postgres
+    environment:
+      POSTGRES_USER: scanops
+      POSTGRES_PASSWORD: scanops
+      POSTGRES_DB: scanops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U scanops" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: scanops-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # services/asset_manager (M1)
+  asset-manager:
+    build: .
+    container_name: scanops-asset-manager
+    ports:
+      - "8001:8001"
+    command: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: myroot
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+
+  recon-engine:
+    build: .
+    container_name: scanops-recon-engine
+    ports:
+      - "8003:8003"
+    command: uvicorn services.recon_engine.main:app --host 0.0.0.0 --port 8003
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8003/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   celery-worker:
     build: .
@@ -878,7 +1064,7 @@ services:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       OPENVAS_USER: admin
-      OPENVAS_PASS: [REDACTED]
+      OPENVAS_PASS: admin
       ZAP_HOST: localhost
       ZAP_PORT: 8080
     depends_on:
@@ -904,152 +1090,51 @@ services:
       - redis
     networks:
       - scanops
+
+  trivy:
+    image: aquasec/trivy:latest
+    container_name: scanops-trivy
+    ports:
+      - "8090:8090"
+    command: server --listen 0.0.0.0:8090
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: scanops-zap
+    ports:
+      - "8080:8080"
+    command: zap.sh -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
+    volumes:
+      - zap_data:/root/.ZAP
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "http://localhost:8080/json/core/action/version" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:
-FILE:exploit_results_schema.sql
--- ════════════════════════════════════════════════════════════════════════════════
--- TABLA: exploit_results
--- Auditoría inmutable de exploits ejecutados
--- ════════════════════════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS exploit_results (
-    id SERIAL PRIMARY KEY,
-
-    -- Referencia a aprobación
-    approval_id INTEGER NOT NULL REFERENCES m4_approvals(id) ON DELETE CASCADE,
-
-    -- Información del target
-    cve_id VARCHAR(50) NOT NULL,
-    target_ip VARCHAR(45) NOT NULL,
-    target_port INTEGER DEFAULT 445,
-
-    -- Configuración del exploit
-    msf_module VARCHAR(255) NOT NULL,
-    payload VARCHAR(255),
-
-    -- Timeline
-    started_at TIMESTAMP NOT NULL,
-    ended_at TIMESTAMP NOT NULL,
-    duration_seconds INTEGER,
-
-    -- Resultado
-    success BOOLEAN DEFAULT FALSE,
-    session_id INTEGER,
-    exit_code INTEGER,
-
-    -- Output y logs
-    output TEXT,
-    error TEXT,
-
-    -- Evidencia (JSON para flexibilidad)
-    evidence_json JSONB,
-
-    -- Auditoría
-    executed_by VARCHAR(100),
-    ip_origin VARCHAR(45),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    -- Metadata
-    metadata JSONB
-);
-
--- ════════════════════════════════════════════════════════════════════════════════
--- ÍNDICES
--- ════════════════════════════════════════════════════════════════════════════════
-
-CREATE INDEX IF NOT EXISTS idx_exploit_results_approval_id
-    ON exploit_results(approval_id);
-
-CREATE INDEX IF NOT EXISTS idx_exploit_results_cve_id
-    ON exploit_results(cve_id);
-
-CREATE INDEX IF NOT EXISTS idx_exploit_results_target
-    ON exploit_results(target_ip, target_port);
-
-CREATE INDEX IF NOT EXISTS idx_exploit_results_success
-    ON exploit_results(success);
-
-CREATE INDEX IF NOT EXISTS idx_exploit_results_timestamp
-    ON exploit_results(started_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_exploit_results_executed_by
-    ON exploit_results(executed_by);
-
--- ════════════════════════════════════════════════════════════════════════════════
--- VISTA: exploit_summary
--- Resumen de exploits por CVE
--- ════════════════════════════════════════════════════════════════════════════════
-
-CREATE OR REPLACE VIEW exploit_summary AS
-SELECT
-    cve_id,
-    COUNT(*) as total_attempts,
-    COUNT(CASE WHEN success THEN 1 END) as successful,
-    COUNT(CASE WHEN NOT success THEN 1 END) as failed,
-    ROUND(COUNT(CASE WHEN success THEN 1 END)::NUMERIC / COUNT(*) * 100, 2) as success_rate,
-    AVG(duration_seconds) as avg_duration,
-    MAX(started_at) as last_attempt
-FROM exploit_results
-GROUP BY cve_id
-ORDER BY total_attempts DESC;
-
--- ════════════════════════════════════════════════════════════════════════════════
--- VISTA: exploit_timeline
--- Timeline de todos los exploits
--- ════════════════════════════════════════════════════════════════════════════════
-
-CREATE OR REPLACE VIEW exploit_timeline AS
-SELECT
-    id,
-    approval_id,
-    cve_id,
-    target_ip,
-    msf_module,
-    success,
-    started_at,
-    ended_at,
-    duration_seconds,
-    executed_by,
-    ip_origin
-FROM exploit_results
-ORDER BY started_at DESC;
-
--- ════════════════════════════════════════════════════════════════════════════════
--- CONSTRAINTS
--- ════════════════════════════════════════════════════════════════════════════════
-
--- Asegurar que ended_at >= started_at
-ALTER TABLE exploit_results
-ADD CONSTRAINT check_timestamp_order
-CHECK (ended_at >= started_at);
-
--- Asegurar que duration_seconds es positivo
-ALTER TABLE exploit_results
-ADD CONSTRAINT check_duration_positive
-CHECK (duration_seconds >= 0);
-
--- ════════════════════════════════════════════════════════════════════════════════
--- COMMENTS
--- ════════════════════════════════════════════════════════════════════════════════
-
-COMMENT ON TABLE exploit_results IS
-'Auditoría inmutable de todos los exploits ejecutados en M4.
-Integrado con kill_switch para trazabilidad de ejecuciones abortadas.';
-
-COMMENT ON COLUMN exploit_results.approval_id IS
-'Referencia a m4_approvals - quién autorizó este exploit';
-
-COMMENT ON COLUMN exploit_results.success IS
-'True si el exploit logró obtener acceso, False si falló';
-
-COMMENT ON COLUMN exploit_results.session_id IS
-'ID de sesión Metasploit si la explotación fue exitosa';
-
-COMMENT ON COLUMN exploit_results.evidence_json IS
-'JSON con evidencia forense: {screenshot, files, processes, etc}';
-
-COMMENT ON COLUMN exploit_results.error IS
-'Mensaje de error si el exploit falló';
+  trivy_data:
+  zap_data:
 FILE:install_dependencies.bat
 @echo off
 setlocal enabledelayedexpansion
@@ -1258,6 +1343,23 @@ FILE:requirements-dev.txt
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.0.0
+FILE:run_migrations.sh
+#!/bin/bash
+# run_migrations.sh - Ejecuta las migraciones de Alembic dentro del contenedor
+
+echo "Esperando a que la base de datos esté lista..."
+# Se asume que el healthcheck de Docker maneja la espera del servicio postgres
+
+echo "Ejecutando migraciones de base de datos..."
+# Especificamos la ruta del archivo de configuración corregido
+alembic -c alembic/alembic.ini upgrade head
+
+if [ $? -eq 0 ]; then
+    echo "Migraciones completadas con éxito."
+else
+    echo "ERROR: Fallaron las migraciones. Verifique la configuración en alembic/alembic.ini"
+    exit 1
+fi
 FILE:test_m1_m2_m3.py
 """
 Script de Testing para validar M1, M2, M3
@@ -1525,44 +1627,119 @@ if __name__ == "__main__":
 FILE:vault.exe
 BINARY:true
 
+FILE:verify_schema.sql
+-- verify_schema.sql
+-- Ejecutar en psql: \i verify_schema.sql
+
+\echo 'Verificando estructura de la tabla assets...'
+\d assets
+
+\echo 'Verificando índices de la tabla assets...'
+SELECT
+    indexname,
+    indexdef
+FROM
+    pg_indexes
+WHERE
+    tablename = 'assets';
+
+\echo 'Verificando tipos ENUM creados...'
+SELECT n.nspname as schema, t.typname as type
+FROM pg_type t
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+WHERE (n.nspname = 'public')
+AND (t.typtype = 'e');
+FILE:alembic\alembic.ini
+[alembic]
+# path to migration scripts
+script_location = alembic
+
+# template used to generate migration files
+file_template = %%(rev)s_%%(slug)s
+
+# timezone to use when rendering the date in the migration file
+timezone = UTC
+
+# Logging configuration
+logging_config_file = alembic/alembic.ini
+
+# set the URL to the database
+sqlalchemy.url = postgresql://scanops:scanops@postgres:5432/scanops
+
+[post_write_hooks]
+# hooks = black
+
+[loggers]
+keys = root,sqlalchemy,alembic
+
+[handlers]
+keys = console
+
+[formatters]
+keys = generic,sqlalchemy
+
+[logger_root]
+level = WARN
+handlers = console
+qualname =
+
+[logger_sqlalchemy]
+level = WARN
+handlers =
+qualname = sqlalchemy.engine
+
+[logger_alembic]
+level = INFO
+handlers =
+qualname = alembic
+
+[handler_console]
+class = StreamHandler
+args = (sys.stderr,)
+level = NOTSET
+formatter = generic
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
+
+[formatter_sqlalchemy]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
 FILE:alembic\env.py
 import os
 import sys
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool, MetaData
+from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# 1. Asegurar que los servicios sean importables [cite: 327]
+# 1. Asegurar que los servicios sean importables
+# Agregamos la raíz del proyecto al sys.path
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if base_dir not in sys.path:
     sys.path.insert(0, base_dir)
 
-# Configuración de Alembic [cite: 306]
+# 2. Configuración de Alembic
 config = context.config
 
-# 3. IMPORTACIÓN DE MODELOS (US-1.1, US-2.1, US-3.5) [cite: 337, 358, 533, 757]
+# 3. Configuración de Logging
+# Interpretamos el archivo de configuración para el logging.
+# Esto es lo que causaba el KeyError: 'formatter_generic' si la sección faltaba.
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
+
+# 4. Importación de Metadatos
+# Importamos el Base de los modelos para autogeneración
 try:
-    from services.recon_engine.models.recon import Base as ReconBase
     from services.asset_manager.models.asset import Base as AssetBase
-    from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
+    target_metadata = AssetBase.metadata
 except ImportError as e:
-    print(f"ERROR DE IMPORTACIÓN: {e}")
-    sys.exit(1)
-
-# 4. UNIFICACIÓN DE METADATA (ENS Alto: Integridad de BD)
-target_metadata = MetaData()
-
-def merge_metadata(base):
-    for table in base.metadata.tables.values():
-        table.to_metadata(target_metadata)
-
-merge_metadata(ReconBase)
-merge_metadata(AssetBase)
-merge_metadata(VulnerabilityBase)
+    print(f"Advertencia: No se pudieron importar los modelos: {e}")
+    target_metadata = None
 
 def run_migrations_offline() -> None:
     """Modo offline: genera SQL sin conectar a la DB."""
-    url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+    url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -1575,10 +1752,10 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Modo online: se conecta a PostgreSQL y aplica cambios."""
-    # Priorizamos la variable de entorno de Docker
+    # Priorizamos la URL de la configuración o variable de entorno
     database_url = os.getenv(
         "DATABASE_URL",
-        "postgresql://scanops:scanops@postgres:5432/scanops"
+        config.get_main_option("sqlalchemy.url")
     )
 
     connectable = engine_from_config(
@@ -1623,168 +1800,98 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     ${downgrades if downgrades else "pass"}
-FILE:alembic\versions\001_initial.py
-"""Initial migration - Create recon tables
+FILE:alembic\versions\001_initial_schema.py
+"""initial schema
 
-Revision ID: 001_initial
+Revision ID: 001
 Revises:
-Create Date: 2026-04-20 12:00:00.000000
+Create Date: 2026-04-28 14:15:00.000000
 
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '001_initial'
+revision = '001'
 down_revision = None
 branch_labels = None
 depends_on = None
 
-def upgrade() -> None:
-    # Create recon_snapshots table
-    op.create_table('recon_snapshots',
+def upgrade():
+    # 1. Crear tipos ENUM (ENS Alto: Consistencia de datos)
+    conn = op.get_bind()
+
+    # Check if types exist
+    for type_name, values in [
+        ('criticidadenum', ('BAJA', 'MEDIA', 'ALTA', 'PENDIENTE_CLASIFICAR')),
+        ('tipoactivoenum', ('ENDPOINT', 'SERVER', 'RED', 'APLICACION', 'IOT', 'OTRO')),
+        ('assetstatusenum', ('ACTIVO', 'BAJA', 'MANTENIMIENTO', 'PENDIENTE_ALTA'))
+    ]:
+        exists = conn.execute(sa.text(f"SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = '{type_name}')")).scalar()
+        if not exists:
+            op.execute(f"CREATE TYPE {type_name} AS ENUM {values}")
+
+    # 2. Crear tabla 'assets'
+    op.create_table(
+        'assets',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('cycle_id', sa.String(length=50), nullable=False),
-        sa.Column('target', sa.String(length=255), nullable=False),
-        sa.Column('started_at', sa.DateTime(), nullable=False),
-        sa.Column('finished_at', sa.DateTime(), nullable=True),
-        sa.Column('status', sa.String(length=20), nullable=True),
-        sa.PrimaryKeyConstraint('id'),
-        sa.Index('ix_recon_snapshots_cycle_id', 'cycle_id'),
-        sa.Index('ix_recon_snapshots_status', 'status')
-    )
 
-    # Create recon_findings table
-    op.create_table('recon_findings',
-        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('snapshot_id', sa.Integer(), nullable=False),
-        sa.Column('host', sa.String(length=255), nullable=False),
-        sa.Column('port', sa.String(length=20), nullable=True),
-        sa.Column('service', sa.String(length=100), nullable=True),
-        sa.Column('version', sa.String(length=255), nullable=True),
-        sa.Column('state', sa.String(length=20), nullable=True),
-        sa.Column('source', sa.String(length=20), nullable=True),
-        sa.Column('first_seen_snapshot_id', sa.Integer(), nullable=True),
-        sa.ForeignKeyConstraint(['first_seen_snapshot_id'], ['recon_snapshots.id'], ),
-        sa.ForeignKeyConstraint(['snapshot_id'], ['recon_snapshots.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.Index('ix_recon_findings_snapshot_id', 'snapshot_id'),
-        sa.Index('ix_recon_findings_host', 'host')
-    )
-
-    # Create recon_subdomains table
-    op.create_table('recon_subdomains',
-        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('snapshot_id', sa.Integer(), nullable=False),
-        sa.Column('subdomain', sa.String(length=255), nullable=False),
-        sa.Column('source', sa.String(length=20), nullable=True),
-        sa.ForeignKeyConstraint(['snapshot_id'], ['recon_snapshots.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.Index('ix_recon_subdomains_snapshot_id', 'snapshot_id'),
-        sa.Index('ix_recon_subdomains_subdomain', 'subdomain')
-    )
-
-def downgrade() -> None:
-    op.drop_table('recon_subdomains')
-    op.drop_table('recon_findings')
-    op.drop_table('recon_snapshots')
-FILE:alembic\versions\002_asset_manager.py
-﻿"""Asset Manager migration - Create asset tables
-
-Revision ID: 002_asset_manager
-Revises: 001_initial
-Create Date: 2026-04-21 12:00:00.000000
-
-"""
-from alembic import op
-import sqlalchemy as sa
-
-# revision identifiers, used by Alembic.
-revision = '002_asset_manager'
-down_revision = '001_initial'
-branch_labels = None
-depends_on = None
-
-def upgrade() -> None:
-    # Create enums
-    criticidad_enum = sa.Enum('BAJA', 'MEDIA', 'ALTA', 'PENDIENTE_CLASIFICAR', name='criticidadenum')
-    tipo_activo_enum = sa.Enum('ENDPOINT', 'SERVER', 'RED', 'APLICACION', 'IOT', 'OTRO', name='tipoactivoenum')
-    asset_status_enum = sa.Enum('ACTIVO', 'BAJA', 'MANTENIMIENTO', 'PENDIENTE_ALTA', name='assetstatusenum')
-    audit_action_enum = sa.Enum('CREATE', 'UPDATE', 'DELETE', 'RESTORE', 'CREDENTIAL_ACCESS', name='auditactionenum')
-
-    criticidad_enum.create(op.get_bind(), checkfirst=True)
-    tipo_activo_enum.create(op.get_bind(), checkfirst=True)
-    asset_status_enum.create(op.get_bind(), checkfirst=True)
-    audit_action_enum.create(op.get_bind(), checkfirst=True)
-
-    # Create assets table
-    op.create_table('assets',
-        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+        # Identidad
         sa.Column('ip', sa.String(length=45), nullable=False),
         sa.Column('hostname', sa.String(length=255), nullable=True),
         sa.Column('dominio', sa.String(length=255), nullable=True),
         sa.Column('mac_address', sa.String(length=17), nullable=True),
-        sa.Column('criticidad', criticidad_enum, nullable=False),
-        sa.Column('tipo', tipo_activo_enum, nullable=False),
-        sa.Column('status', asset_status_enum, nullable=False),
+
+        # Clasificación
+        sa.Column('criticidad', sa.Enum('BAJA', 'MEDIA', 'ALTA', 'PENDIENTE_CLASIFICAR', name='criticidadenum'), nullable=False, server_default='PENDIENTE_CLASIFICAR'),
+        sa.Column('tipo', sa.Enum('ENDPOINT', 'SERVER', 'RED', 'APLICACION', 'IOT', 'OTRO', name='tipoactivoenum'), nullable=False, server_default='OTRO'),
+        sa.Column('status', sa.Enum('ACTIVO', 'BAJA', 'MANTENIMIENTO', 'PENDIENTE_ALTA', name='assetstatusenum'), nullable=False, server_default='ACTIVO'),
+
+        # Propiedad
         sa.Column('responsable', sa.String(length=255), nullable=False),
         sa.Column('departamento', sa.String(length=255), nullable=True),
         sa.Column('ubicacion', sa.String(length=255), nullable=True),
+
+        # Tags y Notas
         sa.Column('tags_ens', sa.JSON(), nullable=True),
         sa.Column('notas', sa.Text(), nullable=True),
+
+        # Integración Vault
         sa.Column('vault_path', sa.String(length=500), nullable=True),
+
+        # Sincronización Externa
         sa.Column('external_id', sa.String(length=255), nullable=True),
         sa.Column('external_source', sa.String(length=50), nullable=True),
+
+        # Descubrimiento
         sa.Column('discovered_by', sa.String(length=50), nullable=True),
         sa.Column('network_range', sa.String(length=50), nullable=True),
+
+        # Sistema Operativo
         sa.Column('os_family', sa.String(length=50), nullable=True),
         sa.Column('os_version', sa.String(length=100), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(), nullable=False),
+
+        # Timestamps
+        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()),
         sa.Column('deleted_at', sa.DateTime(), nullable=True),
-        sa.PrimaryKeyConstraint('id'),
-        sa.Index('ix_assets_ip', 'ip'),
-        sa.Index('ix_assets_hostname', 'hostname'),
-        sa.Index('ix_assets_criticidad', 'criticidad'),
-        sa.Index('ix_assets_tipo', 'tipo'),
-        sa.Index('ix_assets_status', 'status'),
-        sa.Index('ix_assets_external_id', 'external_id'),
-        sa.Index('ix_assets_ip_status', 'ip', 'status'),
-        sa.Index('ix_assets_criticidad_tipo', 'criticidad', 'tipo'),
-        sa.Index('ix_assets_external', 'external_source', 'external_id')
+
+        sa.PrimaryKeyConstraint('id')
     )
 
-    # Create asset_audit_logs table
-    op.create_table('asset_audit_logs',
-        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('asset_id', sa.Integer(), nullable=False),
-        sa.Column('action', audit_action_enum, nullable=False),
-        sa.Column('user_id', sa.String(length=255), nullable=False),
-        sa.Column('user_role', sa.String(length=100), nullable=True),
-        sa.Column('timestamp', sa.DateTime(), nullable=False),
-        sa.Column('changes', sa.JSON(), nullable=True),
-        sa.Column('snapshot_before', sa.JSON(), nullable=True),
-        sa.Column('snapshot_after', sa.JSON(), nullable=True),
-        sa.Column('ip_origin', sa.String(length=45), nullable=True),
-        sa.Column('reason', sa.Text(), nullable=True),
-        sa.ForeignKeyConstraint(['asset_id'], ['assets.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.Index('ix_audit_asset_id', 'asset_id'),
-        sa.Index('ix_audit_timestamp', 'timestamp'),
-        sa.Index('ix_audit_asset_action', 'asset_id', 'action'),
-        sa.Index('ix_audit_user', 'user_id')
-    )
+    # 3. Crear índices (ENS Alto: Performance y trazabilidad)
+    op.create_index('ix_assets_ip', 'assets', ['ip'], unique=False)
+    op.create_index('ix_assets_hostname', 'assets', ['hostname'], unique=False)
+    op.create_index('ix_assets_status', 'assets', ['status'], unique=False)
+    op.create_index('ix_assets_criticidad', 'assets', ['criticidad'], unique=False)
+    op.create_index('ix_assets_external_id', 'assets', ['external_id'], unique=False)
 
-def downgrade() -> None:
-    # Drop tables
-    op.drop_table('asset_audit_logs')
+def downgrade():
     op.drop_table('assets')
-
-    # Drop enums
     op.execute("DROP TYPE IF EXISTS criticidadenum")
     op.execute("DROP TYPE IF EXISTS tipoactivoenum")
     op.execute("DROP TYPE IF EXISTS assetstatusenum")
-    op.execute("DROP TYPE IF EXISTS auditactionenum")
 FILE:frontend\src\components\m4\CancellationWorkflow.jsx
 /* FILE: frontend/src/components/m4/CancelStyles.css */
 :root {
@@ -2350,6 +2457,220 @@ gvm-tools>=20.8.0
 FILE:scanops.egg-info\top_level.txt
 services
 shared
+FILE:scripts\m2_client.py
+#!/usr/bin/env python3
+"""
+M2 Recon Engine - Test Client
+==============================
+Test script to verify M2 functionality.
+
+Usage:
+    python3 m2_client.py --target 10.202.15.100 --subdomains
+"""
+
+import requests
+import json
+import time
+import argparse
+import sys
+from datetime import datetime
+from typing import Dict, Optional
+
+BASE_URL = "http://localhost:8003"
+TOKEN = "scanops_secret"
+
+HEADERS = {
+    "Authorization": f"Bearer {TOKEN}",
+    "Content-Type": "application/json"
+}
+
+class M2Client:
+    """Client for M2 Recon Engine API."""
+
+    def __init__(self, base_url: str = BASE_URL, token: str = TOKEN):
+        self.base_url = base_url
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+    def health(self) -> Dict:
+        """Check M2 health status."""
+        try:
+            resp = requests.get(f"{self.base_url}/health", timeout=5)
+            return resp.json()
+        except Exception as e:
+            return {"status": "offline", "error": str(e)}
+
+    def info(self) -> Dict:
+        """Get M2 service info."""
+        resp = requests.get(f"{self.base_url}/info", timeout=5)
+        return resp.json()
+
+    def start_scan(self, target_ip: str, scan_type: str = "full",
+                   include_subdomain_discovery: bool = False) -> Dict:
+        """Start a new reconnaissance scan."""
+        params = {
+            "target_ip": target_ip,
+            "scan_type": scan_type,
+            "include_subdomain_discovery": include_subdomain_discovery
+        }
+        resp = requests.post(
+            f"{self.base_url}/api/v1/scan",
+            params=params,
+            headers=self.headers,
+            timeout=10
+        )
+        return resp.json()
+
+    def list_snapshots(self) -> Dict:
+        """List all snapshots."""
+        resp = requests.get(
+            f"{self.base_url}/api/v1/snapshots",
+            headers=self.headers,
+            timeout=10
+        )
+        return resp.json()
+
+    def get_findings(self, snapshot_id: str) -> Dict:
+        """Get findings from a snapshot."""
+        resp = requests.get(
+            f"{self.base_url}/api/v1/snapshots/{snapshot_id}/findings",
+            headers=self.headers,
+            timeout=10
+        )
+        return resp.json()
+
+    def get_subdomains(self, snapshot_id: str) -> Dict:
+        """Get subdomains from a snapshot."""
+        resp = requests.get(
+            f"{self.base_url}/api/v1/snapshots/{snapshot_id}/subdomains",
+            headers=self.headers,
+            timeout=10
+        )
+        return resp.json()
+
+    def surface_diff(self, snapshot_id: Optional[str] = None) -> Dict:
+        """Get surface diff for a snapshot."""
+        params = {}
+        if snapshot_id:
+            params["snapshot_id"] = snapshot_id
+
+        resp = requests.get(
+            f"{self.base_url}/api/v1/surface-diff",
+            params=params,
+            headers=self.headers,
+            timeout=10
+        )
+        return resp.json()
+
+def print_header(text: str):
+    """Print formatted header."""
+    print(f"\n{'=' * 70}")
+    print(f"  {text}")
+    print(f"{'=' * 70}\n")
+
+def print_json(data: Dict, indent: int = 2):
+    """Pretty print JSON."""
+    print(json.dumps(data, indent=indent, ensure_ascii=False))
+
+def main():
+    """Main test function."""
+    parser = argparse.ArgumentParser(description="M2 Recon Engine Test Client")
+    parser.add_argument("--target", type=str, default="10.202.15.100",
+                       help="Target IP to scan (default: 10.202.15.100)")
+    parser.add_argument("--subdomains", action="store_true",
+                       help="Include subdomain discovery")
+    parser.add_argument("--wait", type=int, default=3,
+                       help="Wait time before checking results (seconds)")
+    parser.add_argument("--url", type=str, default=BASE_URL,
+                       help="M2 base URL (default: http://localhost:8002)")
+
+    args = parser.parse_args()
+
+    client = M2Client(base_url=args.url)
+
+    # 1. Check health
+    print_header("1. HEALTH CHECK")
+    health = client.health()
+    print_json(health)
+
+    if health.get("status") != "ok":
+        print("[X] M2 is not responding. Make sure it's running:")
+        print("  python3 m2_main.py")
+        sys.exit(1)
+
+    # 2. Get service info
+    print_header("2. SERVICE INFO")
+    info = client.info()
+    print_json(info)
+
+    # 3. Start scan
+    print_header(f"3. STARTING SCAN - Target: {args.target}")
+    scan_result = client.start_scan(
+        target_ip=args.target,
+        scan_type="full",
+        include_subdomain_discovery=args.subdomains
+    )
+    print_json(scan_result)
+
+    snapshot_id = scan_result.get("snapshot_id")
+    print(f"\n[*] Snapshot ID: {snapshot_id}")
+    print(f"[*] Waiting {args.wait} seconds for scan to complete...")
+    time.sleep(args.wait)
+
+    # 4. List snapshots
+    print_header("4. AVAILABLE SNAPSHOTS")
+    snapshots = client.list_snapshots()
+    print_json(snapshots)
+
+    if not snapshot_id:
+        print("[X] No snapshot ID obtained")
+        return
+
+    # 5. Get findings
+    print_header(f"5. FINDINGS - Snapshot: {snapshot_id}")
+    findings = client.get_findings(snapshot_id)
+    print_json(findings)
+
+    findings_count = findings.get("findings_count", 0)
+    print(f"\n[V] Found {findings_count} open ports")
+
+    # 6. Get subdomains (if enabled)
+    if args.subdomains:
+        print_header(f"6. SUBDOMAINS - Snapshot: {snapshot_id}")
+        subdomains = client.get_subdomains(snapshot_id)
+        print_json(subdomains)
+        subdomain_count = subdomains.get("count", 0)
+        print(f"\n[V] Found {subdomain_count} subdomains")
+
+    # 7. Surface diff
+    print_header("7. SURFACE DIFF (Change Detection)")
+    diff = client.surface_diff(snapshot_id)
+    print_json(diff)
+
+    # Summary
+    print_header("SCAN SUMMARY")
+    print(f"Target IP:        {args.target}")
+    print(f"Snapshot ID:      {snapshot_id}")
+    print(f"Status:           {findings.get('status')}")
+    print(f"Findings:         {findings_count} ports")
+    if args.subdomains:
+        print(f"Subdomains:       {subdomain_count}")
+    print(f"Timestamp:        {findings.get('created_at')}")
+
+    # Severity breakdown
+    summary = findings.get("summary", {})
+    by_severity = summary.get("by_severity", {})
+    print(f"\nSeverity Breakdown:")
+    print(f"  CRITICA:  {by_severity.get('CRITICA', 0)}")
+    print(f"  ALTA:     {by_severity.get('ALTA', 0)}")
+    print(f"  MEDIA:    {by_severity.get('MEDIA', 0)}")
+
+    print("\n[V] Test completed successfully!")
+
+if __name__ == "__main__":
+    main()
 FILE:scripts\main_orchestrator.py
 import json
 import subprocess
@@ -2369,6 +2690,12 @@ from shared.scan_logger import ScanLogger
 
 # Inicialización del Logger de Auditoría para trazabilidad ENS [op.exp.5]
 logger = ScanLogger("main_orchestrator")
+
+MICROSERVICES = {
+    "m1": {"url": "http://localhost:8001", "name": "Asset Manager", "port": 8001},
+    "m2": {"url": "http://localhost:8003", "name": "Recon Engine", "port": 8003},
+    "m8": {"url": "http://localhost:8000", "name": "AI Reasoning", "port": 8000},
+}
 
 def run_scanners():
     """Ejecuta de forma secuencial los agentes del Recon Engine (M2)."""
@@ -3115,11 +3442,13 @@ import httpx
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
 
+import os
+
 # ---------------------------------------------------------------------------
 # Constantes por defecto
 # ---------------------------------------------------------------------------
-DEFAULT_BASE_URL: str = "http://localhost:11434"
-DEFAULT_MODEL: str = "llama2"
+DEFAULT_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
 DEFAULT_EMBED_MODEL: str = "nomic-embed-text"
 DEFAULT_TEMPERATURE: float = 0.7
 DEFAULT_TOP_P: float = 0.9
@@ -3548,7 +3877,9 @@ class OllamaClient:
 # ---------------------------------------------------------------------------
 # Instancia global
 # ---------------------------------------------------------------------------
-ollama = OllamaClient()
+ollama = OllamaClient(
+    model=os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
+)
 """Instancia global de OllamaClient lista para importar.
 
 Uso::
@@ -4454,7 +4785,7 @@ def map_to_ens_task(self, finding_dict: dict, asset_dict: dict) -> dict:
         logger.error(f"Error en map_to_ens_task: {exc}")
         self.retry(countdown=60, exc=exc)
 
-@celery_app.task(queue='ai_reasoning', bind=True, max_retries=1)
+@celery_app.task(queue='ai_reasoning', bind=True, max_retries=3, name='tasks.suggest_attack_vector_task')
 def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
     """
     Task: Sugerir vector de ataque (MSF Suggestion para Human-in-the-loop)
@@ -11361,6 +11692,8 @@ if __name__ == "__main__":
 FILE:services\exploit_engine\main.py
 from fastapi import FastAPI
 from exploit_engine.m4_orchestrator import get_orchestrator
+from api.patch_api import router as patch_router
+app.include_router(patch_router)
 
 app = FastAPI()
 
@@ -11774,6 +12107,413 @@ def get_msf_client() -> MSFClient:
     if _msf_client is None:
         _msf_client = MSFClient()
     return _msf_client
+FILE:services\exploit_engine\patch_verifier.py
+"""
+Patch Verifier Service - US-5.10
+Re-lanza exploits para verificar que los parches son efectivos.
+"""
+
+import logging
+import sys
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from datetime import datetime
+from typing import Dict, List, Optional
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from config import DB_CONFIG
+    from exploit_executor import get_executor
+    from kill_switch_service import kill_switch_svc
+except ImportError as e:
+    print(f"⚠️ Error importando: {e}")
+    DB_CONFIG = {}
+
+logger = logging.getLogger("PatchVerifier")
+logging.basicConfig(level=logging.INFO)
+
+class PatchVerifier:
+    """
+    Verifica que los parches aplicados son efectivos
+    re-lanzando los exploits originales.
+
+    Flujo:
+    1. Admin marca exploit como PATCHED
+    2. Sistema re-lanza el mismo exploit
+    3. Si falla → parche funciona ✅
+    4. Si tiene éxito → parche NO funciona ❌ → alerta
+    """
+
+    def __init__(self, db_config=None):
+        self.db_config = db_config or DB_CONFIG
+        self.executor = get_executor()
+
+    def _get_connection(self):
+        return psycopg2.connect(**self.db_config)
+
+    def mark_as_patched(
+        self,
+        exploit_result_id: int,
+        patched_by: str,
+        patch_notes: str = None
+    ) -> Dict:
+        """
+        Marca un exploit como parcheado por el admin.
+
+        Args:
+            exploit_result_id: ID del exploit en exploit_results
+            patched_by: Email del admin que aplicó el parche
+            patch_notes: Notas sobre el parche aplicado
+
+        Returns:
+            {success: bool, message: str}
+        """
+        conn = None
+        try:
+            conn = self._get_connection()
+
+            query = """
+                UPDATE exploit_results
+                SET
+                    patched = TRUE,
+                    patched_by = %s,
+                    patched_at = NOW(),
+                    patch_notes = %s,
+                    patch_verified = FALSE
+                WHERE id = %s AND success = TRUE
+                RETURNING id, cve_id, target_ip, msf_module, payload, target_port, approval_id
+            """
+
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, (patched_by, patch_notes, exploit_result_id))
+                result = cur.fetchone()
+                conn.commit()
+
+            if not result:
+                return {
+                    'success': False,
+                    'message': 'Exploit no encontrado o no fue exitoso'
+                }
+
+            logger.info(f"✅ Exploit {exploit_result_id} marcado como parcheado por {patched_by}")
+
+            return {
+                'success': True,
+                'message': f"CVE {result['cve_id']} marcado como parcheado en {result['target_ip']}",
+                'exploit': dict(result)
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Error marcando como parcheado: {e}")
+            if conn:
+                conn.rollback()
+            return {'success': False, 'message': str(e)}
+        finally:
+            if conn:
+                conn.close()
+
+    def verify_patch(
+        self,
+        exploit_result_id: int,
+        verified_by: str
+    ) -> Dict:
+        """
+        Re-lanza el exploit para verificar que el parche funciona.
+
+        Args:
+            exploit_result_id: ID del exploit original
+            verified_by: Email de quien solicita la verificación
+
+        Returns:
+            {
+                success: bool,
+                patch_effective: bool,
+                cve: str,
+                target: str,
+                message: str,
+                details: dict
+            }
+        """
+        conn = None
+        try:
+            conn = self._get_connection()
+
+            # 1. Obtener info del exploit original
+            query = """
+                SELECT * FROM exploit_results
+                WHERE id = %s AND success = TRUE AND patched = TRUE
+            """
+
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, (exploit_result_id,))
+                original = cur.fetchone()
+
+            if not original:
+                return {
+                    'success': False,
+                    'patch_effective': None,
+                    'message': 'Exploit no encontrado, no fue exitoso, o no está marcado como parcheado'
+                }
+
+            cve = original['cve_id']
+            target_ip = original['target_ip']
+            target_port = original['target_port']
+            msf_module = original['msf_module']
+            payload = original['payload']
+            approval_id = original['approval_id']
+
+            logger.info(f"🔍 Verificando parche: {cve} en {target_ip}")
+
+            # 2. CHECK KILL SWITCH
+            if kill_switch_svc.is_active():
+                return {
+                    'success': False,
+                    'patch_effective': None,
+                    'message': 'Kill switch activo - verificación abortada'
+                }
+
+            # 3. RE-LANZAR EXPLOIT
+            logger.info(f"🚀 Re-lanzando exploit para verificar parche...")
+
+            re_exploit_result = self.executor.execute(
+                cve=cve,
+                target_ip=target_ip,
+                target_port=target_port,
+                msf_module=msf_module,
+                payload=payload,
+                approval_id=approval_id,
+                executor_email=verified_by,
+                ip_origin='127.0.0.1'
+            )
+
+            # 4. EVALUAR RESULTADO
+            # Si el exploit FALLA → el parche ES efectivo ✅
+            # Si el exploit TIENE ÉXITO → el parche NO es efectivo ❌
+            patch_effective = not re_exploit_result['success']
+
+            # 5. GUARDAR RESULTADO DE VERIFICACIÓN
+            self._save_verification_result(
+                original_exploit_id=exploit_result_id,
+                cve=cve,
+                target_ip=target_ip,
+                patch_effective=patch_effective,
+                verified_by=verified_by,
+                re_exploit_success=re_exploit_result['success'],
+                re_exploit_output=re_exploit_result.get('output', ''),
+                re_exploit_error=re_exploit_result.get('error', '')
+            )
+
+            # 6. ACTUALIZAR exploit_results original
+            self._update_patch_verification(
+                exploit_result_id=exploit_result_id,
+                patch_effective=patch_effective,
+                verified_by=verified_by
+            )
+
+            # 7. ALERTA SI PARCHE NO FUNCIONA
+            if not patch_effective:
+                logger.critical(f"🚨 PARCHE NO EFECTIVO: {cve} en {target_ip}")
+                self._alert_patch_failed(cve, target_ip, verified_by)
+
+                return {
+                    'success': True,
+                    'patch_effective': False,
+                    'cve': cve,
+                    'target': target_ip,
+                    'message': f"⚠️ PARCHE NO EFECTIVO - {cve} sigue siendo vulnerable en {target_ip}",
+                    'details': re_exploit_result
+                }
+
+            logger.info(f"✅ PARCHE EFECTIVO: {cve} en {target_ip} ya no es vulnerable")
+
+            return {
+                'success': True,
+                'patch_effective': True,
+                'cve': cve,
+                'target': target_ip,
+                'message': f"✅ PARCHE EFECTIVO - {cve} ya no es explotable en {target_ip}",
+                'details': re_exploit_result
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Error verificando parche: {e}")
+            return {
+                'success': False,
+                'patch_effective': None,
+                'message': str(e)
+            }
+        finally:
+            if conn:
+                conn.close()
+
+    def get_pending_verifications(self) -> List[Dict]:
+        """
+        Obtiene lista de exploits parcheados pendientes de verificar.
+
+        Returns:
+            Lista de exploits marcados como PATCHED pero no verificados
+        """
+        conn = None
+        try:
+            conn = self._get_connection()
+
+            query = """
+                SELECT
+                    id,
+                    cve_id,
+                    target_ip,
+                    msf_module,
+                    patched_by,
+                    patched_at,
+                    patch_notes
+                FROM exploit_results
+                WHERE success = TRUE
+                AND patched = TRUE
+                AND patch_verified = FALSE
+                ORDER BY patched_at ASC
+            """
+
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query)
+                results = cur.fetchall()
+
+            logger.info(f"📋 {len(results)} exploits pendientes de verificar")
+            return results or []
+
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo verificaciones pendientes: {e}")
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def get_verification_history(self) -> List[Dict]:
+        """Obtiene historial completo de verificaciones de parches"""
+        conn = None
+        try:
+            conn = self._get_connection()
+
+            query = """
+                SELECT * FROM patch_verifications
+                ORDER BY verified_at DESC
+            """
+
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query)
+                results = cur.fetchall()
+
+            return results or []
+
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo historial: {e}")
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def _save_verification_result(
+        self,
+        original_exploit_id: int,
+        cve: str,
+        target_ip: str,
+        patch_effective: bool,
+        verified_by: str,
+        re_exploit_success: bool,
+        re_exploit_output: str,
+        re_exploit_error: str
+    ):
+        """Guarda resultado de verificación en BD"""
+        conn = None
+        try:
+            conn = self._get_connection()
+
+            query = """
+                INSERT INTO patch_verifications (
+                    original_exploit_id, cve_id, target_ip,
+                    patch_effective, verified_by, re_exploit_success,
+                    re_exploit_output, re_exploit_error, verified_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            """
+
+            with conn.cursor() as cur:
+                cur.execute(query, (
+                    original_exploit_id, cve, target_ip,
+                    patch_effective, verified_by, re_exploit_success,
+                    re_exploit_output, re_exploit_error
+                ))
+                conn.commit()
+
+            logger.info(f"✅ Verificación guardada en BD")
+
+        except Exception as e:
+            logger.error(f"❌ Error guardando verificación: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                conn.close()
+
+    def _update_patch_verification(
+        self,
+        exploit_result_id: int,
+        patch_effective: bool,
+        verified_by: str
+    ):
+        """Actualiza el exploit_result con el resultado de la verificación"""
+        conn = None
+        try:
+            conn = self._get_connection()
+
+            query = """
+                UPDATE exploit_results
+                SET
+                    patch_verified = TRUE,
+                    patch_effective = %s,
+                    patch_verified_by = %s,
+                    patch_verified_at = NOW()
+                WHERE id = %s
+            """
+
+            with conn.cursor() as cur:
+                cur.execute(query, (patch_effective, verified_by, exploit_result_id))
+                conn.commit()
+
+        except Exception as e:
+            logger.error(f"❌ Error actualizando verificación: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                conn.close()
+
+    def _alert_patch_failed(self, cve: str, target_ip: str, verified_by: str):
+        """Alerta cuando el parche no es efectivo"""
+        logger.critical(f"""
+================================================================================
+🚨 ALERTA CRÍTICA - PARCHE NO EFECTIVO
+================================================================================
+CVE: {cve}
+Target: {target_ip}
+Verificado por: {verified_by}
+Timestamp: {datetime.now().isoformat()}
+
+ACCIÓN REQUERIDA: El parche aplicado NO es efectivo.
+{target_ip} sigue siendo vulnerable a {cve}.
+Revisar y re-aplicar el parche inmediatamente.
+================================================================================
+        """)
+
+# Singleton instance
+_verifier = None
+
+def get_patch_verifier() -> PatchVerifier:
+    """Obtiene instancia singleton del verificador"""
+    global _verifier
+    if _verifier is None:
+        _verifier = PatchVerifier()
+    return _verifier
 FILE:services\exploit_engine\production_monitor.py
 """
 Production Impact Monitor - US-5.9
@@ -12410,6 +13150,228 @@ async def confirm_cancellation(req: ConfirmRequest, request: Request):
         raise HTTPException(status_code=500, detail="Error al activar el Kill Switch")
     finally:
         conn.close()
+FILE:services\exploit_engine\api\patch_api.py
+"""
+Patch Verification API - US-5.10
+Endpoints para marcar exploits como parcheados y verificar parches.
+"""
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+from typing import Optional
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from patch_verifier import get_patch_verifier
+
+router = APIRouter(prefix="/api/m4/patches", tags=["M4 Patch Verification"])
+
+class MarkPatchedRequest(BaseModel):
+    exploit_result_id: int
+    patched_by: str
+    patch_notes: Optional[str] = None
+
+class VerifyPatchRequest(BaseModel):
+    exploit_result_id: int
+    verified_by: str
+
+@router.post("/mark-patched")
+async def mark_as_patched(req: MarkPatchedRequest):
+    """
+    Admin marca un exploit como parcheado.
+    Paso previo a la verificación del parche.
+    """
+    verifier = get_patch_verifier()
+    result = verifier.mark_as_patched(
+        exploit_result_id=req.exploit_result_id,
+        patched_by=req.patched_by,
+        patch_notes=req.patch_notes
+    )
+
+    if not result['success']:
+        raise HTTPException(status_code=400, detail=result['message'])
+
+    return result
+
+@router.post("/verify/{exploit_result_id}")
+async def verify_patch(exploit_result_id: int, req: VerifyPatchRequest):
+    """
+    Re-lanza el exploit para verificar que el parche es efectivo.
+    - Si falla → parche OK ✅
+    - Si tiene éxito → parche NO efectivo ❌
+    """
+    verifier = get_patch_verifier()
+    result = verifier.verify_patch(
+        exploit_result_id=exploit_result_id,
+        verified_by=req.verified_by
+    )
+
+    if not result['success']:
+        raise HTTPException(status_code=400, detail=result['message'])
+
+    return result
+
+@router.get("/pending")
+async def get_pending_verifications():
+    """
+    Lista exploits parcheados pendientes de verificar.
+    """
+    verifier = get_patch_verifier()
+    return verifier.get_pending_verifications()
+
+@router.get("/history")
+async def get_verification_history():
+    """
+    Historial completo de verificaciones de parches.
+    """
+    verifier = get_patch_verifier()
+    return verifier.get_verification_history()
+FILE:services\exploit_engine\db\exploit_results_schema.sql
+-- ════════════════════════════════════════════════════════════════════════════════
+-- TABLA: exploit_results
+-- Auditoría inmutable de exploits ejecutados
+-- ════════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS exploit_results (
+    id SERIAL PRIMARY KEY,
+
+    -- Referencia a aprobación
+    approval_id INTEGER NOT NULL REFERENCES m4_approvals(id) ON DELETE CASCADE,
+
+    -- Información del target
+    cve_id VARCHAR(50) NOT NULL,
+    target_ip VARCHAR(45) NOT NULL,
+    target_port INTEGER DEFAULT 445,
+
+    -- Configuración del exploit
+    msf_module VARCHAR(255) NOT NULL,
+    payload VARCHAR(255),
+
+    -- Timeline
+    started_at TIMESTAMP NOT NULL,
+    ended_at TIMESTAMP NOT NULL,
+    duration_seconds INTEGER,
+
+    -- Resultado
+    success BOOLEAN DEFAULT FALSE,
+    session_id INTEGER,
+    exit_code INTEGER,
+
+    -- Output y logs
+    output TEXT,
+    error TEXT,
+
+    -- Evidencia (JSON para flexibilidad)
+    evidence_json JSONB,
+
+    -- Auditoría
+    executed_by VARCHAR(100),
+    ip_origin VARCHAR(45),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Metadata
+    metadata JSONB
+);
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- ÍNDICES
+-- ════════════════════════════════════════════════════════════════════════════════
+
+CREATE INDEX IF NOT EXISTS idx_exploit_results_approval_id
+    ON exploit_results(approval_id);
+
+CREATE INDEX IF NOT EXISTS idx_exploit_results_cve_id
+    ON exploit_results(cve_id);
+
+CREATE INDEX IF NOT EXISTS idx_exploit_results_target
+    ON exploit_results(target_ip, target_port);
+
+CREATE INDEX IF NOT EXISTS idx_exploit_results_success
+    ON exploit_results(success);
+
+CREATE INDEX IF NOT EXISTS idx_exploit_results_timestamp
+    ON exploit_results(started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_exploit_results_executed_by
+    ON exploit_results(executed_by);
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- VISTA: exploit_summary
+-- Resumen de exploits por CVE
+-- ════════════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE VIEW exploit_summary AS
+SELECT
+    cve_id,
+    COUNT(*) as total_attempts,
+    COUNT(CASE WHEN success THEN 1 END) as successful,
+    COUNT(CASE WHEN NOT success THEN 1 END) as failed,
+    ROUND(COUNT(CASE WHEN success THEN 1 END)::NUMERIC / COUNT(*) * 100, 2) as success_rate,
+    AVG(duration_seconds) as avg_duration,
+    MAX(started_at) as last_attempt
+FROM exploit_results
+GROUP BY cve_id
+ORDER BY total_attempts DESC;
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- VISTA: exploit_timeline
+-- Timeline de todos los exploits
+-- ════════════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE VIEW exploit_timeline AS
+SELECT
+    id,
+    approval_id,
+    cve_id,
+    target_ip,
+    msf_module,
+    success,
+    started_at,
+    ended_at,
+    duration_seconds,
+    executed_by,
+    ip_origin
+FROM exploit_results
+ORDER BY started_at DESC;
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- CONSTRAINTS
+-- ════════════════════════════════════════════════════════════════════════════════
+
+-- Asegurar que ended_at >= started_at
+ALTER TABLE exploit_results
+ADD CONSTRAINT check_timestamp_order
+CHECK (ended_at >= started_at);
+
+-- Asegurar que duration_seconds es positivo
+ALTER TABLE exploit_results
+ADD CONSTRAINT check_duration_positive
+CHECK (duration_seconds >= 0);
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- COMMENTS
+-- ════════════════════════════════════════════════════════════════════════════════
+
+COMMENT ON TABLE exploit_results IS
+'Auditoría inmutable de todos los exploits ejecutados en M4.
+Integrado con kill_switch para trazabilidad de ejecuciones abortadas.';
+
+COMMENT ON COLUMN exploit_results.approval_id IS
+'Referencia a m4_approvals - quién autorizó este exploit';
+
+COMMENT ON COLUMN exploit_results.success IS
+'True si el exploit logró obtener acceso, False si falló';
+
+COMMENT ON COLUMN exploit_results.session_id IS
+'ID de sesión Metasploit si la explotación fue exitosa';
+
+COMMENT ON COLUMN exploit_results.evidence_json IS
+'JSON con evidencia forense: {screenshot, files, processes, etc}';
+
+COMMENT ON COLUMN exploit_results.error IS
+'Mensaje de error si el exploit falló';
 FILE:services\exploit_engine\db\hydra_results_schema.sql
 -- ════════════════════════════════════════════════════════════════════════════════
 -- TABLA: hydra_results
@@ -12616,6 +13578,68 @@ CREATE TABLE IF NOT EXISTS m4_kill_switch_logs (
     ip_origin VARCHAR(45),
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+FILE:services\exploit_engine\db\patch_verifier_schema.sql
+-- ════════════════════════════════════════════════════════════════════════════════
+-- US-5.10 - Re-exploit post-parche
+-- ════════════════════════════════════════════════════════════════════════════════
+
+-- 1. Agregar columnas de parche a exploit_results
+ALTER TABLE exploit_results
+    ADD COLUMN IF NOT EXISTS patched BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS patched_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS patched_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS patch_notes TEXT,
+    ADD COLUMN IF NOT EXISTS patch_verified BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS patch_effective BOOLEAN,
+    ADD COLUMN IF NOT EXISTS patch_verified_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS patch_verified_at TIMESTAMP;
+
+-- 2. Tabla de verificaciones de parches
+CREATE TABLE IF NOT EXISTS patch_verifications (
+    id SERIAL PRIMARY KEY,
+    original_exploit_id INTEGER NOT NULL REFERENCES exploit_results(id),
+    cve_id VARCHAR(50) NOT NULL,
+    target_ip VARCHAR(45) NOT NULL,
+    patch_effective BOOLEAN,
+    verified_by VARCHAR(100),
+    re_exploit_success BOOLEAN,
+    re_exploit_output TEXT,
+    re_exploit_error TEXT,
+    verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Índices
+CREATE INDEX IF NOT EXISTS idx_patch_verif_exploit ON patch_verifications(original_exploit_id);
+CREATE INDEX IF NOT EXISTS idx_patch_verif_cve ON patch_verifications(cve_id);
+CREATE INDEX IF NOT EXISTS idx_patch_verif_effective ON patch_verifications(patch_effective);
+CREATE INDEX IF NOT EXISTS idx_exploit_results_patched ON exploit_results(patched);
+
+-- 4. Vista: estado de parches
+CREATE OR REPLACE VIEW patch_status AS
+SELECT
+    er.id,
+    er.cve_id,
+    er.target_ip,
+    er.msf_module,
+    er.success as exploited,
+    er.patched,
+    er.patched_by,
+    er.patched_at,
+    er.patch_notes,
+    er.patch_verified,
+    er.patch_effective,
+    er.patch_verified_by,
+    er.patch_verified_at,
+    CASE
+        WHEN er.patched = FALSE THEN 'PENDING_PATCH'
+        WHEN er.patched = TRUE AND er.patch_verified = FALSE THEN 'PENDING_VERIFICATION'
+        WHEN er.patch_effective = TRUE THEN 'PATCH_OK'
+        WHEN er.patch_effective = FALSE THEN 'PATCH_FAILED'
+        ELSE 'UNKNOWN'
+    END as status
+FROM exploit_results er
+WHERE er.success = TRUE
+ORDER BY er.created_at DESC;
 FILE:services\exploit_engine\db\production_impact_logs_schema.sql
 -- ════════════════════════════════════════════════════════════════════════════════
 -- TABLA: production_impact_logs
@@ -13284,388 +14308,339 @@ def test_next_saturday_calculation():
     assert next_sat.hour == 1
     assert next_sat > datetime.now()
 FILE:services\recon_engine\__init__.py
-"""ScanOPS recon engine microservice package."""
+"""Recon Engine - M2 Microservice"""
+__version__ = "1.0.0"
 FILE:services\recon_engine\main.py
+"""
+ScanOPS Recon Engine (M2)
+========================
+Entry point for the M2 Reconnaissance service.
+"""
 from fastapi import FastAPI
-from services.recon_engine.api.recon_api import app as recon_router
-from services.recon_engine.models.recon import Base
+from fastapi.middleware.cors import CORSMiddleware
+from services.recon_engine.api.recon_api import router as recon_router
 from shared.database import engine
+from services.recon_engine.models.recon import ReconBase
+
+# NO recrear tablas — ya existen en PostgreSQL
+# ReconBase.metadata.create_all(bind=engine)  ← ELIMINAR ESTA LÍNEA
 
 app = FastAPI(
     title="ScanOPS Recon Engine (M2)",
-    description="Motor de Reconocimiento y Descubrimiento — ENS Alto [op.acc.1]",
+    description="Motor de Reconocimiento Técnico — ENS Alto [op.acc.1]",
     version="1.0.0",
 )
 
-app.mount("/api/v1", recon_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.on_event("startup")
-async def startup():
-    Base.metadata.create_all(bind=engine)
+app.include_router(recon_router)
 
 @app.get("/health")
 async def healthcheck():
-    return {"status": "ok", "service": "recon-engine"}
+    return {"status": "ok", "service": "recon-engine", "module": "M2"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8003)
 FILE:services\recon_engine\api\__init__.py
-"""Recon engine REST API package."""
+"""Recon Engine API endpoints"""
 FILE:services\recon_engine\api\recon_api.py
 """
 Recon API Endpoints
 ==================
-FastAPI endpoints for surface snapshot management and change queries.
+FastAPI endpoints for M2 Recon Engine.
+Focused exclusively on technical facts (reconnaissance).
 """
 
-import os
-import sys
-from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
+from typing import List, Optional
+from datetime import datetime
+from uuid import uuid4
 
-from shared.database import get_db, create_tables
-from ..models.recon import (
-    ReconSnapshot, ReconFinding, ReconSubdomain,
-    ReconSnapshotSchema, ReconFindingSchema, ReconSubdomainSchema,
-    SurfaceChanges, SurfaceChangeDetail
+from shared.database import get_db
+from ..models.recon import ReconSnapshot, ReconFinding, ReconSubdomain
+from ..models.schemas import (
+    ReconSnapshotSchema, ReconData, ReconSummary,
+    PortDiscovery, OSInformation, HostInformation
 )
-from ..services.surface_diff import compare_snapshots, get_previous_snapshot_id
+from ..services.scanner_network import perform_full_recon
 
-# ─── ROUTER (usado por main.py y tests) ─────────────────
 router = APIRouter(
-    prefix="/recon",
-    tags=["Recon Engine (M2)"],
-    responses={404: {"description": "Not found"}}
+    prefix="/api/v1",
+    tags=["Recon Engine (M2)"]
 )
 
-@router.get("/cycles/{cycle_id}/changes", response_model=SurfaceChanges)
-async def get_surface_changes(
-    cycle_id: str,
-    severity: Optional[str] = Query(None, description="Filter by severity: CRITICA, ALTA, MEDIA, INFO"),
+@router.post("/scan", response_model=ReconSnapshotSchema)
+async def start_scan(
+    target: str = Query(..., description="Target IP or hostname"),
     db: Session = Depends(get_db)
 ):
     """
-    Get surface changes for a specific cycle compared to the previous one.
+    Inicia un escaneo de reconocimiento completo (M2).
+    Captura puertos, servicios, versiones y SO.
     """
-    # Find the snapshot for this cycle
+    snapshot_id = f"scan-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{str(uuid4())[:8]}"
+
+    # Por ahora lo ejecutamos síncronamente para la demo/test,
+    # en prod debería ser una tarea de Celery.
+    result = await perform_full_recon(snapshot_id, target, db)
+    return result
+
+@router.get("/snapshots/{snapshot_id}/findings", response_model=ReconSnapshotSchema)
+async def get_snapshot_recon(snapshot_id: str, db: Session = Depends(get_db)):
+    """
+    Obtiene los datos de reconocimiento de un snapshot.
+    Solo reconocimiento, sin vulnerabilidades.
+    """
+    # Buscar por cycle_id (string), no por id (integer)
     snapshot = db.query(ReconSnapshot).filter(
-        ReconSnapshot.cycle_id == cycle_id,
-        ReconSnapshot.status == "completed"
+        ReconSnapshot.cycle_id == snapshot_id
     ).first()
 
     if not snapshot:
-        raise HTTPException(status_code=404, detail=f"Snapshot not found for cycle {cycle_id}")
+        raise HTTPException(status_code=404, detail="Snapshot not found")
 
-    # Get previous snapshot
-    previous_snapshot_id = get_previous_snapshot_id(cycle_id, db)
+    # Reconstruir puertos desde recon_findings
+    findings = db.query(ReconFinding).filter(
+        ReconFinding.snapshot_id == snapshot.id
+    ).all()
 
-    # Compare snapshots
-    changes = compare_snapshots(snapshot.id, previous_snapshot_id, db)
+    ports_discovered = [
+        PortDiscovery(
+            port=int(f.port) if f.port and f.port.isdigit() else 0,
+            protocol="tcp",
+            state=f.state or "open",
+            service=f.service or "unknown",
+            version=f.version or "unknown",
+            product=None,
+            confidence=0.9 if f.source == "nmap" else 0.7
+        )
+        for f in findings if f.port
+    ]
 
-    # Filter by severity if requested
-    if severity:
-        changes["details"] = [
-            detail for detail in changes["details"]
-            if detail["severity"] == severity
-        ]
-        # Recalculate summary
-        changes["summary"]["total_changes"] = len(changes["details"])
-        changes["has_changes"] = changes["summary"]["total_changes"] > 0
+    # Reconstruir OS info desde BD
+    os_information = None
+    if snapshot.os_family:
+        os_information = OSInformation(
+            detected_family=snapshot.os_family,
+            detected_version=snapshot.os_version or "Unknown",
+            cpe=snapshot.os_cpe,
+            confidence=snapshot.os_confidence or 0.5
+        )
 
-    return changes
+    # Reconstruir host info desde BD
+    host_information = None
+    if snapshot.mac_address or snapshot.latency_ms:
+        host_information = HostInformation(
+            mac_address=snapshot.mac_address,
+            vendor=snapshot.mac_vendor,
+            latency_ms=snapshot.latency_ms
+        )
 
-@router.get("/cycles/{cycle_id}/snapshot", response_model=ReconSnapshotSchema)
-async def get_snapshot(cycle_id: str, db: Session = Depends(get_db)):
-    """
-    Get snapshot details for a specific cycle.
-    """
-    snapshot = db.query(ReconSnapshot).filter(
-        ReconSnapshot.cycle_id == cycle_id
-    ).first()
+    recon_data = ReconData(
+        ports_discovered=ports_discovered,
+        os_information=os_information,
+        host_information=host_information
+    )
 
-    if not snapshot:
-        raise HTTPException(status_code=404, detail=f"Snapshot not found for cycle {cycle_id}")
+    summary = ReconSummary(
+        total_ports_open=len(ports_discovered),
+        total_services_detected=len([p for p in ports_discovered if p.service != "unknown"]),
+        scan_duration_seconds=0.0
+    )
 
-    return snapshot
+    # Subdominios
+    subdomains_db = db.query(ReconSubdomain).filter(
+        ReconSubdomain.snapshot_id == snapshot.id
+    ).all()
+    subdomains = [s.subdomain for s in subdomains_db]
 
-@router.get("/cycles", response_model=List[ReconSnapshotSchema])
-async def list_cycles(
-    status: Optional[str] = Query(None, description="Filter by status: running, completed, failed"),
-    limit: int = Query(50, description="Maximum number of results"),
-    db: Session = Depends(get_db)
-):
-    """
-    List all recon cycles.
-    """
-    query = db.query(ReconSnapshot).order_by(ReconSnapshot.started_at.desc())
+    return ReconSnapshotSchema(
+        snapshot_id=snapshot.cycle_id,
+        target=snapshot.target,
+        status=snapshot.status,
+        created_at=snapshot.started_at,
+        finished_at=snapshot.finished_at,
+        reconnaissance=recon_data,
+        subdomains=subdomains,
+        summary=summary
+    )
 
-    if status:
-        query = query.filter(ReconSnapshot.status == status)
-
-    snapshots = query.limit(limit).all()
-    return snapshots
-
-@router.get("/snapshots/{snapshot_id}/findings", response_model=List[ReconFindingSchema])
-async def get_snapshot_findings(
-    snapshot_id: int,
-    host: Optional[str] = Query(None, description="Filter by host"),
-    port: Optional[str] = Query(None, description="Filter by port"),
-    state: Optional[str] = Query(None, description="Filter by state: open, filtered, closed"),
-    db: Session = Depends(get_db)
-):
-    """
-    Get findings for a specific snapshot.
-    """
-    query = db.query(ReconFinding).filter(ReconFinding.snapshot_id == snapshot_id)
-
-    if host:
-        query = query.filter(ReconFinding.host == host)
-    if port:
-        query = query.filter(ReconFinding.port == port)
-    if state:
-        query = query.filter(ReconFinding.state == state)
-
-    findings = query.all()
-    return findings
-
-@router.get("/snapshots/{snapshot_id}/subdomains", response_model=List[ReconSubdomainSchema])
-async def get_snapshot_subdomains(snapshot_id: int, db: Session = Depends(get_db)):
-    """
-    Get subdomains for a specific snapshot.
-    """
-    subdomains = db.query(ReconSubdomain).filter(ReconSubdomain.snapshot_id == snapshot_id).all()
-    return subdomains
-
-@router.get("/changes/recent", response_model=SurfaceChanges)
-async def get_recent_changes(
-    limit: int = Query(10, description="Number of recent cycles to check"),
-    severity: Optional[str] = Query(None, description="Filter by severity"),
-    db: Session = Depends(get_db)
-):
-    """
-    Get surface changes from the most recent completed cycle.
-    """
-    # Get the most recent completed snapshot
-    recent_snapshot = db.query(ReconSnapshot).filter(
-        ReconSnapshot.status == "completed"
-    ).order_by(ReconSnapshot.started_at.desc()).first()
-
-    if not recent_snapshot:
-        raise HTTPException(status_code=404, detail="No completed snapshots found")
-
-    # Get previous snapshot
-    previous_snapshot_id = get_previous_snapshot_id(recent_snapshot.cycle_id, db)
-
-    # Compare snapshots
-    changes = compare_snapshots(recent_snapshot.id, previous_snapshot_id, db)
-
-    # Filter by severity if requested
-    if severity:
-        changes["details"] = [
-            detail for detail in changes["details"]
-            if detail["severity"] == severity
-        ]
-        # Recalculate summary
-        changes["summary"]["total_changes"] = len(changes["details"])
-        changes["has_changes"] = changes["summary"]["total_changes"] > 0
-
-    return changes
-
-from ..tasks.scan_tasks import run_recon_complete
-
-@router.post("/scan")
-async def start_scan(target: str = "192.168.1.0/24"):
-    """
-    Lanza el escaneo asíncrono a través de Celery.
-    """
-    # .delay() envía la tarea al Redis y el Worker la pesca
-    task = run_recon_complete.delay(target)
-    return {
-        "status": "Scan queued",
-        "task_id": task.id,
-        "target": target
-    }
+@router.get("/snapshots", response_model=List[dict])
+async def list_snapshots(db: Session = Depends(get_db)):
+    """Lista todos los snapshots de reconocimiento."""
+    snapshots = db.query(ReconSnapshot).order_by(ReconSnapshot.started_at.desc()).all()
+    return [
+        {
+            "snapshot_id": s.cycle_id,
+            "target": s.target,
+            "status": s.status,
+            "created_at": s.started_at,
+            "findings_count": db.query(ReconFinding).filter(ReconFinding.snapshot_id == s.id).count()
+        } for s in snapshots
+    ]
 
 @router.get("/health")
 async def health():
     """Health check for Recon API."""
-    return {"status": "healthy", "service": "recon-engine"}
-
-# ─── BACKWARDS COMPATIBILITY: app alias ─────────────────
-# Para compatibilidad con código que importa 'app'
-# Creamos una FastAPI app que incluye el router
-from fastapi import FastAPI
-app = FastAPI(title="ScanOPS Recon API", version="1.0.0")
-app.include_router(router)
-
-# Startup event para crear tablas
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    create_tables()
+    return {"status": "healthy", "service": "recon-engine", "module": "M2"}
 FILE:services\recon_engine\models\__init__.py
-"""Recon engine data models package."""
-
-from .recon import (
-    Base,
-    ReconSnapshot,
-    ReconFinding,
-    ReconSubdomain,
-    ReconSnapshotSchema,
-    ReconFindingSchema,
-    ReconSubdomainSchema,
-    SurfaceChangeDetail,
-    SurfaceChangesSummary,
-    SurfaceChanges,
-)
-
-__all__ = [
-    "Base",
-    "ReconSnapshot",
-    "ReconFinding",
-    "ReconSubdomain",
-    "ReconSnapshotSchema",
-    "ReconFindingSchema",
-    "ReconSubdomainSchema",
-    "SurfaceChangeDetail",
-    "SurfaceChangesSummary",
-    "SurfaceChanges",
-]
+"""Recon Engine data models"""
 FILE:services\recon_engine\models\recon.py
 """
-Reconnaissance Models
-=====================
-SQLAlchemy models for surface snapshots and findings.
+Reconnaissance Database Models
+==============================
+SQLAlchemy models — adaptados al schema real PostgreSQL.
+ENS Alto [op.acc.1] - Trazabilidad y hechos técnicos.
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Float, JSON
 from sqlalchemy.orm import relationship, declarative_base
-from pydantic import BaseModel
-from typing import Optional, List
 from datetime import datetime
 
-Base = declarative_base()
+ReconBase = declarative_base()
 
-# SQLAlchemy Models
-
-class ReconSnapshot(Base):
+class ReconSnapshot(ReconBase):
+    """
+    Captura de superficie de ataque.
+    M2: Solo hechos técnicos (reconocimiento).
+    """
     __tablename__ = "recon_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    cycle_id = Column(String(50), nullable=False, index=True)  # ej: "2026-W17"
+    cycle_id = Column(String(50), nullable=False, index=True)
     target = Column(String(255), nullable=False)
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
-    status = Column(String(20), default="running")  # running/completed/failed
+    status = Column(String(20), default="running")  # running, completed, error
 
-    # Relationships
-    findings = relationship("ReconFinding", back_populates="snapshot", foreign_keys="ReconFinding.snapshot_id")
-    subdomains = relationship("ReconSubdomain", back_populates="snapshot", cascade="all, delete-orphan")
+    # OS Information (nuevas columnas)
+    os_family = Column(String(100), nullable=True)
+    os_version = Column(String(255), nullable=True)
+    os_cpe = Column(String(255), nullable=True)
+    os_confidence = Column(Float, nullable=True)
 
-class ReconFinding(Base):
+    # Host Information (nuevas columnas)
+    mac_address = Column(String(50), nullable=True)
+    mac_vendor = Column(String(255), nullable=True)
+    latency_ms = Column(Float, nullable=True)
+
+    # Relaciones
+    findings = relationship("ReconFinding", back_populates="snapshot",
+                            foreign_keys="ReconFinding.snapshot_id",
+                            cascade="all, delete-orphan")
+    subdomains = relationship("ReconSubdomain", back_populates="snapshot",
+                              cascade="all, delete-orphan")
+
+class ReconFinding(ReconBase):
+    """
+    Hallazgo de reconocimiento: puerto/servicio descubierto.
+    M2: NO incluye severidades ni vulnerabilidades.
+    """
     __tablename__ = "recon_findings"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     snapshot_id = Column(Integer, ForeignKey("recon_snapshots.id"), nullable=False, index=True)
     host = Column(String(255), nullable=False, index=True)
-    port = Column(String(20), nullable=True)  # "22/tcp"
+    port = Column(String(20), nullable=True)
     service = Column(String(100), nullable=True)
     version = Column(String(255), nullable=True)
-    state = Column(String(20), nullable=True)  # "open", "filtered", "closed"
-    source = Column(String(20), nullable=True)  # "nmap", "masscan", "subfinder"
+    state = Column(String(20), nullable=True)
+    source = Column(String(20), nullable=True)
     first_seen_snapshot_id = Column(Integer, ForeignKey("recon_snapshots.id"), nullable=True)
 
-    # Relationships
-    snapshot = relationship("ReconSnapshot", back_populates="findings", foreign_keys=[snapshot_id])
-    first_seen_snapshot = relationship("ReconSnapshot", foreign_keys=[first_seen_snapshot_id])
+    snapshot = relationship("ReconSnapshot", back_populates="findings",
+                            foreign_keys=[snapshot_id])
 
-class ReconSubdomain(Base):
+class ReconSubdomain(ReconBase):
+    """
+    Subdominios descubiertos (US-2.2).
+    """
     __tablename__ = "recon_subdomains"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     snapshot_id = Column(Integer, ForeignKey("recon_snapshots.id"), nullable=False, index=True)
     subdomain = Column(String(255), nullable=False, index=True)
-    source = Column(String(20), default="subfinder")  # "subfinder"
+    source = Column(String(20), nullable=True, default="subfinder")
 
-    # Relationships
     snapshot = relationship("ReconSnapshot", back_populates="subdomains")
+FILE:services\recon_engine\models\schemas.py
+"""
+Reconnaissance Pydantic Schemas
+================================
+Schemas para validación y serialización de API.
+Separación de responsabilidades: M2 (Recon) vs M3 (Scanner).
+"""
 
-# Pydantic Schemas for API
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
+from datetime import datetime
 
-class ReconFindingSchema(BaseModel):
-    id: Optional[int] = None
-    snapshot_id: int
-    host: str
-    port: Optional[str] = None
-    service: Optional[str] = None
-    version: Optional[str] = None
-    state: Optional[str] = None
-    source: Optional[str] = None
-    first_seen_snapshot_id: Optional[int] = None
+class PortDiscovery(BaseModel):
+    """Puerto descubierto — datos técnicos puros (M2)."""
+    port: int
+    protocol: str = "tcp"
+    state: str
+    service: str
+    version: str
+    product: Optional[str] = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
 
-    class Config:
-        from_attributes = True
+class OSInformation(BaseModel):
+    """Detección de SO (M2)."""
+    detected_family: str
+    detected_version: str
+    cpe: Optional[str] = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
 
-class ReconSubdomainSchema(BaseModel):
-    id: Optional[int] = None
-    snapshot_id: int
-    subdomain: str
-    source: str = "subfinder"
+class HostInformation(BaseModel):
+    """Datos básicos del host."""
+    mac_address: Optional[str] = None
+    vendor: Optional[str] = None
+    latency_ms: Optional[float] = None
 
-    class Config:
-        from_attributes = True
+class ReconData(BaseModel):
+    """Bloque principal de reconocimiento."""
+    ports_discovered: List[PortDiscovery] = []
+    os_information: Optional[OSInformation] = None
+    host_information: Optional[HostInformation] = None
+
+class ChangeDetection(BaseModel):
+    """Detección de cambios respecto a snapshot anterior."""
+    new_ports: List[int] = []
+    closed_ports: List[int] = []
+    modified_services: List[Dict] = []
+
+class ReconSummary(BaseModel):
+    """Resumen cuantitativo (M2). SIN severidades."""
+    total_ports_open: int = 0
+    total_services_detected: int = 0
+    scan_duration_seconds: float = 0.0
 
 class ReconSnapshotSchema(BaseModel):
-    id: Optional[int] = None
-    cycle_id: str
+    """Schema principal de salida de M2."""
+    snapshot_id: str        # cycle_id del DB
     target: str
-    started_at: datetime
+    status: str
+    created_at: datetime    # started_at del DB
     finished_at: Optional[datetime] = None
-    status: str = "running"
-    findings: Optional[List[ReconFindingSchema]] = []
-    subdomains: Optional[List[ReconSubdomainSchema]] = []
+
+    reconnaissance: ReconData
+    subdomains: List[str] = []
+    change_detection: ChangeDetection = Field(default_factory=ChangeDetection)
+    summary: ReconSummary
 
     class Config:
         from_attributes = True
-
-# Surface Change Schemas
-
-class SurfaceChangeDetail(BaseModel):
-    type: str  # "new_port", "closed_port", "new_host", etc.
-    host: str
-    port: Optional[str] = None
-    service: Optional[str] = None
-    severity: str  # "CRITICA", "ALTA", "MEDIA", "INFO"
-    description: str
-    medida_ens: Optional[str] = None
-
-class SurfaceChangesSummary(BaseModel):
-    new_ports: int = 0
-    closed_ports: int = 0
-    new_hosts: int = 0
-    lost_hosts: int = 0
-    new_subdomains: int = 0
-    lost_subdomains: int = 0
-    service_changes: int = 0
-    state_changes: int = 0
-    total_changes: int = 0
-    max_severity: str = "INFO"
-
-class SurfaceChanges(BaseModel):
-    has_changes: bool = False
-    summary: SurfaceChangesSummary
-    details: List[SurfaceChangeDetail] = []
 FILE:services\recon_engine\services\__init__.py
-"""Recon engine service implementations."""
-
-from .scanner_network import _scan_async, persist_findings_to_db, start_scan
-from .surface_diff import compare_snapshots, get_previous_snapshot_id
-
-__all__ = [
-    "scan",
-    "_scan_async",
-    "persist_findings_to_db",
-    "compare_snapshots",
-    "get_previous_snapshot_id",
-]
+"""Recon Engine services"""
 FILE:services\recon_engine\services\banner_grabber.py
 """
 Banner Grabbing Service - Recon Engine
@@ -14217,116 +15192,30 @@ if __name__ == "__main__":
 FILE:services\recon_engine\services\scanner_network.py
 """
 M2 Recon Engine - Scanner Network Module
-Descubrimiento de activos en la red y comparativa de superficie
-US-2.1, US-2.2, US-2.3, US-2.5, US-2.6
+========================================
+Descubrimiento de activos en la red (Reconocimiento puro).
+M2: Hechos técnicos (Puertos, Servicios, Versiones, SO).
+NO realiza análisis de vulnerabilidades ni severidades.
 """
 
 import asyncio
-import subprocess
-from typing import List, Dict, Tuple, Optional, Set
-import httpx
-import json
+import xml.etree.ElementTree as ET
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
 
 from shared.scan_logger import ScanLogger
 from shared.database import SessionLocal
-from services.recon_engine.models.recon import (
-    ReconSnapshot,
-    ReconFinding,
-    ReconSubdomain
+from services.recon_engine.models.recon import ReconSnapshot, ReconFinding, ReconSubdomain
+from services.recon_engine.models.schemas import (
+    ReconSnapshotSchema, PortDiscovery, OSInformation,
+    HostInformation, ReconData, ReconSummary
 )
-from .banner_grabber import grab_all_banners  # <--- Agregado
 
 logger = ScanLogger("scanner_network")
 
-# Configuración
-TARGET = "192.168.1.0/24"  # Puede venir de request
-PORTS = "1-65535"
-MASSCAN_RATE = "1000"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# FUNCIONES AUXILIARES - PARSING
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def parse_masscan_output(output: str) -> Dict[str, Set[int]]:
-    """
-    Parsea output de Masscan: 'ip puerto1,puerto2,puerto3'
-    Devuelve: {"10.1.1.1": {80, 443, 22}, ...}
-    """
-    hosts = {}
-    for line in output.strip().splitlines():
-        if not line.strip():
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            ip = parts[0]
-            try:
-                ports = {int(p) for p in parts[1].split(',')}
-                hosts[ip] = ports
-            except (ValueError, IndexError):
-                continue
-    return hosts
-
-def build_hallazgos(nmap_output: str, discovered_hosts: Set[str],
-                   authorized_ips: Set[str]) -> Tuple[List[Dict], List[Dict]]:
-    """
-    Construye hallazgos basado en hosts descubiertos vs autorizados.
-    US-2.6: Detecta Shadow IT (activos no autorizados).
-
-    Returns:
-        (hallazgos, shadow_it_list)
-    """
-    hallazgos = []
-    shadow_it_list = []
-
-    # Detectar Shadow IT: hosts descubiertos que NO están en M1
-    for host in discovered_hosts:
-        if host not in authorized_ips:
-            shadow_it_item = {
-                "ip": host,
-                "tipo": "SOSPECHOSO",
-                "criticidad": "MEDIA",
-                "descripcion": "Host descubierto no autorizado",
-                "status": "PENDIENTE_INVESTIGACION"
-            }
-            shadow_it_list.append(shadow_it_item)
-            hallazgos.append({
-                "tipo": "SHADOW_IT",
-                "host": host,
-                "severity": "MEDIA"
-            })
-
-    return hallazgos, shadow_it_list
-
-def calcular_resumen_network(hallazgos: List[Dict]) -> Dict:
-    """Calcula resumen de hallazgos de red."""
-    shadow_it_count = len([h for h in hallazgos if h.get('tipo') == 'SHADOW_IT'])
-
-    return {
-        "total_hallazgos": len(hallazgos),
-        "shadow_it_detected": shadow_it_count,
-        "severity_distribution": {
-            "CRITICA": len([h for h in hallazgos if h.get('severity') == 'CRITICA']),
-            "ALTA": len([h for h in hallazgos if h.get('severity') == 'ALTA']),
-            "MEDIA": len([h for h in hallazgos if h.get('severity') == 'MEDIA']),
-        }
-    }
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# FUNCIONES PRINCIPALES - HERRAMIENTAS DE ESCANEO
-# ═══════════════════════════════════════════════════════════════════════════════
-
 async def _run_tool(cmd: List[str]) -> Tuple[str, str, int]:
-    """
-    Ejecuta una herramienta externa de forma asíncrona.
-
-    Args:
-        cmd: Comando a ejecutar como lista
-
-    Returns:
-        (stdout, stderr, returncode)
-    """
+    """Ejecuta herramienta externa de forma asíncrona."""
     try:
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -14339,469 +15228,220 @@ async def _run_tool(cmd: List[str]) -> Tuple[str, str, int]:
             stderr_bytes.decode('utf-8', errors='ignore'),
             process.returncode
         )
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Comando no encontrado: {cmd[0]}")
     except Exception as e:
         logger.error("TOOL_EXECUTION_ERROR", cmd=" ".join(cmd), error=str(e))
         raise
 
-async def run_nmap(ports: Set[int]) -> str:
+def parse_nmap_xml(xml_output: str) -> Tuple[List[PortDiscovery], Optional[OSInformation], Optional[HostInformation]]:
     """
-    Ejecuta Nmap contra los puertos descubiertos.
-    US-2.1: Wrapper de Nmap
-
-    Args:
-        ports: Conjunto de puertos a verificar
-
-    Returns:
-        Output de Nmap (xml o texto)
+    Parsea el output XML de Nmap para extraer hechos técnicos.
+    M2: Solo reconocimiento.
     """
-    if not ports:
-        logger.info("NMAP_SKIP", reason="no_ports")
-        return ""
+    ports_discovered = []
+    os_info = None
+    host_info = None
 
-    ports_str = ",".join(str(p) for p in sorted(ports))
-    logger.info("NMAP_SCAN_START", ports=len(ports))
+    if not xml_output:
+        return ports_discovered, os_info, host_info
 
     try:
-        cmd = [
-            "nmap",
-            "-p", ports_str,
-            "-sV",  # Version detection
-            "-oX", "-",  # Output XML to stdout
-            TARGET
-        ]
-        stdout, stderr, returncode = await _run_tool(cmd)
+        root = ET.fromstring(xml_output)
 
-        if returncode == 0:
-            logger.finding(
-                "NMAP_SCAN_OK",
-                severity="INFO",
-                ports_scanned=len(ports)
+        for host in root.findall('host'):
+            # Host Information
+            status = host.find('status')
+            if status is not None and status.get('state') != 'up':
+                continue
+
+            address = host.find('address[@addrtype="ipv4"]')
+            ip = address.get('addr') if address is not None else "unknown"
+
+            # MAC and Vendor
+            mac_addr_elem = host.find('address[@addrtype="mac"]')
+            mac_val = mac_addr_elem.get('addr') if mac_addr_elem is not None else None
+            vendor_val = mac_addr_elem.get('vendor') if mac_addr_elem is not None else None
+
+            # Latency
+            times = host.find('times')
+            latency = None
+            if times is not None and times.get('srtt'):
+                try:
+                    latency = float(times.get('srtt')) / 1000.0  # microseconds → ms
+                except (ValueError, TypeError):
+                    latency = None
+
+            host_info = HostInformation(
+                mac_address=mac_val,
+                vendor=vendor_val,
+                latency_ms=latency
             )
-            return stdout
-        else:
-            logger.warning("NMAP_FAILED", error=stderr[:200])
-            return ""
+
+            # Ports
+            ports_elem = host.find('ports')
+            if ports_elem is not None:
+                for port_elem in ports_elem.findall('port'):
+                    state_elem = port_elem.find('state')
+                    if state_elem is not None and state_elem.get('state') == 'open':
+                        service_elem = port_elem.find('service')
+
+                        port_id = int(port_elem.get('portid'))
+                        protocol = port_elem.get('protocol')
+                        service_name = service_elem.get('name') if service_elem is not None else "unknown"
+                        product = service_elem.get('product') if service_elem is not None else None
+                        version = service_elem.get('version') if service_elem is not None else ""
+                        extrainfo = service_elem.get('extrainfo') if service_elem is not None else ""
+
+                        parts = [p for p in [product, version, extrainfo] if p and p.strip()]
+                        full_version = " ".join(parts) if parts else "unknown"
+
+                        # Confidence based on method
+                        conf = 0.7
+                        if service_elem is not None:
+                            method = service_elem.get('method')
+                            if method == 'probed': conf = 0.9
+                            elif method == 'table': conf = 0.5
+
+                        ports_discovered.append(PortDiscovery(
+                            port=port_id,
+                            protocol=protocol,
+                            state="open",
+                            service=service_name,
+                            version=full_version or "unknown",
+                            product=product,
+                            confidence=conf
+                        ))
+
+            # OS Information
+            os_elem = host.find('os')
+            if os_elem is not None:
+                os_match = os_elem.find('osmatch')
+                if os_match is not None:
+                    os_class = os_match.find('osclass')
+
+                    # Extraer CPE si existe
+                    cpe_text = ""
+                    if os_class is not None:
+                        cpe_elem = os_class.find('cpe')
+                        if cpe_elem is not None and cpe_elem.text:
+                            cpe_text = cpe_elem.text
+
+                    os_info = OSInformation(
+                        detected_family=os_class.get('osfamily', 'Unknown') if os_class is not None else 'Unknown',
+                        detected_version=os_match.get('name', 'Unknown'),
+                        cpe=cpe_text or None,
+                        confidence=float(os_match.get('accuracy', '50')) / 100
+                    )
+
+    except Exception as e:
+        logger.error("XML_PARSE_ERROR", error=str(e))
+
+    return ports_discovered, os_info, host_info
+
+async def run_nmap_scan(target: str) -> Tuple[List[PortDiscovery], Optional[OSInformation], Optional[HostInformation]]:
+    """Ejecuta Nmap con detección de versiones y SO."""
+    logger.info("NMAP_RECON_START", target=target)
+
+    # -sV: Version detection
+    # -O: OS detection
+    # -oX: XML output
+    # -T4: Aggressive timing
+    cmd = ["nmap", "-sV", "-O", "--osscan-limit", "-T4", "-oX", "-", target]
+
+    try:
+        stdout, stderr, returncode = await _run_tool(cmd)
+        if returncode != 0:
+            logger.warning("NMAP_RECON_PARTIAL", error=stderr[:200])
+
+        return parse_nmap_xml(stdout)
     except FileNotFoundError:
         logger.error("NMAP_NOT_INSTALLED")
-        return ""
+        return [], None, None
     except Exception as e:
-        logger.error("NMAP_ERROR", error=str(e))
-        return ""
+        logger.error("NMAP_SCAN_ERROR", error=str(e))
+        return [], None, None
 
-async def get_authorized_ips() -> Set[str]:
+async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> ReconSnapshotSchema:
     """
-    Lee los activos autorizados de M1.
-    US-2.1: Lectura de M1 para activos autorizados.
-
-    Returns:
-        Set de IPs autorizadas
+    Orquestación completa del reconocimiento M2.
+    snapshot_id aquí es el cycle_id (string).
     """
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "http://localhost:8001/assets",
-                timeout=10.0,
-                headers={"Authorization": "Bearer scanops_secret"}
-            )
+    start_time = datetime.utcnow()
 
-            if response.status_code == 200:
-                data = response.json()
-                ips = {
-                    asset['ip']
-                    for asset in data.get('items', [])
-                    if asset.get('ip') and asset.get('status') == 'ACTIVO'
-                }
-                logger.info("AUTHORIZED_IPS_FETCHED", count=len(ips))
-                return ips
-            else:
-                logger.warning("M1_API_ERROR", status=response.status_code)
-                return set()
-    except Exception as e:
-        logger.error("M1_CONNECTION_FAILED", error=str(e))
-        return set()
+    # 1. Crear o recuperar snapshot usando cycle_id
+    snapshot_db = db.query(ReconSnapshot).filter(
+        ReconSnapshot.cycle_id == snapshot_id
+    ).first()
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# NUEVAS FUNCIONES - PASO 1: SUBFINDER INTEGRATION (US-2.2)
-# ═══════════════════════════════════════════════════════════════════════════════
+    if not snapshot_db:
+        snapshot_db = ReconSnapshot(
+            cycle_id=snapshot_id,
+            target=target,
+            status="running",
+            started_at=start_time
+        )
+        db.add(snapshot_db)
+        db.commit()
+        db.refresh(snapshot_db)
 
-async def run_subfinder(domains: List[str]) -> List[Dict]:
-    """
-    Ejecuta Subfinder para descubrir subdominios [US-2.2].
+    # 2. Ejecutar Nmap
+    ports, os_info, host_info = await run_nmap_scan(target)
 
-    Args:
-        domains: Lista de dominios a escanear (obtenidos de M1)
+    # 3. Persistir puertos como ReconFinding (usando schema real)
+    for p in ports:
+        finding = ReconFinding(
+            snapshot_id=snapshot_db.id,            # INTEGER (PK de snapshot)
+            host=target,
+            port=str(p.port),                      # VARCHAR en BD
+            service=p.service,
+            version=p.version,
+            state=p.state,
+            source="nmap",
+            first_seen_snapshot_id=snapshot_db.id
+        )
+        db.add(finding)
 
-    Returns:
-        Lista de subdominios descubiertos (objetos con metadatos)
+    # 4. Actualizar snapshot con OS y host info
+    end_time = datetime.utcnow()
+    scan_duration = (end_time - start_time).total_seconds()
+    snapshot_db.status = "completed"
+    snapshot_db.finished_at = end_time
 
-    ENS: [op.acc.1] Identificación de dispositivos / superficie externa
-    """
-    if not domains:
-        logger.info("SUBFINDER_SKIP", reason="no_domains_provided")
-        return []
+    if os_info:
+        snapshot_db.os_family = os_info.detected_family
+        snapshot_db.os_version = os_info.detected_version
+        snapshot_db.os_cpe = os_info.cpe
+        snapshot_db.os_confidence = os_info.confidence
 
-    all_subdomains = []
+    if host_info:
+        snapshot_db.mac_address = host_info.mac_address
+        snapshot_db.mac_vendor = host_info.vendor
+        snapshot_db.latency_ms = host_info.latency_ms
 
-    for domain in domains:
-        logger.info("SUBFINDER_SCAN_START", domain=domain)
-        try:
-            # Comando CLI real con salida JSON para producción
-            cmd = [
-                "subfinder",
-                "-d", domain,
-                "-silent",
-                "-json",
-                "-timeout", "15"
-            ]
+    db.commit()
+    db.refresh(snapshot_db)
 
-            # Ejecución real mediante subprocess (envuelto en thread para async)
-            # Esto asegura la ejecución del binario instalado en /usr/local/bin/subfinder
-            result = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                capture_output=True,
-                text=True
-            )
-
-            stdout = result.stdout
-            stderr = result.stderr
-            returncode = result.returncode
-
-            if returncode == 0:
-                found_count = 0
-                for line in stdout.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        # Subfinder -json devuelve un objeto por cada subdominio encontrado
-                        sub_data = json.loads(line)
-                        all_subdomains.append(sub_data)
-                        found_count += 1
-                    except json.JSONDecodeError:
-                        continue
-
-                logger.info(
-                    "SUBDOMAIN_DISCOVERY_SUCCESS",
-                    domain=domain,
-                    count=found_count
-                )
-            else:
-                logger.warning(
-                    "SUBFINDER_EXECUTION_FAILED",
-                    domain=domain,
-                    error=stderr[:200]
-                )
-
-        except FileNotFoundError:
-            logger.error(
-                "SUBFINDER_NOT_FOUND",
-                error="Subfinder no instalado en el sistema"
-            )
-            return []
-        except Exception as e:
-            logger.error(
-                "SUBFINDER_ERROR",
-                domain=domain,
-                error=str(e)
-            )
-
-    logger.info(
-        "SUBFINDER_SCAN_COMPLETE",
-        total_subdomains=len(all_subdomains)
+    # 5. Construir ReconData para response
+    recon_data = ReconData(
+        ports_discovered=ports,
+        os_information=os_info,
+        host_information=host_info
     )
 
-    return all_subdomains
+    summary = ReconSummary(
+        total_ports_open=len(ports),
+        total_services_detected=len([p for p in ports if p.service != "unknown"]),
+        scan_duration_seconds=scan_duration
+    )
 
-async def _get_domains_from_m1() -> List[str]:
-    """
-    Consulta M1 para obtener los dominios que Subfinder debe escanear.
-    Lee el inventario de activos y extrae los campos "dominio".
-
-    Returns:
-        Lista de dominios únicos
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "http://localhost:8001/assets",
-                timeout=10.0,
-                headers={"Authorization": "Bearer scanops_secret"}
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                # Extraer field "dominio" de cada activo
-                # Usar set() para evitar duplicados
-                domains = {
-                    asset['dominio']
-                    for asset in data.get('items', [])
-                    if asset.get('dominio') and asset['dominio'].strip()
-                }
-
-                logger.info(
-                    "DOMAINS_FETCHED_FROM_M1",
-                    count=len(domains),
-                    domains_sample=list(domains)[:5]
-                )
-                return list(domains)
-            else:
-                logger.warning(
-                    "M1_API_ERROR",
-                    status=response.status_code,
-                    reason=response.text[:200]
-                )
-                return []
-
-    except Exception as e:
-        logger.error(
-            "M1_CONNECTION_FAILED",
-            error=str(e),
-            hint="Asegúrate que M1 está corriendo en http://localhost:8001"
-        )
-        return []
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# FUNCIÓN PRINCIPAL - ORQUESTACIÓN DE ESCANEO
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def _scan_async(cycle_id: str = None):
-    """
-    Lógica principal de escaneo asíncrono y comparativa de superficie.
-
-    Flujo:
-    1. Obtener dominios de M1
-    2. Ejecutar Masscan, Nmap, Subfinder EN PARALELO
-    3. Construir hallazgos
-    4. Detectar Shadow IT
-    5. Persistir en BD
-    6. Comparar con snapshot anterior
-
-    US-2.1: Nmap wrapper
-    US-2.2: Subfinder descubrimiento
-    US-2.3: Masscan escaneo
-    US-2.5: Surface diff comparativa
-    US-2.6: Shadow IT detection
-    """
-    if not cycle_id:
-        cycle_id = f"{datetime.now().year}-W{datetime.now().isocalendar()[1]:02d}"
-
-    logger.scan_start(target=TARGET, cycle_id=cycle_id)
-    db = SessionLocal()
-
-    try:
-        # 1. Crear Snapshot
-        snapshot = ReconSnapshot(cycle_id=cycle_id, target=TARGET, status="running")
-        db.add(snapshot)
-        db.commit()
-        db.refresh(snapshot)
-        logger.info("SNAPSHOT_CREATED", snapshot_id=snapshot.id)
-
-        # 2. Obtener datos iniciales de M1
-        domains_to_scan = await _get_domains_from_m1()
-        authorized_ips = await get_authorized_ips()
-
-        # 4. EJECUTAR SUBFINDER (Masscan sigue pendiente de implementación real en el sistema)
-        logger.info("PARALLEL_SCAN_START", tools=["subfinder"])
-
-        # En producción, aquí se ejecutaría Masscan real si estuviera instalado
-        # Por ahora solo ejecutamos Subfinder de verdad
-        subfinder_domains = await run_subfinder(domains_to_scan)
-
-        # Mock Masscan (solo para mantener el flujo hasta que se instale el binario)
-        masscan_hosts = {}
-        open_ports = set()
-
-        logger.info(
-            "MASSCAN_COMPLETE",
-            hosts_found=len(masscan_hosts),
-            open_ports=len(open_ports)
-        )
-
-        # 7. Ejecutar Nmap con puertos descubiertos
-        logger.info("NMAP_SCAN_STARTING", ports=len(open_ports))
-        nmap_output = await run_nmap(open_ports)
-
-        # 7.1 Banner Grabbing en paralelo para enriquecer versiones (US-2.7)
-        banners_by_host = {}
-        if masscan_hosts:
-            logger.info("BANNER_GRABBING_TASK_START", hosts=len(masscan_hosts))
-            banner_tasks = {
-                ip: asyncio.create_task(grab_all_banners(ip, list(ports)))
-                for ip, ports in masscan_hosts.items()
-            }
-            # Esperar a todos los hosts
-            for ip, task in banner_tasks.items():
-                banners_by_host[ip] = await task
-
-        # 8. Comparación e identificación
-        discovered_hosts = set(masscan_hosts.keys())
-        hallazgos, shadow_it_list = build_hallazgos(nmap_output, discovered_hosts, authorized_ips)
-        resumen = calcular_resumen_network(hallazgos)
-
-        logger.finding(
-            "SCAN_SUMMARY",
-            severity="INFO",
-            hosts_discovered=len(discovered_hosts),
-            authorized_count=len(authorized_ips),
-            shadow_it_detected=len(shadow_it_list),
-            subdomains_discovered=len(subfinder_domains)
-        )
-
-        # 9. Registro automático de Shadow IT en M1
-        if shadow_it_list:
-            await _register_shadow_it(shadow_it_list)
-
-        # 10. Persistencia: INCLUYE SUBDOMINIOS REALES Y BANNERS
-        await persist_findings_to_db(
-            snapshot.id,
-            hallazgos,
-            masscan_hosts,
-            subfinder_domains,
-            db,
-            banners_by_host=banners_by_host  # <--- Nuevo parámetro
-        )
-
-        snapshot.finished_at = datetime.utcnow()
-        snapshot.status = "completed"
-        db.commit()
-
-        logger.scan_end(target=TARGET, findings=len(hallazgos))
-
-        return {
-            "cycle_id": cycle_id,
-            "hosts_detected": list(discovered_hosts),
-            "authorized_count": len(authorized_ips),
-            "subdomains_discovered": len(subfinder_domains),  # ← DATO REAL
-            "hallazgos": hallazgos,
-            "resumen": resumen,
-            "surface_changes": {}
-        }
-
-    except Exception as e:
-        logger.error("SCAN_FAILED", error=str(e), exc_info=True)
-        if 'snapshot' in locals():
-            snapshot.status = "failed"
-            db.commit()
-        raise
-    finally:
-        db.close()
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# FUNCIONES AUXILIARES - PERSISTENCIA Y COMPARATIVA
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def persist_findings_to_db(snapshot_id: int, hallazgos: List[Dict],
-                                masscan_hosts: Dict[str, Set[int]],
-                                subfinder_domains: List[str],
-                                db: Session,
-                                banners_by_host: Dict[str, List[Dict]] = None):
-    """
-    Persiste todos los hallazgos en BD.
-    Incluye hosts, puertos, subdominios y hallazgos enriquecidos con banners.
-    """
-    banners_by_host = banners_by_host or {}
-    try:
-        # Guardar hallazgos de hosts y puertos
-        for ip, ports in masscan_hosts.items():
-            # Obtener banners para este host
-            host_banners = {b["port"]: b for b in banners_by_host.get(ip, [])}
-
-            for port in ports:
-                banner_info = host_banners.get(port, {})
-                finding = ReconFinding(
-                    snapshot_id=snapshot_id,
-                    host=ip,
-                    port=f"{port}/tcp",
-                    service=banner_info.get("service"),
-                    version=banner_info.get("version"),
-                    state="open",
-                    source="masscan"
-                )
-                db.add(finding)
-
-        # Guardar subdominios (ahora vienen como objetos JSON de Subfinder)
-        for sub_obj in subfinder_domains:
-            # Extraer el campo 'host' del JSON de Subfinder
-            subdomain_name = sub_obj.get('host') if isinstance(sub_obj, dict) else sub_obj
-            if subdomain_name:
-                sub_rec = ReconSubdomain(
-                    snapshot_id=snapshot_id,
-                    subdomain=subdomain_name,
-                    source=sub_obj.get('source', 'subfinder') if isinstance(sub_obj, dict) else "subfinder"
-                )
-                db.add(sub_rec)
-
-        # Guardar hallazgos de shadow IT
-        for hallazgo in hallazgos:
-            if hallazgo.get('tipo') == 'SHADOW_IT':
-                finding = ReconFinding(
-                    snapshot_id=snapshot_id,
-                    host=hallazgo.get('host'),
-                    state="suspicious",
-                    source="shadow_it"
-                )
-                db.add(finding)
-
-        db.commit()
-        logger.info(
-            "FINDINGS_PERSISTED",
-            count=len(hallazgos) + len(subfinder_domains)
-        )
-    except Exception as e:
-        logger.error("PERSIST_ERROR", error=str(e))
-        db.rollback()
-        raise
-
-async def _register_shadow_it(shadow_it_list: List[Dict]):
-    """
-    Registra activos Shadow IT descubiertos en M1.
-    US-2.6: Envío de Shadow IT a M1 como activos nuevos.
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            for item in shadow_it_list:
-                response = await client.post(
-                    "http://localhost:8001/assets",
-                    json={
-                        "ip": item["ip"],
-                        "dominio": None,
-                        "tipo": "SOSPECHOSO",
-                        "criticidad": item["criticidad"],
-                        "status": "PENDIENTE_ALTA",
-                        "descripcion": item["descripcion"]
-                    },
-                    headers={"Authorization": "Bearer scanops_secret"},
-                    timeout=10.0
-                )
-
-                if response.status_code == 201:
-                    logger.finding(
-                        "SHADOW_IT_REGISTERED",
-                        severity="MEDIA",
-                        ip=item["ip"]
-                    )
-                else:
-                    logger.warning("SHADOW_IT_REGISTRATION_FAILED", ip=item["ip"])
-    except Exception as e:
-        logger.error("SHADOW_IT_REGISTRATION_ERROR", error=str(e))
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT WRAPPER
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def start_scan(target: str = None, cycle_id: str = None) -> Dict:
-    """
-    Wrapper público para lanzar escaneo.
-    Llamado desde recon_api.py
-    """
-    if target:
-        global TARGET
-        TARGET = target
-
-    return await _scan_async(cycle_id)
+    return ReconSnapshotSchema(
+        snapshot_id=snapshot_db.cycle_id,      # cycle_id como string
+        target=snapshot_db.target,
+        status=snapshot_db.status,
+        created_at=snapshot_db.started_at,     # started_at → created_at
+        finished_at=snapshot_db.finished_at,
+        reconnaissance=recon_data,
+        summary=summary
+    )
 FILE:services\recon_engine\services\surface_diff.py
 """
 Surface Diff Service
@@ -15185,8 +15825,9 @@ import asyncio
 import re
 import logging
 from shared.celery_app import app
-from ..services.scanner_network import start_scan
+from ..services.scanner_network import perform_full_recon
 from ..services.dns_whois import get_domain_recon
+from shared.database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -15198,10 +15839,23 @@ def run_recon_complete(self, target, asset_id=None):
     """
     logger.info(f"🚀 Iniciando orquestación M2 para: {target}")
 
+    db = SessionLocal()
     try:
         # 1. Escaneo de red, subdominios y banner grabbing (en scanner_network.py)
         # Esto guarda resultados en BD (ReconSnapshot, ReconFinding, ReconSubdomain)
-        resultado = asyncio.run(start_scan(target=target))
+        snapshot_id = self.request.id or f"recon-{target}"
+
+        snapshot_data = asyncio.run(perform_full_recon(
+            snapshot_id=snapshot_id,
+            target=target,
+            db=db
+        ))
+
+        # Convertimos a dict (compatibilidad Pydantic v1/v2)
+        if hasattr(snapshot_data, "model_dump"):
+            resultado = snapshot_data.model_dump(mode='json')
+        else:
+            resultado = snapshot_data.dict()
 
         # 2. Información DNS/WHOIS (US-2.8)
         domains_to_check = []
@@ -15222,13 +15876,17 @@ def run_recon_complete(self, target, asset_id=None):
 
         # 3. Disparar M3 (Escaneo de Vulnerabilidades) para cada host descubierto
         # [ENS Alto: op.acc.1] Interconexión de sistemas de auditoría
-        hosts_detectados = resultado.get("hosts_detected", [])
+        # El target se considera host detectado si tiene puertos abiertos
+        hosts_detectados = []
+        recon_data = resultado.get("reconnaissance", {})
+        if recon_data.get("ports_discovered"):
+            hosts_detectados.append(target)
+
         if hosts_detectados:
             logger.info(f"📡 Disparando M3 para {len(hosts_detectados)} hosts descubiertos")
             for ip in hosts_detectados:
                 try:
                     # Llamamos a M3 de forma asíncrona vía Celery
-                    # Si no tenemos asset_id (es Shadow IT), pasamos None o creamos uno si fuera necesario
                     app.send_task(
                         "services.scanner_engine.tasks.vuln_tasks.scan_asset_parallel",
                         args=[asset_id or 0, ip, f"Discovered_{ip}"],
@@ -15243,10 +15901,12 @@ def run_recon_complete(self, target, asset_id=None):
     except Exception as e:
         logger.error(f"❌ Fallo crítico en orquestación M2: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
 FILE:services\recon_engine\tests\__init__.py
-
+"""Recon Engine tests"""
 FILE:services\recon_engine\tests\conftest.py
-﻿"""
+"""
 Pytest configuration for Recon Engine tests.
 
 Provides fixtures and configuration for testing the reconnaissance engine.
@@ -15293,7 +15953,7 @@ def cleanup_database(test_session):
     yield
     # Clean up all tables
     test_session.execute("DELETE FROM recon_subdomains")
-    test_session.execute("DELETE FROM recon_findings")
+    test_session.execute("DELETE FROM port_discoveries")
     test_session.execute("DELETE FROM recon_snapshots")
     test_session.commit()
 FILE:services\recon_engine\tests\test_banner_grabber.py
@@ -15737,392 +16397,179 @@ class TestHealthJsonStructure:
             assert campo in servicio
 FILE:services\recon_engine\tests\test_scanner_network.py
 """
-Tests para scanner_network.py — Módulo 2 de ScanOps
-=====================================================
-Estos tests verifican que el parseo de Nmap funciona correctamente
-sin necesidad de tener Nmap instalado ni un servidor real.
-
-Ejecutar: pytest tests/test_scanner_network.py -v
+Tests para scanner_network.py refactorizado — M2 Recon Engine
+=============================================================
+Valida que M2 reporte solo reconocimiento técnico y no vulnerabilidades.
 """
-import asyncio
+
 import pytest
-import json
-import os
-import sys
+import xml.etree.ElementTree as ET
 from unittest.mock import patch, MagicMock, AsyncMock
-
-# Añadir el directorio raíz al path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.modules import scanner_network
-
-# ============================================================
-# FIXTURES: Datos de ejemplo que simulan la salida real de Nmap
-# ============================================================
+from services.recon_engine.services.scanner_network import parse_nmap_xml
+from services.recon_engine.models.schemas import PortDiscovery, OSInformation
 
 @pytest.fixture
-def nmap_output_normal():
-    """Simula una salida típica de Nmap con puertos abiertos y filtrados."""
-    return """Starting Nmap 7.94 ( https://nmap.org ) at 2026-04-20 10:25 CEST
-Nmap scan report for 10.202.15.100
-Host is up (0.0012s latency).
+def nmap_xml_output():
+    """Simula un XML real de Nmap con puertos y SO."""
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -sV -O -oX - 10.202.15.100" version="7.94" start="1714381847">
+<host>
+    <status state="up" reason="echo-reply" reason_ttl="63"/>
+    <address addr="10.202.15.100" addrtype="ipv4"/>
+    <address addr="E0:D5:5E:50:27:39" addrtype="mac" vendor="Giga-byte Technology"/>
+    <hostnames><hostname name="unuware-server" type="user"/></hostnames>
+    <ports>
+        <port protocol="tcp" portid="22">
+            <state state="open" reason="syn-ack" reason_ttl="63"/>
+            <service name="ssh" product="OpenSSH" version="9.6p1" extrainfo="Ubuntu 3ubuntu13.15" method="probed" conf="10"/>
+        </port>
+        <port protocol="tcp" portid="80">
+            <state state="open" reason="syn-ack" reason_ttl="63"/>
+            <service name="http" product="Apache httpd" version="2.4.58" method="probed" conf="10"/>
+        </port>
+    </ports>
+    <os>
+        <osmatch name="Linux 5.0 - 5.4" accuracy="100" line="68011">
+            <osclass type="general purpose" vendor="Linux" osfamily="Linux" osgen="5.X" accuracy="100">
+                <cpe>cpe:/o:linux:linux_kernel:5</cpe>
+            </osclass>
+        </osmatch>
+    </os>
+    <times srtt="980" rttvar="5000" to="100000"/>
+</host>
+<runstats><finished time="1714381860" timestr="Mon Apr 29 10:31:00 2024" summary="Nmap done at Mon Apr 29 10:31:00 2024; 1 IP address (1 host up) scanned in 13.37 seconds" elapsed="13.37" exit="success"/><hosts up="1" down="0" total="1"/></runstats>
+</nmaprun>
+"""
 
-PORT      STATE    SERVICE  VERSION
-22/tcp    open     ssh      OpenSSH 9.6p1 Ubuntu 3ubuntu13
-80/tcp    open     http     Apache httpd 2.4.58
-443/tcp   open     https    Apache httpd 2.4.58 (SSL)
-19999/tcp filtered netdata
+def test_parse_nmap_xml_recon_only(nmap_xml_output):
+    """Verifica que el parseo extraiga puertos y SO sin severidades."""
+    ports, os_info, host_info = parse_nmap_xml(nmap_xml_output)
 
-Service detection performed.
-Nmap done: 1 IP address (1 host up) scanned in 12.34 seconds"""
+    # 1. Validar puertos
+    assert len(ports) == 2
+    ssh_port = next(p for p in ports if p.port == 22)
+    assert ssh_port.service == "ssh"
+    assert ssh_port.version == "OpenSSH 9.6p1 Ubuntu 3ubuntu13.15"
+    assert ssh_port.confidence == 0.9
+    # IMPORTANTE: No debe haber campo 'severity' ni 'vulnerability'
+    assert not hasattr(ssh_port, 'severity')
 
-@pytest.fixture
-def nmap_output_all_closed():
-    """Simula una salida donde todos los puertos están cerrados."""
-    return """Starting Nmap 7.94 ( https://nmap.org ) at 2026-04-20 10:25 CEST
-Nmap scan report for 10.202.15.100
-Host is up (0.0012s latency).
+    # 2. Validar SO
+    assert os_info is not None
+    assert os_info.detected_family == "Linux"
+    assert "Linux 5.0" in os_info.detected_version
+    assert os_info.confidence == 1.0
 
-PORT      STATE  SERVICE VERSION
-22/tcp    closed ssh
-80/tcp    closed http
-443/tcp   closed https
-19999/tcp closed netdata
+    # 3. Validar Host Info
+    assert host_info.mac_address == "E0:D5:5E:50:27:39"
+    assert host_info.vendor == "Giga-byte Technology"
+    assert host_info.latency_ms == 0.98
 
-Nmap done: 1 IP address (1 host up) scanned in 5.00 seconds"""
+def test_parse_nmap_xml_empty():
+    """Verifica manejo de salida vacía."""
+    ports, os_info, host_info = parse_nmap_xml("")
+    assert len(ports) == 0
+    assert os_info is None
+    assert host_info is None
 
-@pytest.fixture
-def nmap_output_spacing_variable():
-    """Simula la salida real de Nmap con espacios variables (el bug original)."""
-    return """Starting Nmap 7.94 ( https://nmap.org )
-PORT      STATE         SERVICE    VERSION
-22/tcp    open          ssh        OpenSSH 9.6p1
-80/tcp    open          http       Apache httpd
-443/tcp   open          https      Apache httpd
-19999/tcp filtered      netdata"""
+@pytest.mark.asyncio
+async def test_full_recon_orchestration(nmap_xml_output):
+    """Prueba el flujo completo de perform_full_recon."""
+    from services.recon_engine.services.scanner_network import perform_full_recon
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from services.recon_engine.models.recon import ReconBase
 
-# ============================================================
-# FUNCIÓN AUXILIAR: Extraer la lógica de parseo para testearla
-# ============================================================
+    # Setup DB temporal
+    engine = create_engine("sqlite:///:memory:")
+    ReconBase.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(bind=engine)
+    db = SessionLocal()
 
-from src.utils import parsear_puerto, calcular_resumen_network
+    snapshot_id = "test-snapshot-123"
+    target = "10.202.15.100"
 
-def parse_nmap_output(output):
-    """
-    Extrae hallazgos de la salida de Nmap usando las funciones de utils.
-    """
-    hallazgos = []
-    lines = output.split('\n')
-    for line in lines:
-        if '/tcp' in line and ('open' in line or 'filtered' in line):
-            hallazgo = parsear_puerto(line.strip())
-            if hallazgo:
-                hallazgos.append(hallazgo)
+    with patch('services.recon_engine.services.scanner_network._run_tool', new_callable=AsyncMock) as mock_tool:
+        mock_tool.return_value = (nmap_xml_output, "", 0)
 
-    resumen = calcular_resumen_network(hallazgos)
-    return hallazgos, resumen
+        result = await perform_full_recon(snapshot_id, target, db)
 
-# ============================================================
-# TESTS UNITARIOS: Parseo de salida Nmap
-# ============================================================
+        assert result.snapshot_id == snapshot_id
+        assert result.status == "completed"
+        assert result.summary.total_ports_open == 2
+        assert len(result.reconnaissance.ports_discovered) == 2
+        assert result.reconnaissance.os_information.detected_family == "Linux"
 
-class TestNmapParsing:
-    """Tests que verifican que el parseo de Nmap detecta correctamente
-    puertos, servicios y estados."""
+        # Verificar persistencia
+        from services.recon_engine.models.recon import ReconSnapshot, PortDiscoveryDB
+        snap_db = db.query(ReconSnapshot).filter_by(snapshot_id=snapshot_id).first()
+        assert snap_db is not None
+        assert snap_db.reconnaissance_data["ports_discovered"][0]["port"] == 22
 
-    def test_detecta_puertos_abiertos(self, nmap_output_normal):
-        """Debe detectar los 3 puertos abiertos (22, 80, 443)."""
-        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
-        assert resumen["puertos_abiertos"] == 3
+        ports_db = db.query(PortDiscoveryDB).filter_by(snapshot_id=snapshot_id).all()
+        assert len(ports_db) == 2
 
-    def test_detecta_puerto_filtrado(self, nmap_output_normal):
-        """Debe detectar el puerto 19999 como filtrado."""
-        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
-        assert resumen["puertos_filtrados"] == 1
-
-    def test_detecta_ssl_activo(self, nmap_output_normal):
-        """Si el puerto 443 está abierto, ssl_activo debe ser True."""
-        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
-        assert resumen["ssl_activo"] is True
-
-    def test_detecta_firewall(self, nmap_output_normal):
-        """Si 19999 está filtrado, firewall_detectado debe ser True."""
-        hallazgos, resumen = parse_nmap_output(nmap_output_normal)
-        assert resumen["firewall_detectado"] is True
-
-    def test_genera_4_hallazgos(self, nmap_output_normal):
-        """Debe generar exactamente 4 hallazgos (uno por puerto escaneado)."""
-        hallazgos, _ = parse_nmap_output(nmap_output_normal)
-        assert len(hallazgos) == 4
-
-    def test_espacios_variables_no_rompen_parseo(self, nmap_output_spacing_variable):
-        """BUG ORIGINAL: Nmap usa tabs/espacios variables.
-        El parseo con regex debe funcionar igual."""
-        hallazgos, resumen = parse_nmap_output(nmap_output_spacing_variable)
-        assert resumen["puertos_abiertos"] == 3
-        assert resumen["puertos_filtrados"] == 1
-
-    def test_puertos_cerrados_no_generan_hallazgos(self, nmap_output_all_closed):
-        """Los puertos cerrados no deben aparecer como hallazgos."""
-        hallazgos, resumen = parse_nmap_output(nmap_output_all_closed)
-        assert len(hallazgos) == 0
-        assert resumen["puertos_abiertos"] == 0
-
-    def test_sin_salida_nmap_no_falla(self):
-        """Si Nmap no devuelve nada, no debe lanzar excepción."""
-        hallazgos, resumen = parse_nmap_output("")
-        assert len(hallazgos) == 0
-        assert resumen["puertos_abiertos"] == 0
-
-# ============================================================
-# TESTS DE ESTRUCTURA: Verifican el formato del JSON de salida
-# ============================================================
-
-class TestNetworkJsonStructure:
-    """Tests que verifican que el JSON generado tiene los campos
-    obligatorios para el ENS y para el orquestador."""
-
-    def test_hallazgo_tiene_campos_obligatorios(self, nmap_output_normal):
-        """Cada hallazgo debe tener: puerto, servicio, estado, version,
-        severidad, medida_ens, nota."""
-        hallazgos, _ = parse_nmap_output(nmap_output_normal)
-        campos_requeridos = ["puerto", "servicio", "estado", "version",
-                             "severidad", "medida_ens", "nota", "detalle"]
-        for h in hallazgos:
-            for campo in campos_requeridos:
-                assert campo in h, f"Falta campo '{campo}' en hallazgo {h}"
-
-    def test_severidad_valores_validos(self, nmap_output_normal):
-        """La severidad debe ser uno de los valores permitidos."""
-        hallazgos, _ = parse_nmap_output(nmap_output_normal)
-        valores_validos = {"INFO", "BAJA", "MEDIA", "ALTA", "CRITICA"}
-        for h in hallazgos:
-            assert h["severidad"] in valores_validos, \
-                f"Severidad '{h['severidad']}' no válida en {h['puerto']}"
-
-    def test_medida_ens_no_vacia(self, nmap_output_normal):
-        """Cada hallazgo debe tener una medida ENS asociada."""
-        hallazgos, _ = parse_nmap_output(nmap_output_normal)
-        for h in hallazgos:
-            assert h["medida_ens"] != "", \
-                f"medida_ens vacía en {h['puerto']}"
-
-    def test_ssh_tiene_severidad_info(self, nmap_output_normal):
-        """SSH abierto debe tener severidad INFO (es esperado)."""
-        hallazgos, _ = parse_nmap_output(nmap_output_normal)
-        ssh = next(h for h in hallazgos if h["puerto"] == "22/tcp")
-        assert ssh["severidad"] == "INFO"
-
-    def test_resumen_tiene_campos_obligatorios(self, nmap_output_normal):
-        """El resumen debe tener los 4 campos esperados."""
-        _, resumen = parse_nmap_output(nmap_output_normal)
-        assert "puertos_abiertos" in resumen
-        assert "puertos_filtrados" in resumen
-        assert "ssl_activo" in resumen
-        assert "firewall_detectado" in resumen
-
-# ============================================================
-# TESTS DE INTEGRACIÓN: Simulan la ejecución completa del módulo
-# ============================================================
-
-class TestNetworkModuleIntegration:
-    """Tests que simulan la ejecución completa de scanner_network.py
-    usando mocks para las herramientas externas."""
-
-    @patch('src.modules.scanner_network._run_tool', new_callable=AsyncMock)
-    def test_genera_dict_valido(self, mock_run, nmap_output_normal):
-        """El módulo debe devolver un diccionario bien formado sin usar un tmp JSON."""
-        mock_run.side_effect = [
-            (
-                "Discovered open port 22/tcp on 10.202.15.100\n"
-                "Discovered open port 80/tcp on 10.202.15.100\n"
-                "Discovered open port 443/tcp on 10.202.15.100\n",
-                "",
-                0
-            ),
-            ("scanops.example.com\n", "", 0),
-            (nmap_output_normal, "", 0)
-        ]
-
-        result = asyncio.run(scanner_network.scan())
-
-        assert result["target"] == scanner_network.TARGET
-        assert "hallazgos" in result
-        assert isinstance(result["hallazgos"], list)
-        assert result["resumen"]["puertos_abiertos"] == 3
-        assert "inventory" in result
-        assert "subfinder_domains" in result
-
-    @patch('src.modules.scanner_network._run_tool', new_callable=AsyncMock)
-    def test_nmap_falla_no_rompe(self, mock_run):
-        """Si Nmap falla, el módulo no debe lanzar excepción."""
-        mock_run.side_effect = [
-            ("", "", 0),
-            ("", "", 0),
-            ("", "nmap: command not found", 1)
-        ]
-
-        result = asyncio.run(scanner_network.scan())
-        assert isinstance(result, dict)
-        assert "hallazgos" in result
-        assert isinstance(result["hallazgos"], list)
+    db.close()
 FILE:services\recon_engine\tests\test_scanner_network_db.py
 """
-Tests for Scanner Network with Database Persistence
-==================================================
-Integration tests for scanner_network with database operations.
+Tests de persistencia DB para M2 Recon Engine
+=============================================
+Valida que el nuevo schema ReconSnapshot (JSON) persista correctamente.
 """
 
 import pytest
-import asyncio
-import os
-import sys
-from unittest.mock import patch, AsyncMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-from models.recon import Base, ReconSnapshot, ReconFinding, ReconSubdomain
-from modules.scanner_network import scan, persist_findings_to_db
+from services.recon_engine.models.recon import ReconBase, ReconSnapshot, PortDiscoveryDB
 
 @pytest.fixture
-def test_db():
-    """Create in-memory test database."""
+def db_session():
+    """Sesión de base de datos en memoria para tests."""
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-        Base.metadata.drop_all(bind=engine)
+    ReconBase.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    yield session
+    session.close()
 
-class TestScannerNetworkIntegration:
-    """Integration tests for scanner_network with database."""
+def test_persist_recon_snapshot_with_json(db_session):
+    """Prueba que el campo reconnaissance_data persiste y se recupera bien."""
+    snapshot_id = "snap-test-json"
+    recon_data = {
+        "ports_discovered": [
+            {"port": 80, "protocol": "tcp", "state": "open", "service": "http", "version": "Apache"}
+        ],
+        "os_information": {"detected_family": "Linux", "detected_version": "5.4", "cpe": "cpe:/o:linux", "confidence": 0.9}
+    }
 
-    @pytest.mark.asyncio
-    async def test_scan_creates_snapshot_and_findings(self, test_db):
-        """Test that scan creates snapshot and persists findings."""
-        # Mock the external tools
-        with patch('modules.scanner_network.run_masscan', new_callable=AsyncMock) as mock_masscan, \
-             patch('modules.scanner_network.run_subfinder', new_callable=AsyncMock) as mock_subfinder, \
-             patch('modules.scanner_network.run_nmap', new_callable=AsyncMock) as mock_nmap:
+    snapshot = ReconSnapshot(
+        snapshot_id=snapshot_id,
+        target="10.1.1.1",
+        status="completed",
+        reconnaissance_data=recon_data
+    )
+    db_session.add(snapshot)
+    db_session.commit()
 
-            # Mock outputs
-            mock_masscan.return_value = "Discovered open port 22/tcp on 10.202.15.100\nDiscovered open port 80/tcp on 10.202.15.100"
-            mock_subfinder.return_value = "subdomain.example.com\napi.example.com"
-            mock_nmap.return_value = """
-Nmap scan report for 10.202.15.100
-22/tcp open  ssh     OpenSSH 8.2p1
-80/tcp open  http    Apache httpd 2.4.41
-"""
+    # Recuperar
+    saved = db_session.query(ReconSnapshot).filter_by(snapshot_id=snapshot_id).first()
+    assert saved.reconnaissance_data["ports_discovered"][0]["port"] == 80
+    assert saved.reconnaissance_data["os_information"]["detected_family"] == "Linux"
 
-            # Mock database session in scanner_network
-            with patch('modules.scanner_network.SessionLocal', return_value=test_db), \
-                 patch('modules.scanner_network.create_tables'):
+def test_persist_individual_ports(db_session):
+    """Prueba que los puertos se guardan en su propia tabla para indexación."""
+    snapshot_id = "snap-test-ports"
+    port1 = PortDiscoveryDB(snapshot_id=snapshot_id, port=22, service="ssh", state="open")
+    port2 = PortDiscoveryDB(snapshot_id=snapshot_id, port=443, service="https", state="open")
 
-                # Run scan
-                result = await scan("2026-W17")
+    db_session.add(port1)
+    db_session.add(port2)
+    db_session.commit()
 
-                # Verify result structure
-                assert "cycle_id" in result
-                assert result["cycle_id"] == "2026-W17"
-                assert "surface_changes" in result
-                assert "hallazgos" in result
-
-                # Verify database state
-                snapshots = test_db.query(ReconSnapshot).all()
-                assert len(snapshots) == 1
-                snapshot = snapshots[0]
-                assert snapshot.cycle_id == "2026-W17"
-                assert snapshot.status == "completed"
-                assert snapshot.finished_at is not None
-
-                # Verify findings
-                findings = test_db.query(ReconFinding).filter(ReconFinding.snapshot_id == snapshot.id).all()
-                assert len(findings) > 0
-
-                # Check for specific findings
-                ssh_finding = next((f for f in findings if f.port == "22/tcp"), None)
-                assert ssh_finding is not None
-                assert ssh_finding.service == "ssh"
-                assert ssh_finding.state == "open"
-
-                http_finding = next((f for f in findings if f.port == "80/tcp"), None)
-                assert http_finding is not None
-                assert http_finding.service == "http"
-
-                # Verify subdomains
-                subdomains = test_db.query(ReconSubdomain).filter(ReconSubdomain.snapshot_id == snapshot.id).all()
-                assert len(subdomains) == 2
-                subdomain_names = {sd.subdomain for sd in subdomains}
-                assert "subdomain.example.com" in subdomain_names
-                assert "api.example.com" in subdomain_names
-
-    @pytest.mark.asyncio
-    async def test_persist_findings_to_db(self, test_db):
-        """Test the persist_findings_to_db function directly."""
-        # Create snapshot
-        snapshot = ReconSnapshot(cycle_id="2026-W17", target="10.202.15.0/24", status="running")
-        test_db.add(snapshot)
-        test_db.commit()
-
-        # Mock hallazgos data
-        hallazgos = [
-            {
-                "host": "10.202.15.100",
-                "puerto": "22/tcp",
-                "servicio": "ssh",
-                "estado": "open",
-                "severidad": "INFO"
-            },
-            {
-                "host": "10.202.15.100",
-                "puerto": "80/tcp",
-                "servicio": "http",
-                "estado": "open",
-                "severidad": "INFO"
-            }
-        ]
-
-        # Mock masscan hosts
-        masscan_hosts = {
-            "10.202.15.100": {"22/tcp", "80/tcp", "443/tcp"}  # 443 not in hallazgos
-        }
-
-        # Mock subfinder domains
-        subfinder_domains = ["test.example.com"]
-
-        # Persist findings
-        await persist_findings_to_db(snapshot.id, hallazgos, masscan_hosts, subfinder_domains, test_db)
-
-        # Verify findings
-        findings = test_db.query(ReconFinding).filter(ReconFinding.snapshot_id == snapshot.id).all()
-
-        # Should have findings from hallazgos + extra from masscan
-        assert len(findings) >= 3  # At least 22, 80 from hallazgos, 443 from masscan
-
-        # Check specific findings
-        ports = {f.port for f in findings if f.port}
-        assert "22/tcp" in ports
-        assert "80/tcp" in ports
-        assert "443/tcp" in ports
-
-        # Verify subdomains
-        subdomains = test_db.query(ReconSubdomain).filter(ReconSubdomain.snapshot_id == snapshot.id).all()
-        assert len(subdomains) == 1
-        assert subdomains[0].subdomain == "test.example.com"
-
-    def test_scan_handles_database_error(self, test_db):
-        """Test that scan handles database errors gracefully."""
-        # Mock database failure
-        with patch('modules.scanner_network.SessionLocal', side_effect=Exception("DB Error")), \
-             patch('modules.scanner_network.create_tables'):
-
-            with pytest.raises(Exception):
-                asyncio.run(scan("2026-W17"))
+    ports = db_session.query(PortDiscoveryDB).filter_by(snapshot_id=snapshot_id).all()
+    assert len(ports) == 2
+    assert {p.port for p in ports} == {22, 443}
 FILE:services\recon_engine\tests\test_surface_diff.py
 """
 Tests for Surface Diff functionality
@@ -16504,7 +16951,7 @@ FILE:services\scanner_engine\main.py
 Scanner Engine — Microservice M3
 =================================
 FastAPI application for vulnerability scanning orchestration.
-Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8003
+Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
 """
 
 from contextlib import asynccontextmanager
@@ -17784,8 +18231,42 @@ from sqlalchemy.orm import Session
 from shared.database import get_db
 import io
 import logging
+import httpx
+import os
 
 logger = logging.getLogger(__name__)
+
+M1_BASE_URL = os.getenv("M1_URL", "http://scanops-asset-manager:8001")
+M1_TOKEN = os.getenv("M1_TOKEN", "scanops_secret")
+
+async def get_asset_from_m1(asset_id: int) -> dict:
+    """
+    Obtiene los datos del asset desde M1 (Asset Manager).
+    Retorna dict con ip, hostname y demás campos.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(
+                f"{M1_BASE_URL}/assets/{asset_id}",
+                headers={"Authorization": f"Bearer {M1_TOKEN}"}
+            )
+            if response.status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Asset {asset_id} not found in M1"
+                )
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"M1 returned {response.status_code} for asset {asset_id}"
+                )
+            return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"Error connecting to M1: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not connect to M1 Asset Manager"
+            )
 
 from services.scanner_engine.tasks.vuln_tasks import (
     scan_asset_parallel,
@@ -17871,12 +18352,17 @@ async def start_asset_scan(
 ) -> ScanResponse:
     """Start a vulnerability scan for a specific asset."""
     try:
-        logger.info(f"→ Scan iniciado para asset {asset_id}")
+        # Obtener IP real del asset desde M1
+        asset = await get_asset_from_m1(asset_id)
+        asset_ip = asset["ip"]
+        asset_name = asset.get("hostname") or f"Asset-{asset_id}"
+
+        logger.info(f"→ Scan iniciado para asset {asset_id} ({asset_ip})")
 
         task = scan_asset_parallel.delay(
             asset_id=asset_id,
-            asset_ip=f"192.168.1.{asset_id}",
-            asset_name=f"Asset-{asset_id}",
+            asset_ip=asset_ip,        # ✅ IP real desde M1
+            asset_name=asset_name,    # ✅ hostname real desde M1
             scan_types=request.scan_types,
         )
 
@@ -17888,6 +18374,8 @@ async def start_asset_scan(
             created_at=datetime.utcnow(),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"✗ Error iniciando scan: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start scan: {str(e)}")
@@ -17896,12 +18384,17 @@ async def start_asset_scan(
 async def quick_scan_asset(asset_id: int) -> ScanResponse:
     """Quick scan using only Nuclei (faster)."""
     try:
-        logger.info(f"→ Quick scan (Nuclei) iniciado para asset {asset_id}")
+        # Obtener IP real del asset desde M1
+        asset = await get_asset_from_m1(asset_id)
+        asset_ip = asset["ip"]
+        asset_name = asset.get("hostname") or f"Asset-{asset_id}"
+
+        logger.info(f"→ Quick scan (Nuclei) iniciado para asset {asset_id} ({asset_ip})")
 
         task = run_nuclei_task.delay(
             asset_id=asset_id,
-            asset_ip=f"192.168.1.{asset_id}",
-            asset_name=f"Asset-{asset_id}",
+            asset_ip=asset_ip,        # ✅ IP real desde M1
+            asset_name=asset_name,    # ✅ hostname real desde M1
         )
 
         return ScanResponse(
@@ -17912,6 +18405,8 @@ async def quick_scan_asset(asset_id: int) -> ScanResponse:
             created_at=datetime.utcnow(),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"✗ Error en quick scan: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start quick scan: {str(e)}")
@@ -18010,12 +18505,21 @@ async def batch_scan_assets(
 
         tasks = []
         for asset_id in asset_ids:
-            task = scan_asset_parallel.delay(
-                asset_id=asset_id,
-                asset_ip=f"192.168.1.{asset_id}",
-                asset_name=f"Asset-{asset_id}",
-                scan_types=scan_types,
-            )
+            # Obtener IP real del asset desde M1
+            try:
+                asset = await get_asset_from_m1(asset_id)
+                asset_ip = asset["ip"]
+                asset_name = asset.get("hostname") or f"Asset-{asset_id}"
+
+                task = scan_asset_parallel.delay(
+                    asset_id=asset_id,
+                    asset_ip=asset_ip,
+                    asset_name=asset_name,
+                    scan_types=scan_types,
+                )
+            except Exception as e:
+                logger.error(f"Skipping asset {asset_id} in batch scan due to error: {e}")
+                continue
 
             tasks.append(
                 ScanResponse(
@@ -18083,6 +18587,89 @@ async def export_scan_results(
     except Exception as e:
         logger.error(f"✗ Error exportando resultados ({format}): {e}")
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+@router.post("/assets/{asset_id}/attack-vector", response_model=dict)
+async def get_attack_vector(asset_id: int):
+    """
+    US-4.7: Sugiere vector de ataque para un activo.
+    Combina datos de M1 + M3 y los pasa a M8 (AI Reasoning).
+    """
+    try:
+        # 1. Obtener ficha del asset desde M1 y M3
+        asset = await get_asset_from_m1(asset_id)
+
+        # 2. Obtener vulnerabilidades de M3 desde BD
+        from shared.database import SessionLocal
+        from services.scanner_engine.models.vulnerability import VulnFinding
+        db = SessionLocal()
+        try:
+            vulns = db.query(VulnFinding).filter(
+                VulnFinding.asset_id == asset_id
+            ).all()
+        finally:
+            db.close()
+
+        # 3. Construir ficha_unica para M8
+        open_services = f"SSH:22, HTTP:80, HTTPS:443 — hostname: {asset.get('hostname', 'N/A')}"
+
+        confirmed_vulns = []
+        for v in vulns:
+            confirmed_vulns.append(
+                f"- {v.title} (Severidad: {v.severity}, Scanner: {v.scanner_name})"
+            )
+
+        ficha_unica = {
+            "asset_id": str(asset_id),
+            "hostname": asset.get("hostname", "N/A"),
+            "target_ip": asset.get("ip", "N/A"),
+            "os": "Linux",
+            "os_version": "Ubuntu (OpenSSH 9.6p1)",
+            "ens_criticality": asset.get("criticidad", "MEDIO"),
+            "exposure_level": "INTERNAL",
+            "open_services": open_services,
+            "confirmed_cves": "\n".join(confirmed_vulns) if confirmed_vulns else "Sin CVEs confirmados",
+            "exploitation_history": "Sin historial previo",
+            "maintenance_window": "No definida",
+            "sandbox_available": "NO",
+            "critical_services_no_touch": "SSH (acceso remoto principal)",
+            "cve_id": None
+        }
+
+        # 4. Llamar a M8 - suggest_attack_vector via Celery task
+        from services.ai_reasoning.tasks import suggest_attack_vector_task
+        task = suggest_attack_vector_task.delay(ficha_unica)
+
+        return {
+            "task_id": task.id,
+            "asset_id": asset_id,
+            "status": "PENDING",
+            "message": "US-4.7: Vector de ataque en proceso. Consulta /ai/attack-vector/status/{task_id}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en attack-vector para asset {asset_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/assets/{asset_id}/attack-vector/result/{task_id}", response_model=dict)
+async def get_attack_vector_result(asset_id: int, task_id: str):
+    """
+    US-4.7: Obtiene el resultado del vector de ataque sugerido por M8.
+    """
+    from shared.celery_app import app
+    from celery.result import AsyncResult
+
+    result = AsyncResult(task_id, app=app)
+
+    if result.state == "PENDING":
+        return {"task_id": task_id, "status": "PENDING", "result": None}
+    elif result.state == "SUCCESS":
+        return {"task_id": task_id, "status": "SUCCESS", "result": result.get()}
+    elif result.state == "FAILURE":
+        return {"task_id": task_id, "status": "FAILURE", "error": str(result.info)}
+    else:
+        return {"task_id": task_id, "status": result.state, "result": None}
 FILE:services\scanner_engine\models\__init__.py
 """Data models and schemas module"""
 from .finding import Finding
@@ -18547,22 +19134,53 @@ def run_nuclei_scan(target_ip: str):
     """
     logger.info("NUCLEI_START", target=target_ip)
 
+    # Lista de templates específicos para optimizar tiempo y enfoque (M3)
+    NUCLEI_TEMPLATES = [
+        "http/technologies/",       # Detección de tecnologías y WAF
+        "http/exposures/",          # Archivos expuestos, configs, backups
+        "http/misconfiguration/",   # Misconfigurations web
+        "http/vulnerabilities/",    # Vulnerabilidades web conocidas
+        "network/detection/",       # Detección de servicios de red
+        "ssl/",                     # Problemas SSL/TLS
+    ]
+
     # Comando para ejecución silenciosa con salida en JSON [cite: 120]
-    cmd = ["nuclei", "-target", target_ip, "-silent", "-jsonl"]
+    cmd = [
+        "nuclei",
+        "-target", target_ip,
+        "-silent",
+        "-jsonl",
+        "-timeout", "10",           # timeout por request en segundos
+        "-bulk-size", "25",         # requests paralelos
+        "-rate-limit", "50",        # requests por segundo
+        "-retries", "1",
+    ]
+
+    # Añadir templates específicos
+    for template in NUCLEI_TEMPLATES:
+        cmd.extend(["-t", template])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        # Timeout del proceso completo reducido a 300s (5 min)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
         findings = []
         if result.stdout:
             for line in result.stdout.splitlines():
                 raw_vuln = json.loads(line)
                 # Normalización del hallazgo (US-3.5)
+                info = raw_vuln.get("info", {})
+                classification = info.get("classification", {})
+                cve_ids = classification.get("cve-id")
+
+                # Asegurar que cve_ids sea una lista iterable
+                cve_str = ",".join(cve_ids) if isinstance(cve_ids, list) else ""
+
                 findings.append({
-                    "title": raw_vuln.get("info", {}).get("name"),
-                    "severity": raw_vuln.get("info", {}).get("severity", "").upper(),
-                    "description": raw_vuln.get("info", {}).get("description"),
-                    "cve_id": ",".join(raw_vuln.get("info", {}).get("classification", {}).get("cve-id", [])),
+                    "title": info.get("name"),
+                    "severity": info.get("severity", "").upper(),
+                    "description": info.get("description") or info.get("name"),
+                    "cve_id": cve_str,
                     "evidence": raw_vuln.get("matched-at"),
                     "ens_measure": "op.exp.2"  # Mapeo explícito para auditoría ENS
                 })

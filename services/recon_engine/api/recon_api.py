@@ -1,202 +1,140 @@
 """
 Recon API Endpoints
 ==================
-FastAPI endpoints for surface snapshot management and change queries.
+FastAPI endpoints for M2 Recon Engine.
+Focused exclusively on technical facts (reconnaissance).
 """
- 
-import os
-import sys
-from typing import List, Optional
+
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
- 
-from shared.database import get_db, create_tables
-from ..models.recon import (
-    ReconSnapshot, ReconFinding, ReconSubdomain,
-    ReconSnapshotSchema, ReconFindingSchema, ReconSubdomainSchema,
-    SurfaceChanges, SurfaceChangeDetail
+from typing import List, Optional
+from datetime import datetime
+from uuid import uuid4
+
+from shared.database import get_db
+from ..models.recon import ReconSnapshot, ReconFinding, ReconSubdomain
+from ..models.schemas import (
+    ReconSnapshotSchema, ReconData, ReconSummary, 
+    PortDiscovery, OSInformation, HostInformation
 )
-from ..services.surface_diff import compare_snapshots, get_previous_snapshot_id
- 
-# ─── ROUTER (usado por main.py y tests) ─────────────────
+from ..services.scanner_network import perform_full_recon
+
 router = APIRouter(
-    prefix="/recon",
-    tags=["Recon Engine (M2)"],
-    responses={404: {"description": "Not found"}}
+    prefix="/api/v1",
+    tags=["Recon Engine (M2)"]
 )
- 
- 
-@router.get("/cycles/{cycle_id}/changes", response_model=SurfaceChanges)
-async def get_surface_changes(
-    cycle_id: str,
-    severity: Optional[str] = Query(None, description="Filter by severity: CRITICA, ALTA, MEDIA, INFO"),
+
+@router.post("/scan", response_model=ReconSnapshotSchema)
+async def start_scan(
+    target: str = Query(..., description="Target IP or hostname"),
     db: Session = Depends(get_db)
 ):
     """
-    Get surface changes for a specific cycle compared to the previous one.
+    Inicia un escaneo de reconocimiento completo (M2).
+    Captura puertos, servicios, versiones y SO.
     """
-    # Find the snapshot for this cycle
+    snapshot_id = f"scan-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{str(uuid4())[:8]}"
+    
+    # Por ahora lo ejecutamos síncronamente para la demo/test, 
+    # en prod debería ser una tarea de Celery.
+    result = await perform_full_recon(snapshot_id, target, db)
+    return result
+
+@router.get("/snapshots/{snapshot_id}/findings", response_model=ReconSnapshotSchema)
+async def get_snapshot_recon(snapshot_id: str, db: Session = Depends(get_db)):
+    """
+    Obtiene los datos de reconocimiento de un snapshot.
+    Solo reconocimiento, sin vulnerabilidades.
+    """
+    # Buscar por cycle_id (string), no por id (integer)
     snapshot = db.query(ReconSnapshot).filter(
-        ReconSnapshot.cycle_id == cycle_id,
-        ReconSnapshot.status == "completed"
+        ReconSnapshot.cycle_id == snapshot_id
     ).first()
- 
+
     if not snapshot:
-        raise HTTPException(status_code=404, detail=f"Snapshot not found for cycle {cycle_id}")
- 
-    # Get previous snapshot
-    previous_snapshot_id = get_previous_snapshot_id(cycle_id, db)
- 
-    # Compare snapshots
-    changes = compare_snapshots(snapshot.id, previous_snapshot_id, db)
- 
-    # Filter by severity if requested
-    if severity:
-        changes["details"] = [
-            detail for detail in changes["details"]
-            if detail["severity"] == severity
-        ]
-        # Recalculate summary
-        changes["summary"]["total_changes"] = len(changes["details"])
-        changes["has_changes"] = changes["summary"]["total_changes"] > 0
- 
-    return changes
- 
- 
-@router.get("/cycles/{cycle_id}/snapshot", response_model=ReconSnapshotSchema)
-async def get_snapshot(cycle_id: str, db: Session = Depends(get_db)):
-    """
-    Get snapshot details for a specific cycle.
-    """
-    snapshot = db.query(ReconSnapshot).filter(
-        ReconSnapshot.cycle_id == cycle_id
-    ).first()
- 
-    if not snapshot:
-        raise HTTPException(status_code=404, detail=f"Snapshot not found for cycle {cycle_id}")
- 
-    return snapshot
- 
- 
-@router.get("/cycles", response_model=List[ReconSnapshotSchema])
-async def list_cycles(
-    status: Optional[str] = Query(None, description="Filter by status: running, completed, failed"),
-    limit: int = Query(50, description="Maximum number of results"),
-    db: Session = Depends(get_db)
-):
-    """
-    List all recon cycles.
-    """
-    query = db.query(ReconSnapshot).order_by(ReconSnapshot.started_at.desc())
- 
-    if status:
-        query = query.filter(ReconSnapshot.status == status)
- 
-    snapshots = query.limit(limit).all()
-    return snapshots
- 
- 
-@router.get("/snapshots/{snapshot_id}/findings", response_model=List[ReconFindingSchema])
-async def get_snapshot_findings(
-    snapshot_id: int,
-    host: Optional[str] = Query(None, description="Filter by host"),
-    port: Optional[str] = Query(None, description="Filter by port"),
-    state: Optional[str] = Query(None, description="Filter by state: open, filtered, closed"),
-    db: Session = Depends(get_db)
-):
-    """
-    Get findings for a specific snapshot.
-    """
-    query = db.query(ReconFinding).filter(ReconFinding.snapshot_id == snapshot_id)
- 
-    if host:
-        query = query.filter(ReconFinding.host == host)
-    if port:
-        query = query.filter(ReconFinding.port == port)
-    if state:
-        query = query.filter(ReconFinding.state == state)
- 
-    findings = query.all()
-    return findings
- 
- 
-@router.get("/snapshots/{snapshot_id}/subdomains", response_model=List[ReconSubdomainSchema])
-async def get_snapshot_subdomains(snapshot_id: int, db: Session = Depends(get_db)):
-    """
-    Get subdomains for a specific snapshot.
-    """
-    subdomains = db.query(ReconSubdomain).filter(ReconSubdomain.snapshot_id == snapshot_id).all()
-    return subdomains
- 
- 
-@router.get("/changes/recent", response_model=SurfaceChanges)
-async def get_recent_changes(
-    limit: int = Query(10, description="Number of recent cycles to check"),
-    severity: Optional[str] = Query(None, description="Filter by severity"),
-    db: Session = Depends(get_db)
-):
-    """
-    Get surface changes from the most recent completed cycle.
-    """
-    # Get the most recent completed snapshot
-    recent_snapshot = db.query(ReconSnapshot).filter(
-        ReconSnapshot.status == "completed"
-    ).order_by(ReconSnapshot.started_at.desc()).first()
- 
-    if not recent_snapshot:
-        raise HTTPException(status_code=404, detail="No completed snapshots found")
- 
-    # Get previous snapshot
-    previous_snapshot_id = get_previous_snapshot_id(recent_snapshot.cycle_id, db)
- 
-    # Compare snapshots
-    changes = compare_snapshots(recent_snapshot.id, previous_snapshot_id, db)
- 
-    # Filter by severity if requested
-    if severity:
-        changes["details"] = [
-            detail for detail in changes["details"]
-            if detail["severity"] == severity
-        ]
-        # Recalculate summary
-        changes["summary"]["total_changes"] = len(changes["details"])
-        changes["has_changes"] = changes["summary"]["total_changes"] > 0
- 
-    return changes
- 
- 
-from ..tasks.scan_tasks import run_recon_complete
- 
- 
-@router.post("/scan")
-async def start_scan(target: str = "192.168.1.0/24"):
-    """
-    Lanza el escaneo asíncrono a través de Celery.
-    """
-    # .delay() envía la tarea al Redis y el Worker la pesca
-    task = run_recon_complete.delay(target)
-    return {
-        "status": "Scan queued",
-        "task_id": task.id,
-        "target": target
-    }
- 
- 
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    # Reconstruir puertos desde recon_findings
+    findings = db.query(ReconFinding).filter(
+        ReconFinding.snapshot_id == snapshot.id
+    ).all()
+
+    ports_discovered = [
+        PortDiscovery(
+            port=int(f.port) if f.port and f.port.isdigit() else 0,
+            protocol="tcp",
+            state=f.state or "open",
+            service=f.service or "unknown",
+            version=f.version or "unknown",
+            product=None,
+            confidence=0.9 if f.source == "nmap" else 0.7
+        )
+        for f in findings if f.port
+    ]
+
+    # Reconstruir OS info desde BD
+    os_information = None
+    if snapshot.os_family:
+        os_information = OSInformation(
+            detected_family=snapshot.os_family,
+            detected_version=snapshot.os_version or "Unknown",
+            cpe=snapshot.os_cpe,
+            confidence=snapshot.os_confidence or 0.5
+        )
+
+    # Reconstruir host info desde BD
+    host_information = None
+    if snapshot.mac_address or snapshot.latency_ms:
+        host_information = HostInformation(
+            mac_address=snapshot.mac_address,
+            vendor=snapshot.mac_vendor,
+            latency_ms=snapshot.latency_ms
+        )
+
+    recon_data = ReconData(
+        ports_discovered=ports_discovered,
+        os_information=os_information,
+        host_information=host_information
+    )
+
+    summary = ReconSummary(
+        total_ports_open=len(ports_discovered),
+        total_services_detected=len([p for p in ports_discovered if p.service != "unknown"]),
+        scan_duration_seconds=0.0
+    )
+
+    # Subdominios
+    subdomains_db = db.query(ReconSubdomain).filter(
+        ReconSubdomain.snapshot_id == snapshot.id
+    ).all()
+    subdomains = [s.subdomain for s in subdomains_db]
+
+    return ReconSnapshotSchema(
+        snapshot_id=snapshot.cycle_id,
+        target=snapshot.target,
+        status=snapshot.status,
+        created_at=snapshot.started_at,
+        finished_at=snapshot.finished_at,
+        reconnaissance=recon_data,
+        subdomains=subdomains,
+        summary=summary
+    )
+
+@router.get("/snapshots", response_model=List[dict])
+async def list_snapshots(db: Session = Depends(get_db)):
+    """Lista todos los snapshots de reconocimiento."""
+    snapshots = db.query(ReconSnapshot).order_by(ReconSnapshot.started_at.desc()).all()
+    return [
+        {
+            "snapshot_id": s.cycle_id,
+            "target": s.target,
+            "status": s.status,
+            "created_at": s.started_at,
+            "findings_count": db.query(ReconFinding).filter(ReconFinding.snapshot_id == s.id).count()
+        } for s in snapshots
+    ]
+
 @router.get("/health")
 async def health():
     """Health check for Recon API."""
-    return {"status": "healthy", "service": "recon-engine"}
- 
- 
-# ─── BACKWARDS COMPATIBILITY: app alias ─────────────────
-# Para compatibilidad con código que importa 'app'
-# Creamos una FastAPI app que incluye el router
-from fastapi import FastAPI
-app = FastAPI(title="ScanOPS Recon API", version="1.0.0")
-app.include_router(router)
- 
-# Startup event para crear tablas
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    create_tables()
+    return {"status": "healthy", "service": "recon-engine", "module": "M2"}

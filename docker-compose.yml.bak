@@ -38,11 +38,9 @@ services:
       retries: 5
 
   # services/asset_manager (M1)
-  m1:
-    build:
-      context: .
-      dockerfile: Dockerfile.asset
-    container_name: scanops-m1
+  asset-manager:
+    build: .
+    container_name: scanops-asset-manager
     ports:
       - "8001:8001"
     command: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
@@ -59,10 +57,32 @@ services:
     networks:
       - scanops
 
+  recon-engine:
+    build: .
+    container_name: scanops-recon-engine
+    ports:
+      - "8003:8003"
+    command: uvicorn services.recon_engine.main:app --host 0.0.0.0 --port 8003
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8003/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   celery-worker:
     build: .
     container_name: scanops-celery-worker
-    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning
+    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
@@ -70,8 +90,6 @@ services:
       OPENVAS_PASS: admin
       ZAP_HOST: localhost
       ZAP_PORT: 8080
-      OLLAMA_MODEL: "qwen3.5:latest"
-      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,30 +98,9 @@ services:
     networks:
       - scanops
 
-  m2:
-    build:
-      context: .
-      dockerfile: Dockerfile.m2
-    container_name: scanops-m2
-    ports:
-      - "8003:8003"
-    depends_on:
-      m1:
-        condition: service_healthy
-    environment:
-      - M2_PORT=8003
-      - M1_URL=http://m1:8001
-      - LOG_LEVEL=info
-    volumes:
-      - ./services/recon_engine:/app/services/recon_engine
-    networks:
-      - scanops
-    restart: unless-stopped
   # services/scanner_engine (M3)
   scanner-engine:
-    build:
-      context: .
-      dockerfile: Dockerfile.scanner
+    build: .
     container_name: scanops-scanner-engine
     ports:
       - "8002:8002"

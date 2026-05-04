@@ -14,7 +14,7 @@ RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.8/nuc
     && mv nuclei /usr/local/bin/ \
     && rm nuclei_3.1.8_linux_amd64.zip
 
-# 3. Instalar Subfinder (M2 - descubrimiento de subdominios)
+# 3. Instalar Subfinder
 RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_amd64.zip \
     && unzip subfinder_2.6.6_linux_amd64.zip \
     && mv subfinder /usr/local/bin/ \
@@ -25,7 +25,7 @@ RUN nuclei -update-templates
 
 WORKDIR /app
 
-# 4. Instalar dependencias de Python
+# 5. Instalar dependencias de Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -33,6 +33,7 @@ COPY . .
 RUN chmod +x run_migrations.sh
 RUN pip install --no-cache-dir .
 
-EXPOSE 8001 8002
+EXPOSE 8002
 
-CMD ["uvicorn", "services.asset_manager.main:app", "--host", "0.0.0.0", "--port", "8001"]
+# ✅ CMD correcto para M3 - Scanner Engine
+CMD ["uvicorn", "services.scanner_engine.main:app", "--host", "0.0.0.0", "--port", "8002"]

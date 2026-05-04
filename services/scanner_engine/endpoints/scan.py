@@ -9,8 +9,42 @@ from sqlalchemy.orm import Session
 from shared.database import get_db
 import io
 import logging
+import httpx
+import os
 
 logger = logging.getLogger(__name__)
+
+M1_BASE_URL = os.getenv("M1_URL", "http://scanops-asset-manager:8001")
+M1_TOKEN = os.getenv("M1_TOKEN", "scanops_secret")
+
+async def get_asset_from_m1(asset_id: int) -> dict:
+    """
+    Obtiene los datos del asset desde M1 (Asset Manager).
+    Retorna dict con ip, hostname y demás campos.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            response = await client.get(
+                f"{M1_BASE_URL}/assets/{asset_id}",
+                headers={"Authorization": f"Bearer {M1_TOKEN}"}
+            )
+            if response.status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Asset {asset_id} not found in M1"
+                )
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"M1 returned {response.status_code} for asset {asset_id}"
+                )
+            return response.json()
+        except httpx.RequestError as e:
+            logger.error(f"Error connecting to M1: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not connect to M1 Asset Manager"
+            )
 
 from services.scanner_engine.tasks.vuln_tasks import (
     scan_asset_parallel,
@@ -104,12 +138,17 @@ async def start_asset_scan(
 ) -> ScanResponse:
     """Start a vulnerability scan for a specific asset."""
     try:
-        logger.info(f"→ Scan iniciado para asset {asset_id}")
+        # Obtener IP real del asset desde M1
+        asset = await get_asset_from_m1(asset_id)
+        asset_ip = asset["ip"]
+        asset_name = asset.get("hostname") or f"Asset-{asset_id}"
+
+        logger.info(f"→ Scan iniciado para asset {asset_id} ({asset_ip})")
 
         task = scan_asset_parallel.delay(
             asset_id=asset_id,
-            asset_ip=f"192.168.1.{asset_id}",
-            asset_name=f"Asset-{asset_id}",
+            asset_ip=asset_ip,        # ✅ IP real desde M1
+            asset_name=asset_name,    # ✅ hostname real desde M1
             scan_types=request.scan_types,
         )
 
@@ -121,6 +160,8 @@ async def start_asset_scan(
             created_at=datetime.utcnow(),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"✗ Error iniciando scan: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start scan: {str(e)}")
@@ -130,12 +171,17 @@ async def start_asset_scan(
 async def quick_scan_asset(asset_id: int) -> ScanResponse:
     """Quick scan using only Nuclei (faster)."""
     try:
-        logger.info(f"→ Quick scan (Nuclei) iniciado para asset {asset_id}")
+        # Obtener IP real del asset desde M1
+        asset = await get_asset_from_m1(asset_id)
+        asset_ip = asset["ip"]
+        asset_name = asset.get("hostname") or f"Asset-{asset_id}"
+
+        logger.info(f"→ Quick scan (Nuclei) iniciado para asset {asset_id} ({asset_ip})")
 
         task = run_nuclei_task.delay(
             asset_id=asset_id,
-            asset_ip=f"192.168.1.{asset_id}",
-            asset_name=f"Asset-{asset_id}",
+            asset_ip=asset_ip,        # ✅ IP real desde M1
+            asset_name=asset_name,    # ✅ hostname real desde M1
         )
 
         return ScanResponse(
@@ -146,6 +192,8 @@ async def quick_scan_asset(asset_id: int) -> ScanResponse:
             created_at=datetime.utcnow(),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"✗ Error en quick scan: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start quick scan: {str(e)}")
@@ -249,12 +297,21 @@ async def batch_scan_assets(
 
         tasks = []
         for asset_id in asset_ids:
-            task = scan_asset_parallel.delay(
-                asset_id=asset_id,
-                asset_ip=f"192.168.1.{asset_id}",
-                asset_name=f"Asset-{asset_id}",
-                scan_types=scan_types,
-            )
+            # Obtener IP real del asset desde M1
+            try:
+                asset = await get_asset_from_m1(asset_id)
+                asset_ip = asset["ip"]
+                asset_name = asset.get("hostname") or f"Asset-{asset_id}"
+
+                task = scan_asset_parallel.delay(
+                    asset_id=asset_id,
+                    asset_ip=asset_ip,
+                    asset_name=asset_name,
+                    scan_types=scan_types,
+                )
+            except Exception as e:
+                logger.error(f"Skipping asset {asset_id} in batch scan due to error: {e}")
+                continue
 
             tasks.append(
                 ScanResponse(
@@ -322,3 +379,88 @@ async def export_scan_results(
     except Exception as e:
         logger.error(f"✗ Error exportando resultados ({format}): {e}")
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+@router.post("/assets/{asset_id}/attack-vector", response_model=dict)
+async def get_attack_vector(asset_id: int):
+    """
+    US-4.7: Sugiere vector de ataque para un activo.
+    Combina datos de M1 + M3 y los pasa a M8 (AI Reasoning).
+    """
+    try:
+        # 1. Obtener ficha del asset desde M1 y M3
+        asset = await get_asset_from_m1(asset_id)
+
+        # 2. Obtener vulnerabilidades de M3 desde BD
+        from shared.database import SessionLocal
+        from services.scanner_engine.models.vulnerability import VulnFinding
+        db = SessionLocal()
+        try:
+            vulns = db.query(VulnFinding).filter(
+                VulnFinding.asset_id == asset_id
+            ).all()
+        finally:
+            db.close()
+
+        # 3. Construir ficha_unica para M8
+        open_services = f"SSH:22, HTTP:80, HTTPS:443 — hostname: {asset.get('hostname', 'N/A')}"
+
+        confirmed_vulns = []
+        for v in vulns:
+            confirmed_vulns.append(
+                f"- {v.title} (Severidad: {v.severity}, Scanner: {v.scanner_name})"
+            )
+
+        ficha_unica = {
+            "asset_id": str(asset_id),
+            "hostname": asset.get("hostname", "N/A"),
+            "target_ip": asset.get("ip", "N/A"),
+            "os": "Linux",
+            "os_version": "Ubuntu (OpenSSH 9.6p1)",
+            "ens_criticality": asset.get("criticidad", "MEDIO"),
+            "exposure_level": "INTERNAL",
+            "open_services": open_services,
+            "confirmed_cves": "\n".join(confirmed_vulns) if confirmed_vulns else "Sin CVEs confirmados",
+            "exploitation_history": "Sin historial previo",
+            "maintenance_window": "No definida",
+            "sandbox_available": "NO",
+            "critical_services_no_touch": "SSH (acceso remoto principal)",
+            "cve_id": None
+        }
+
+        # 4. Llamar a M8 - suggest_attack_vector via Celery task
+        from services.ai_reasoning.tasks import suggest_attack_vector_task
+        task = suggest_attack_vector_task.delay(ficha_unica)
+
+        return {
+            "task_id": task.id,
+            "asset_id": asset_id,
+            "status": "PENDING",
+            "message": "US-4.7: Vector de ataque en proceso. Consulta /ai/attack-vector/status/{task_id}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en attack-vector para asset {asset_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/assets/{asset_id}/attack-vector/result/{task_id}", response_model=dict)
+async def get_attack_vector_result(asset_id: int, task_id: str):
+    """
+    US-4.7: Obtiene el resultado del vector de ataque sugerido por M8.
+    """
+    from shared.celery_app import app
+    from celery.result import AsyncResult
+
+    result = AsyncResult(task_id, app=app)
+
+    if result.state == "PENDING":
+        return {"task_id": task_id, "status": "PENDING", "result": None}
+    elif result.state == "SUCCESS":
+        return {"task_id": task_id, "status": "SUCCESS", "result": result.get()}
+    elif result.state == "FAILURE":
+        return {"task_id": task_id, "status": "FAILURE", "error": str(result.info)}
+    else:
+        return {"task_id": task_id, "status": result.state, "result": None}

@@ -64,7 +64,7 @@ def map_to_ens_task(self, finding_dict: dict, asset_dict: dict) -> dict:
         logger.error(f"Error en map_to_ens_task: {exc}")
         self.retry(countdown=60, exc=exc)
 
-@celery_app.task(queue='ai_reasoning', bind=True, max_retries=1)
+@celery_app.task(queue='ai_reasoning', bind=True, max_retries=3, name='tasks.suggest_attack_vector_task')
 def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
     """
     Task: Sugerir vector de ataque (MSF Suggestion para Human-in-the-loop)
