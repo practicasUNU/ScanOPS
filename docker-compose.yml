@@ -1,5 +1,3 @@
-version: "3.9"
-
 networks:
   scanops:
     driver: bridge
@@ -156,6 +154,65 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  # services/exploit_engine (M4)
+  m4:
+    build:
+      context: .
+      dockerfile: Dockerfile.m4
+    container_name: scanops-m4
+    ports:
+      - "8004:8004"
+    command: uvicorn services.exploit_engine.main:app --host 0.0.0.0 --port 8004
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      MSF_HOST: 10.202.15.254
+      MSF_PORT: 55553
+      MSF_PASSWORD: scanops123
+      NXC_TIMEOUT: 30
+      NXC_THREADS: 10
+      NXC_DEFAULT_DOMAIN: WORKGROUP
+      KILL_SWITCH_REDIS_URL: redis://redis:6379/0
+      MONITOR_SSH_USER: admin
+      MONITOR_SSH_PASSWORD: test123
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - scanops
+    restart: unless-stopped
+
+  # services/ai_reasoning (M8)
+  m8:
+    build:
+      context: .
+      dockerfile: Dockerfile.m8
+    container_name: scanops-m8
+    ports:
+      - "8005:8005"
+    command: uvicorn services.ai_reasoning.main:app --host 0.0.0.0 --port 8005
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: qwen3.5:latest
+      M3_URL: http://scanner-engine:8002
+      M1_URL: http://m1:8001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - scanops
+    restart: unless-stopped
 
 volumes:
   pgdata:

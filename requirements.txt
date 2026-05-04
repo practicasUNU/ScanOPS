@@ -22,6 +22,11 @@ python-whois>=0.8.0
 reportlab>=4.4.0
 jinja2>=3.1.0
 
+# Authentication and Security
+pyotp>=2.9.0
+qrcode>=7.4.2
+pillow>=10.0.0
+
 # Development
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
@@ -30,3 +35,4 @@ pytest-cov>=4.0.0
 # Optional - GVM/OpenVAS
 python-gvm>=24.1.0
 gvm-tools>=20.8.0
+msgpack>=1.0.0
