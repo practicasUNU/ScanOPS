@@ -1,1 +1,1 @@
-"""Recon engine REST API package."""
+"""Recon Engine API endpoints"""

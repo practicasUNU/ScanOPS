@@ -9,8 +9,8 @@ def test_celery_configured():
 def test_vuln_tasks_importable():
     """vuln_tasks module existe e importa"""
     from services.scanner_engine.tasks import vuln_tasks
-    assert hasattr(vuln_tasks, 'run_nuclei_scan')
-    print("✓ run_nuclei_scan function existe")
+    assert hasattr(vuln_tasks, 'run_nuclei_task')
+    print("✓ run_nuclei_task function existe")
 
 def test_openvast_client_exists():
     """OpenVAS client importable"""

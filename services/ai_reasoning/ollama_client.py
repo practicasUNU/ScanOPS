@@ -19,11 +19,13 @@ import httpx
 # ---------------------------------------------------------------------------
 logger = logging.getLogger(__name__)
 
+import os
+
 # ---------------------------------------------------------------------------
 # Constantes por defecto
 # ---------------------------------------------------------------------------
-DEFAULT_BASE_URL: str = "http://localhost:11434"
-DEFAULT_MODEL: str = "llama2"
+DEFAULT_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
 DEFAULT_EMBED_MODEL: str = "nomic-embed-text"
 DEFAULT_TEMPERATURE: float = 0.7
 DEFAULT_TOP_P: float = 0.9
@@ -455,7 +457,9 @@ class OllamaClient:
 # ---------------------------------------------------------------------------
 # Instancia global
 # ---------------------------------------------------------------------------
-ollama = OllamaClient()
+ollama = OllamaClient(
+    model=os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
+)
 """Instancia global de OllamaClient lista para importar.
 
 Uso::

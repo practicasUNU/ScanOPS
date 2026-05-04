@@ -2,7 +2,7 @@
 Scanner Engine — Microservice M3
 =================================
 FastAPI application for vulnerability scanning orchestration.
-Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8003
+Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
 """
  
 from contextlib import asynccontextmanager

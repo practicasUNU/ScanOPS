@@ -1,0 +1,160 @@
+version: "3.9"
+
+networks:
+  scanops:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: scanops-postgres
+    environment:
+      POSTGRES_USER: scanops
+      POSTGRES_PASSWORD: scanops
+      POSTGRES_DB: scanops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U scanops" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: scanops-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # services/asset_manager (M1)
+  asset-manager:
+    build: .
+    container_name: scanops-asset-manager
+    ports:
+      - "8001:8001"
+    command: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: myroot
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+
+  recon-engine:
+    build: .
+    container_name: scanops-recon-engine
+    ports:
+      - "8003:8003"
+    command: uvicorn services.recon_engine.main:app --host 0.0.0.0 --port 8003
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8003/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  celery-worker:
+    build: .
+    container_name: scanops-celery-worker
+    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      OPENVAS_USER: admin
+      OPENVAS_PASS: admin
+      ZAP_HOST: localhost
+      ZAP_PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+
+  # services/scanner_engine (M3)
+  scanner-engine:
+    build: .
+    container_name: scanops-scanner-engine
+    ports:
+      - "8002:8002"
+    command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - scanops
+
+  trivy:
+    image: aquasec/trivy:latest
+    container_name: scanops-trivy
+    ports:
+      - "8090:8090"
+    command: server --listen 0.0.0.0:8090
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8090/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: scanops-zap
+    ports:
+      - "8080:8080"
+    command: zap.sh -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
+    volumes:
+      - zap_data:/root/.ZAP
+    networks:
+      - scanops
+    healthcheck:
+      test: [ "CMD", "curl", "http://localhost:8080/json/core/action/version" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  trivy_data:
+  zap_data:

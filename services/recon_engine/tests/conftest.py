@@ -1,4 +1,4 @@
-﻿"""
+"""
 Pytest configuration for Recon Engine tests.
 
 Provides fixtures and configuration for testing the reconnaissance engine.
@@ -48,6 +48,6 @@ def cleanup_database(test_session):
     yield
     # Clean up all tables
     test_session.execute("DELETE FROM recon_subdomains")
-    test_session.execute("DELETE FROM recon_findings")
+    test_session.execute("DELETE FROM port_discoveries")
     test_session.execute("DELETE FROM recon_snapshots")
     test_session.commit()

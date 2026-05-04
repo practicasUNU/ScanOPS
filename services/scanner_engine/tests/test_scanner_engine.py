@@ -474,11 +474,11 @@ class TestZAPClient:
 class TestCeleryTasks:
     """Tests for Celery tasks."""
 
-    def test_run_openvvas_scan_task(self, mock_asset_data):
+    def test_run_openvas_scan_task(self, mock_asset_data):
         """Test OpenVAS Celery task."""
-        from services.scanner_engine.tasks.vuln_tasks import run_openvvas_scan
+        from services.scanner_engine.tasks.vuln_tasks import run_openvas_scan
 
-        result = run_openvvas_scan(
+        result = run_openvas_scan(
             mock_asset_data["asset_id"],
             mock_asset_data["asset_ip"],
             mock_asset_data["asset_name"],
@@ -489,11 +489,11 @@ class TestCeleryTasks:
         assert result["status"] in ["success", "error"]
         assert "findings_count" in result
 
-    def test_run_nuclei_scan_task(self, mock_asset_data):
+    def test_run_nuclei_task(self, mock_asset_data):
         """Test Nuclei Celery task."""
-        from services.scanner_engine.tasks.vuln_tasks import run_nuclei_scan
+        from services.scanner_engine.tasks.vuln_tasks import run_nuclei_task
 
-        result = run_nuclei_scan(
+        result = run_nuclei_task(
             mock_asset_data["asset_id"],
             mock_asset_data["asset_ip"],
             mock_asset_data["asset_name"],
@@ -503,11 +503,11 @@ class TestCeleryTasks:
         assert result["scanner"] == "Nuclei"
         assert "findings_count" in result
 
-    def test_run_zap_scan_task(self, mock_asset_data):
+    def test_run_zap_task(self, mock_asset_data):
         """Test ZAP Celery task."""
-        from services.scanner_engine.tasks.vuln_tasks import run_zap_scan
+        from services.scanner_engine.tasks.vuln_tasks import run_zap_task
 
-        result = run_zap_scan(
+        result = run_zap_task(
             mock_asset_data["asset_id"],
             mock_asset_data["asset_url"],
             mock_asset_data["asset_name"],
@@ -517,9 +517,9 @@ class TestCeleryTasks:
         assert result["scanner"] == "ZAP"
         assert "findings_count" in result
 
-    def test_merge_scan_results(self):
-        """Test merge_scan_results task."""
-        from services.scanner_engine.tasks.vuln_tasks import merge_scan_results
+    def test_merge_and_persist_results(self):
+        """Test merge_and_persist_results task."""
+        from services.scanner_engine.tasks.vuln_tasks import merge_and_persist_results
 
         mock_results = [
             {
@@ -536,7 +536,7 @@ class TestCeleryTasks:
             },
         ]
 
-        result = merge_scan_results(mock_results, asset_id=1)
+        result = merge_and_persist_results(mock_results, asset_id=1)
 
         assert result is not None
         assert result["asset_id"] == 1

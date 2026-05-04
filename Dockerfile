@@ -26,10 +26,12 @@ RUN nuclei -update-templates
 WORKDIR /app
 
 # 4. Instalar dependencias de Python
-COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN chmod +x run_migrations.sh
+RUN pip install --no-cache-dir .
 
 EXPOSE 8001 8002
 

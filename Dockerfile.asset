@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+# Instalar dependencias del sistema mínimas si es necesario
+RUN apt-get update && apt-get install -y \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Instalar dependencias de Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN chmod +x run_migrations.sh
+RUN pip install --no-cache-dir .
+
+EXPOSE 8001
+
+# CMD para M1 - Asset Manager
+CMD ["uvicorn", "services.asset_manager.main:app", "--host", "0.0.0.0", "--port", "8001"]
