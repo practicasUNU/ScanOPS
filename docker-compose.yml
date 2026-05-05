@@ -66,7 +66,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       OPENVAS_USER: admin
       OPENVAS_PASS: admin
-      ZAP_HOST: localhost
+      ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       OLLAMA_MODEL: "qwen3.5:latest"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
@@ -117,7 +117,7 @@ services:
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       ZAP_API_KEY: ""
-      M1_URL: http://m1:8001
+      M1_URL: http://m1:8001/api/v1
       M1_TOKEN: scanops_secret
     depends_on:
       - postgres
@@ -144,26 +144,26 @@ services:
       redis:
         condition: service_healthy
 
-  zap:
-    image: ghcr.io/zaproxy/zaproxy:stable
-    container_name: scanops-zap
-    ports:
-      - "8080:8080"
-    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
-    volumes:
-      - zap_data:/root/.ZAP
-    networks:
-      - scanops
-    healthcheck:
-      test: [ "CMD", "curl", "http://localhost:8080/json/core/action/version" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+  #  zap:
+  #    image: ghcr.io/zaproxy/zaproxy:stable
+  #    container_name: scanops-zap
+  #    ports:
+  #      - "8080:8080"
+  #    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
+  #    volumes:
+  #      - zap_data:/root/.ZAP
+  #    networks:
+  #      - scanops
+  #    healthcheck:
+  #      test: [ "CMD", "curl", "http://localhost:8080/json/core/action/version" ]
+  #      interval: 30s
+  #      timeout: 10s
+  #      retries: 3
+  #    depends_on:
+  #      postgres:
+  #        condition: service_healthy
+  #      redis:
+  #        condition: service_healthy
 
   # services/exploit_engine (M4)
   m4:

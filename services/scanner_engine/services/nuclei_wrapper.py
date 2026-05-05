@@ -1,65 +1,53 @@
 import subprocess
 import json
-import os
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
 def run_nuclei_scan(target_ip: str):
-    """
-    Ejecuta Nuclei sobre el activo. 
-    US-3.2: Uso de plantillas actualizadas para Zero-days.
-    """
     logger.info("NUCLEI_START", target=target_ip)
-    
-    # Lista de templates específicos para optimizar tiempo y enfoque (M3)
+
     NUCLEI_TEMPLATES = [
-        "http/technologies/",       # Detección de tecnologías y WAF
-        "http/exposures/",          # Archivos expuestos, configs, backups
-        "ssl/",                     # Problemas SSL/TLS
+        "http/technologies/",
+        "http/exposures/",
+        "ssl/",
     ]
 
-    # Comando para ejecución silenciosa con salida en JSON [cite: 120]
     cmd = [
         "nuclei",
         "-target", target_ip,
         "-silent",
         "-jsonl",
-        "-timeout", "5",            # timeout por request en segundos
-        "-bulk-size", "10",         # requests paralelos
-        "-rate-limit", "20",        # requests por segundo
+        "-timeout", "5",
+        "-bulk-size", "10",
+        "-rate-limit", "20",
         "-retries", "0",
     ]
 
-    # Añadir templates específicos
     for template in NUCLEI_TEMPLATES:
         cmd.extend(["-t", template])
 
     try:
-        # Timeout del proceso completo reducido a 120s
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        
         findings = []
         if result.stdout:
             for line in result.stdout.splitlines():
-                raw_vuln = json.loads(line)
-                # Normalización del hallazgo (US-3.5) 
-                info = raw_vuln.get("info", {})
-                classification = info.get("classification", {})
-                cve_ids = classification.get("cve-id")
-                
-                # Asegurar que cve_ids sea una lista iterable
-                cve_str = ",".join(cve_ids) if isinstance(cve_ids, list) else ""
-
-                findings.append({
-                    "title": info.get("name"),
-                    "severity": info.get("severity", "").upper(),
-                    "description": info.get("description") or info.get("name"),
-                    "cve_id": cve_str,
-                    "evidence": raw_vuln.get("matched-at"),
-                    "ens_measure": "op.exp.2"  # Mapeo explícito para auditoría ENS
-                })
-        
+                try:
+                    raw_vuln = json.loads(line)
+                    info = raw_vuln.get("info", {})
+                    classification = info.get("classification", {})
+                    cve_ids = classification.get("cve-id")
+                    cve_str = ",".join(cve_ids) if isinstance(cve_ids, list) else ""
+                    findings.append({
+                        "title": info.get("name"),
+                        "severity": info.get("severity", "").upper(),
+                        "description": info.get("description") or info.get("name"),
+                        "cve_id": cve_str,
+                        "evidence": raw_vuln.get("matched-at"),
+                        "ens_measure": "op.exp.2"
+                    })
+                except json.JSONDecodeError:
+                    continue
         logger.info("NUCLEI_FINISH", target=target_ip, count=len(findings))
         return findings
     except subprocess.TimeoutExpired:

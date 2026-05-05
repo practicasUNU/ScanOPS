@@ -15,7 +15,6 @@ from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.clients.openvas_client import OpenVASClient
 from services.scanner_engine.clients.nuclei_client import NucleiClient
-from services.scanner_engine.clients.zap_client_rest import ZAPClientREST
 from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
 
@@ -51,23 +50,17 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
     finally:
         loop.close()
 
-# --- TAREA: ZAP DAST (US-3.3) ---
 @app.task(name="tasks.run_zap_vulnerability_scan", queue="vulnerabilities")
 def run_zap_task(asset_id: int, ip: str) -> List[Dict]:
-    """Ejecuta ZAP DAST vía API REST."""
-    logger.info("ZAP_TASK_START", target=ip)
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    from services.scanner_engine.clients.nikto_client import run_nikto_scan
+    logger.info("NIKTO_TASK_START", target=ip)
     try:
-        client = ZAPClientREST()
         target_url = f"http://{ip}"
-        findings = loop.run_until_complete(client.scan_asset(asset_id, target_url))
-        return [{"scanner": "ZAP", **f.to_dict()} for f in findings]
+        findings = run_nikto_scan(asset_id, target_url)
+        return [{"scanner": "Nikto", **f} for f in findings]
     except Exception as e:
-        logger.error("ZAP_TASK_ERROR", error=str(e))
+        logger.error("NIKTO_TASK_ERROR", error=str(e))
         return []
-    finally:
-        loop.close()
 
 # --- CALLBACK: MERGE & PERSIST (US-3.4) ---
 @app.task(name="tasks.merge_and_persist_results")
