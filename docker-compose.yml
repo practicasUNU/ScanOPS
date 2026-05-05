@@ -68,7 +68,7 @@ services:
       OPENVAS_PASS: admin
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
-      OLLAMA_MODEL: "qwen3.5:latest"
+      OLLAMA_MODEL: "mistral:7b"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
     depends_on:
       postgres:
