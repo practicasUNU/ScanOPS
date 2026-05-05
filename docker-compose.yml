@@ -177,7 +177,7 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      MSF_HOST: 10.202.15.254
+      MSF_HOST: 10.202.15.199
       MSF_PORT: 55553
       MSF_PASSWORD: scanops123
       NXC_TIMEOUT: 30
