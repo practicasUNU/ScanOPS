@@ -179,9 +179,8 @@ async def quick_scan_asset(asset_id: int) -> ScanResponse:
         logger.info(f"→ Quick scan (Nuclei) iniciado para asset {asset_id} ({asset_ip})")
 
         task = run_nuclei_task.delay(
-            asset_id=asset_id,
-            asset_ip=asset_ip,        # ✅ IP real desde M1
-            asset_name=asset_name,    # ✅ hostname real desde M1
+            asset_id,
+            asset_ip
         )
 
         return ScanResponse(

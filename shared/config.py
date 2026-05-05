@@ -41,9 +41,9 @@ class Settings(BaseSettings):
     openvas_pass: str = Field(default="admin")
 
     # --- ZAP (OWASP) ---
-    zap_host: str = Field(default="zap")
+    zap_host: str = Field(default="scanops-zap")
     zap_port: int = Field(default=8080)
-    zap_api_key: Optional[str] = Field(default=None)
+    zap_api_key: str = Field(default="")
 
     # --- Pydantic Config ---
     model_config = SettingsConfigDict(

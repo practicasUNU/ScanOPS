@@ -92,6 +92,7 @@ services:
       - M2_PORT=8003
       - M1_URL=http://m1:8001
       - LOG_LEVEL=info
+      - DATABASE_URL=postgresql://scanops:scanops@postgres:5432/scanops
     volumes:
       - ./services/recon_engine:/app/services/recon_engine
     networks:
@@ -109,6 +110,15 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
+      OPENVAS_HOST: openvas
+      OPENVAS_PORT: 9390
+      OPENVAS_USER: admin
+      OPENVAS_PASS: admin
+      ZAP_HOST: scanops-zap
+      ZAP_PORT: 8080
+      ZAP_API_KEY: ""
+      M1_URL: http://scanops-asset-manager:8001
+      M1_TOKEN: scanops_secret
     depends_on:
       - postgres
       - redis
@@ -139,7 +149,7 @@ services:
     container_name: scanops-zap
     ports:
       - "8080:8080"
-    command: zap.sh -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
+    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
     volumes:
       - zap_data:/root/.ZAP
     networks:
