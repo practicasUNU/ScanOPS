@@ -16,9 +16,6 @@ def run_nuclei_scan(target_ip: str):
     NUCLEI_TEMPLATES = [
         "http/technologies/",       # Detección de tecnologías y WAF
         "http/exposures/",          # Archivos expuestos, configs, backups
-        "http/misconfiguration/",   # Misconfigurations web
-        "http/vulnerabilities/",    # Vulnerabilidades web conocidas
-        "network/detection/",       # Detección de servicios de red
         "ssl/",                     # Problemas SSL/TLS
     ]
 
@@ -28,10 +25,10 @@ def run_nuclei_scan(target_ip: str):
         "-target", target_ip,
         "-silent",
         "-jsonl",
-        "-timeout", "10",           # timeout por request en segundos
-        "-bulk-size", "25",         # requests paralelos
-        "-rate-limit", "50",        # requests por segundo
-        "-retries", "1",
+        "-timeout", "5",            # timeout por request en segundos
+        "-bulk-size", "10",         # requests paralelos
+        "-rate-limit", "20",        # requests por segundo
+        "-retries", "0",
     ]
 
     # Añadir templates específicos
@@ -39,8 +36,8 @@ def run_nuclei_scan(target_ip: str):
         cmd.extend(["-t", template])
 
     try:
-        # Timeout del proceso completo reducido a 300s (5 min)
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        # Timeout del proceso completo reducido a 120s
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         
         findings = []
         if result.stdout:
@@ -65,6 +62,9 @@ def run_nuclei_scan(target_ip: str):
         
         logger.info("NUCLEI_FINISH", target=target_ip, count=len(findings))
         return findings
+    except subprocess.TimeoutExpired:
+        logger.error("NUCLEI_TIMEOUT", target=target_ip)
+        return []
     except Exception as e:
         logger.error("NUCLEI_ERROR", target=target_ip, error=str(e))
         return []

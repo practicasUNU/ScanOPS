@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     # --- Redis & Celery (Broker para M1 Tasks) ---
     redis_url: str = Field(default="redis://localhost:6379/0")
 
-    # --- API Configuration (Campos que causaban el error) ---
-    api_host: str = Field(default="0.0.0.0")
-    redis_url: str = Field(default="redis://localhost:6380/0")
 
     # --- Logging ---
     log_level: str = Field(default="INFO")
@@ -41,9 +38,9 @@ class Settings(BaseSettings):
     openvas_pass: str = Field(default="admin")
 
     # --- ZAP (OWASP) ---
-    zap_host: str = Field(default="zap")
+    zap_host: str = Field(default="scanops-zap")
     zap_port: int = Field(default=8080)
-    zap_api_key: Optional[str] = Field(default=None)
+    zap_api_key: str = Field(default="")
 
     # --- Pydantic Config ---
     model_config = SettingsConfigDict(
