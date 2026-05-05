@@ -89,10 +89,10 @@ services:
       m1:
         condition: service_healthy
     environment:
-      - M2_PORT=8003
-      - M1_URL=http://m1:8001
-      - LOG_LEVEL=info
-      - DATABASE_URL=postgresql://scanops:scanops@postgres:5432/scanops
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      M2_PORT: 8003
+      M1_URL: http://m1:8001
+      LOG_LEVEL: info
     volumes:
       - ./services/recon_engine:/app/services/recon_engine
     networks:
@@ -117,7 +117,7 @@ services:
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       ZAP_API_KEY: ""
-      M1_URL: http://scanops-asset-manager:8001
+      M1_URL: http://m1:8001
       M1_TOKEN: scanops_secret
     depends_on:
       - postgres

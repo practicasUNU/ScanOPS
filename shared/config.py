@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     # --- Redis & Celery (Broker para M1 Tasks) ---
     redis_url: str = Field(default="redis://localhost:6379/0")
 
-    # --- API Configuration (Campos que causaban el error) ---
-    api_host: str = Field(default="0.0.0.0")
-    redis_url: str = Field(default="redis://localhost:6380/0")
 
     # --- Logging ---
     log_level: str = Field(default="INFO")
