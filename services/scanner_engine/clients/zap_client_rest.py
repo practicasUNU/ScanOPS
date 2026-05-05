@@ -48,9 +48,10 @@ class ZAPClientREST:
     """Cliente para OWASP ZAP usando la API REST nativa"""
 
     def __init__(self):
-        self.host = settings.zap_host or "scanops-zap"
-        self.port = settings.zap_port or 8080
-        self.api_key = settings.zap_api_key or ""
+        import os
+        self.host = os.environ.get("ZAP_HOST", "scanops-zap")
+        self.port = int(os.environ.get("ZAP_PORT", "8080"))
+        self.api_key = os.environ.get("ZAP_API_KEY", "")
         self.base_url = f"http://{self.host}:{self.port}/JSON"
         self.client = httpx.AsyncClient(timeout=60.0)
 
@@ -115,14 +116,15 @@ class ZAPClientREST:
         if not asset_url.startswith("http"):
             asset_url = f"http://{asset_url}"
             
+        # Connectivity check
         try:
-            # Connectivity check
-            try:
-                await self.client.get(f"{self.base_url}/core/view/version/", timeout=5.0)
-            except Exception:
-                logger.warning(f"✗ ZAP no disponible en {self.base_url}. Saltando.")
-                return []
-
+            async with httpx.AsyncClient(timeout=5.0) as check:
+                await check.get(f"http://{self.host}:{self.port}/JSON/core/view/version/")
+        except Exception as e:
+            logger.error(f"✗ ZAP no disponible en {self.host}:{self.port}: {e}")
+            return []
+            
+        try:
             # 1. Preparar sesión
             await self.new_session(f"Scan_{asset_id}")
             

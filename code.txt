@@ -59,6 +59,11 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     whois \
+    git \
+    perl \
+    libnet-ssleay-perl \
+    libjson-perl \
+    libxml-writer-perl \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Instalar Nuclei (US-3.2)
@@ -66,6 +71,10 @@ RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.8/nuc
     && unzip nuclei_3.1.8_linux_amd64.zip \
     && mv nuclei /usr/local/bin/ \
     && rm nuclei_3.1.8_linux_amd64.zip
+
+# 2.5 Instalar Nikto (Reemplazo de ZAP) - Instalado desde fuente
+RUN git clone --depth 1 https://github.com/sullo/nikto.git /opt/nikto && \
+    ln -s /opt/nikto/program/nikto.pl /usr/local/bin/nikto
 
 # 3. Instalar Subfinder (M2 - descubrimiento de subdominios)
 RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_amd64.zip \
@@ -78,7 +87,7 @@ RUN nuclei -update-templates
 
 WORKDIR /app
 
-# 4. Instalar dependencias de Python
+# 5. Instalar dependencias de Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -182,6 +191,11 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     whois \
+    git \
+    perl \
+    libnet-ssleay-perl \
+    libjson-perl \
+    libxml-writer-perl \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Instalar Nuclei (US-3.2)
@@ -189,6 +203,10 @@ RUN wget https://github.com/projectdiscovery/nuclei/releases/download/v3.1.8/nuc
     && unzip nuclei_3.1.8_linux_amd64.zip \
     && mv nuclei /usr/local/bin/ \
     && rm nuclei_3.1.8_linux_amd64.zip
+
+# 2.5 Instalar Nikto (Reemplazo de ZAP) - Instalado desde fuente ante ausencia en repo slim
+RUN git clone --depth 1 https://github.com/sullo/nikto.git /opt/nikto && \
+    ln -s /opt/nikto/program/nikto.pl /usr/local/bin/nikto
 
 # 3. Instalar Subfinder
 RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/subfinder_2.6.6_linux_amd64.zip \
@@ -932,7 +950,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       OPENVAS_USER: admin
       OPENVAS_PASS: [REDACTED]
-      ZAP_HOST: localhost
+      ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       OLLAMA_MODEL: "qwen3.5:latest"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
@@ -955,9 +973,10 @@ services:
       m1:
         condition: service_healthy
     environment:
-      - M2_PORT=8003
-      - M1_URL=http://m1:8001
-      - LOG_LEVEL=info
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      M2_PORT: 8003
+      M1_URL: http://m1:8001
+      LOG_LEVEL: info
     volumes:
       - ./services/recon_engine:/app/services/recon_engine
     networks:
@@ -975,6 +994,15 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
+      OPENVAS_HOST: openvas
+      OPENVAS_PORT: 9390
+      OPENVAS_USER: admin
+      OPENVAS_PASS: [REDACTED]
+      ZAP_HOST: scanops-zap
+      ZAP_PORT: 8080
+      ZAP_API_KEY: [REDACTED]
+      M1_URL: http://m1:8001/api/v1
+      M1_TOKEN: [REDACTED]
     depends_on:
       - postgres
       - redis
@@ -1000,26 +1028,26 @@ services:
       redis:
         condition: service_healthy
 
-  zap:
-    image: ghcr.io/zaproxy/zaproxy:stable
-    container_name: scanops-zap
-    ports:
-      - "8080:8080"
-    command: zap.sh -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
-    volumes:
-      - zap_data:/root/.ZAP
-    networks:
-      - scanops
-    healthcheck:
-      test: [ "CMD", "curl", "http://localhost:8080/json/core/action/version" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+  #  zap:
+  #    image: ghcr.io/zaproxy/zaproxy:stable
+  #    container_name: scanops-zap
+  #    ports:
+  #      - "8080:8080"
+  #    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true -config api.addrs.addr.name='.*' -config api.addrs.addr.regex=true
+  #    volumes:
+  #      - zap_data:/root/.ZAP
+  #    networks:
+  #      - scanops
+  #    healthcheck:
+  #      test: [ "CMD", "curl", "http://localhost:8080/json/core/action/version" ]
+  #      interval: 30s
+  #      timeout: 10s
+  #      retries: 3
+  #    depends_on:
+  #      postgres:
+  #        condition: service_healthy
+  #      redis:
+  #        condition: service_healthy
 
   # services/exploit_engine (M4)
   m4:
@@ -17927,6 +17955,78 @@ from .nuclei_client import NucleiClient
 from .zap_client import ZAPClient
 
 __all__ = ["OpenVASClient", "NucleiClient", "ZAPClient"]
+FILE:services\scanner_engine\clients\nikto_client.py
+import subprocess
+import json
+import os
+from typing import List, Dict
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("nikto_client")
+
+def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
+    logger.info("NIKTO_START", target=target_url)
+
+    output_file = f"/tmp/nikto_{asset_id}.json"
+
+    cmd = [
+        "nikto",
+        "-h", target_url,
+        "-Format", "json",
+        "-output", output_file,
+        "-Tuning", "1234578",
+        "-timeout", "30",
+        "-maxtime", "90s"
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+        findings = []
+        if os.path.exists(output_file):
+            with open(output_file, "r") as f:
+                try:
+                    data = json.load(f)
+
+                    # Nikto JSON is a top-level array: [ { "host":..., "vulnerabilities": [...] } ]
+                    vulns = []
+                    if isinstance(data, list) and len(data) > 0:
+                        vulns = data[0].get("vulnerabilities", [])
+                    elif isinstance(data, dict):
+                        vulns = data.get("vulnerabilities", [])
+
+                    for v in vulns:
+                        msg = v.get("msg", "")
+                        severity = "MEDIUM"
+                        if "XSS" in msg.upper() or "INJECTION" in msg.upper():
+                            severity = "HIGH"
+
+                        findings.append({
+                            "title": f"Nikto Finding: {v.get('id', 'Unknown')}",
+                            "severity": severity,
+                            "description": msg,
+                            "cve_id": "",
+                            "evidence": f"URL: {v.get('url', '')} | Method: {v.get('method', '')}",
+                            "remediation": v.get("references", "") or "Review Nikto recommendation for this finding."
+                        })
+                except json.JSONDecodeError:
+                    logger.error("NIKTO_JSON_ERROR", target=target_url)
+
+            os.remove(output_file)
+
+        logger.info("NIKTO_FINISH", target=target_url, count=len(findings))
+        return findings
+
+    except subprocess.TimeoutExpired:
+        logger.error("NIKTO_TIMEOUT", target=target_url)
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        return []
+    except Exception as e:
+        logger.error("NIKTO_ERROR", target=target_url, error=str(e))
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        return []
 FILE:services\scanner_engine\clients\nuclei_client.py
 """Nuclei CLI-based vulnerability scanner client."""
 
@@ -18679,9 +18779,10 @@ class ZAPClientREST:
     """Cliente para OWASP ZAP usando la API REST nativa"""
 
     def __init__(self):
-        self.host = settings.zap_host or "scanops-zap"
-        self.port = settings.zap_port or 8080
-        self.api_key = settings.zap_api_key or ""
+        import os
+        self.host = os.environ.get("ZAP_HOST", "scanops-zap")
+        self.port = int(os.environ.get("ZAP_PORT", "8080"))
+        self.api_key = os.environ.get("ZAP_API_KEY", "")
         self.base_url = f"http://{self.host}:{self.port}/JSON"
         self.client = httpx.AsyncClient(timeout=60.0)
 
@@ -18746,14 +18847,15 @@ class ZAPClientREST:
         if not asset_url.startswith("http"):
             asset_url = f"http://{asset_url}"
 
+        # Connectivity check
         try:
-            # Connectivity check
-            try:
-                await self.client.get(f"{self.base_url}/core/view/version/", timeout=5.0)
-            except Exception:
-                logger.warning(f"✗ ZAP no disponible en {self.base_url}. Saltando.")
-                return []
+            async with httpx.AsyncClient(timeout=5.0) as check:
+                await check.get(f"http://{self.host}:{self.port}/JSON/core/view/version/")
+        except Exception as e:
+            logger.error(f"✗ ZAP no disponible en {self.host}:{self.port}: {e}")
+            return []
 
+        try:
             # 1. Preparar sesión
             await self.new_session(f"Scan_{asset_id}")
 
@@ -19710,66 +19812,54 @@ def export_to_pdf(db: Session, asset_id: int, scan_id: str = None):
 FILE:services\scanner_engine\services\nuclei_wrapper.py
 import subprocess
 import json
-import os
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
 def run_nuclei_scan(target_ip: str):
-    """
-    Ejecuta Nuclei sobre el activo.
-    US-3.2: Uso de plantillas actualizadas para Zero-days.
-    """
     logger.info("NUCLEI_START", target=target_ip)
 
-    # Lista de templates específicos para optimizar tiempo y enfoque (M3)
     NUCLEI_TEMPLATES = [
-        "http/technologies/",       # Detección de tecnologías y WAF
-        "http/exposures/",          # Archivos expuestos, configs, backups
-        "ssl/",                     # Problemas SSL/TLS
+        "http/technologies/",
+        "http/exposures/",
+        "ssl/",
     ]
 
-    # Comando para ejecución silenciosa con salida en JSON [cite: 120]
     cmd = [
         "nuclei",
         "-target", target_ip,
         "-silent",
         "-jsonl",
-        "-timeout", "5",            # timeout por request en segundos
-        "-bulk-size", "10",         # requests paralelos
-        "-rate-limit", "20",        # requests por segundo
+        "-timeout", "5",
+        "-bulk-size", "10",
+        "-rate-limit", "20",
         "-retries", "0",
     ]
 
-    # Añadir templates específicos
     for template in NUCLEI_TEMPLATES:
         cmd.extend(["-t", template])
 
     try:
-        # Timeout del proceso completo reducido a 120s
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-
         findings = []
         if result.stdout:
             for line in result.stdout.splitlines():
-                raw_vuln = json.loads(line)
-                # Normalización del hallazgo (US-3.5)
-                info = raw_vuln.get("info", {})
-                classification = info.get("classification", {})
-                cve_ids = classification.get("cve-id")
-
-                # Asegurar que cve_ids sea una lista iterable
-                cve_str = ",".join(cve_ids) if isinstance(cve_ids, list) else ""
-
-                findings.append({
-                    "title": info.get("name"),
-                    "severity": info.get("severity", "").upper(),
-                    "description": info.get("description") or info.get("name"),
-                    "cve_id": cve_str,
-                    "evidence": raw_vuln.get("matched-at"),
-                    "ens_measure": "op.exp.2"  # Mapeo explícito para auditoría ENS
-                })
-
+                try:
+                    raw_vuln = json.loads(line)
+                    info = raw_vuln.get("info", {})
+                    classification = info.get("classification", {})
+                    cve_ids = classification.get("cve-id")
+                    cve_str = ",".join(cve_ids) if isinstance(cve_ids, list) else ""
+                    findings.append({
+                        "title": info.get("name"),
+                        "severity": info.get("severity", "").upper(),
+                        "description": info.get("description") or info.get("name"),
+                        "cve_id": cve_str,
+                        "evidence": raw_vuln.get("matched-at"),
+                        "ens_measure": "op.exp.2"
+                    })
+                except json.JSONDecodeError:
+                    continue
         logger.info("NUCLEI_FINISH", target=target_ip, count=len(findings))
         return findings
     except subprocess.TimeoutExpired:
@@ -19802,7 +19892,6 @@ from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.clients.openvas_client import OpenVASClient
 from services.scanner_engine.clients.nuclei_client import NucleiClient
-from services.scanner_engine.clients.zap_client_rest import ZAPClientREST
 from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
 
@@ -19838,23 +19927,17 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
     finally:
         loop.close()
 
-# --- TAREA: ZAP DAST (US-3.3) ---
 @app.task(name="tasks.run_zap_vulnerability_scan", queue="vulnerabilities")
 def run_zap_task(asset_id: int, ip: str) -> List[Dict]:
-    """Ejecuta ZAP DAST vía API REST."""
-    logger.info("ZAP_TASK_START", target=ip)
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    from services.scanner_engine.clients.nikto_client import run_nikto_scan
+    logger.info("NIKTO_TASK_START", target=ip)
     try:
-        client = ZAPClientREST()
         target_url = f"http://{ip}"
-        findings = loop.run_until_complete(client.scan_asset(asset_id, target_url))
-        return [{"scanner": "ZAP", **f.to_dict()} for f in findings]
+        findings = run_nikto_scan(asset_id, target_url)
+        return [{"scanner": "Nikto", **f} for f in findings]
     except Exception as e:
-        logger.error("ZAP_TASK_ERROR", error=str(e))
+        logger.error("NIKTO_TASK_ERROR", error=str(e))
         return []
-    finally:
-        loop.close()
 
 # --- CALLBACK: MERGE & PERSIST (US-3.4) ---
 @app.task(name="tasks.merge_and_persist_results")
@@ -20834,10 +20917,6 @@ class Settings(BaseSettings):
 
     # --- Redis & Celery (Broker para M1 Tasks) ---
     redis_url: str = Field(default="redis://localhost:6379/0")
-
-    # --- API Configuration (Campos que causaban el error) ---
-    api_host: str = Field(default="0.0.0.0")
-    redis_url: str = Field(default="redis://localhost:6380/0")
 
     # --- Logging ---
     log_level: str = Field(default="INFO")
