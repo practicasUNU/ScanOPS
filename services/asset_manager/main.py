@@ -6,6 +6,7 @@ Run: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
 """
  
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
@@ -154,12 +155,15 @@ async def http_exception_handler(request, exc: HTTPException):
     """
     Custom HTTP exception handler.
     """
-    return {
-        "error": True,
-        "status_code": exc.status_code,
-        "detail": exc.detail,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
  
  
 @app.exception_handler(Exception)
@@ -168,12 +172,15 @@ async def general_exception_handler(request, exc: Exception):
     General exception handler for unhandled errors.
     """
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-    return {
-        "error": True,
-        "status_code": 500,
-        "detail": "Internal server error",
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "status_code": 500,
+            "detail": "Internal server error",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
  
  
 if __name__ == "__main__":

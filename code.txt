@@ -104,6 +104,7 @@ FROM python:3.11-slim
 # Instalar dependencias del sistema mínimas si es necesario
 RUN apt-get update && apt-get install -y \
     wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -938,6 +939,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     networks:
       - scanops
 
@@ -7163,6 +7170,7 @@ Run: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
 """
 
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
@@ -7304,12 +7312,15 @@ async def http_exception_handler(request, exc: HTTPException):
     """
     Custom HTTP exception handler.
     """
-    return {
-        "error": True,
-        "status_code": exc.status_code,
-        "detail": exc.detail,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc: Exception):
@@ -7317,12 +7328,15 @@ async def general_exception_handler(request, exc: Exception):
     General exception handler for unhandled errors.
     """
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-    return {
-        "error": True,
-        "status_code": 500,
-        "detail": "Internal server error",
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "status_code": 500,
+            "detail": "Internal server error",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
 
 if __name__ == "__main__":
     import uvicorn
