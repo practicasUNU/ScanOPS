@@ -22,11 +22,11 @@ logger = ScanLogger("scanner_tasks")
 
 # --- TAREA: NUCLEI (US-3.2) ---
 @app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities")
-def run_nuclei_task(asset_id: int, ip: str) -> List[Dict]:
+def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
     """Ejecuta Nuclei y devuelve hallazgos sin persistir (el orquestador persiste)."""
     logger.info("NUCLEI_TASK_START", asset_id=asset_id, target=ip)
     try:
-        findings = execute_nuclei_binary(ip)
+        findings = execute_nuclei_binary(ip, hostname)
         return [{"scanner": "Nuclei", **f} for f in findings]
     except Exception as e:
         logger.error("NUCLEI_TASK_ERROR", error=str(e))
@@ -50,8 +50,9 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
     finally:
         loop.close()
 
-@app.task(name="tasks.run_zap_vulnerability_scan", queue="vulnerabilities")
-def run_zap_task(asset_id: int, ip: str) -> List[Dict]:
+
+@app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities")
+def run_nikto_task(asset_id: int, ip: str) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
     logger.info("NIKTO_TASK_START", target=ip)
     try:
@@ -108,18 +109,18 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
 def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_types: List[str] = None):
     """
     Lanza múltiples scanners en paralelo usando un Chord de Celery.
-    Nuclei || OpenVAS || ZAP -> merge_and_persist_results
+    Nuclei || OpenVAS || Nikto -> merge_and_persist_results
     """
     if not scan_types:
-        scan_types = ["nuclei", "openvas", "zap"]
+        scan_types = ["nuclei", "openvas", "nikto"]
     
     tasks = []
     if "nuclei" in scan_types:
-        tasks.append(run_nuclei_task.s(asset_id, asset_ip))
+        tasks.append(run_nuclei_task.s(asset_id, asset_ip, asset_name))
     if "openvas" in scan_types:
         tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
-    if "zap" in scan_types:
-        tasks.append(run_zap_task.s(asset_id, asset_ip))
+    if "nikto" in scan_types:
+        tasks.append(run_nikto_task.s(asset_id, asset_ip))
 
     if not tasks:
         return {"status": "no_scans_selected"}
