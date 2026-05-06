@@ -48,12 +48,18 @@ services:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: myroot
+      VAULT_TOKEN: "myroot"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     networks:
       - scanops
 
