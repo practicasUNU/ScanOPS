@@ -1,23 +1,21 @@
 import subprocess
 import json
+import os
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
-# Solo templates HTTP ligeros — ssl/ y network/detection/ causan timeouts
 NUCLEI_TEMPLATES = [
-    "http/technologies/",
-    "http/misconfiguration/",
-    "http/exposures/",
+    "http/technologies/tech-detect.yaml",
 ]
 
 def run_nuclei_scan(target_ip: str, hostname: str = None):
     logger.info("NUCLEI_START", target=target_ip)
 
     if hostname and hostname != target_ip:
-        targets = [f"https://{hostname}", f"http://{hostname}"]
+        targets = [f"https://{hostname}"]
     else:
-        targets = [f"http://{target_ip}", f"https://{target_ip}"]
+        targets = [f"https://{target_ip}", f"http://{target_ip}"]
 
     logger.info("NUCLEI_TARGETS", targets=targets)
 
@@ -25,6 +23,7 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
         "nuclei",
         "-silent",
         "-jsonl",
+        "-duc",           # disable update check — sin esto Nuclei cuelga conectando a GitHub
         "-timeout", "8",
         "-bulk-size", "5",
         "-rate-limit", "10",
@@ -40,8 +39,19 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
     for target in targets:
         cmd.extend(["-u", target])
 
+    # Entorno explícito: evita que el proceso hijo herede variables corruptas del fork de Celery
+    env = os.environ.copy()
+    env.setdefault("HOME", "/root")
+
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            env=env,
+            start_new_session=True,  # nueva sesión: no hereda signal mask del worker Celery prefork
+        )
         findings = []
 
         output = result.stdout or ""
