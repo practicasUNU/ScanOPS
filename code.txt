@@ -951,7 +951,7 @@ services:
   celery-worker:
     build: .
     container_name: scanops-celery-worker
-    command: celery -A shared.celery_app worker --loglevel=info --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning
+    command: celery -A shared.celery_app worker --loglevel=info --pool=threads --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
@@ -19854,24 +19854,22 @@ def export_to_pdf(db: Session, asset_id: int, scan_id: str = None):
 FILE:services\scanner_engine\services\nuclei_wrapper.py
 import subprocess
 import json
+import os
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
-# Solo templates HTTP ligeros — ssl/ y network/detection/ causan timeouts
 NUCLEI_TEMPLATES = [
-    "http/technologies/",
-    "http/misconfiguration/",
-    "http/exposures/",
+    "http/technologies/tech-detect.yaml",
 ]
 
 def run_nuclei_scan(target_ip: str, hostname: str = None):
     logger.info("NUCLEI_START", target=target_ip)
 
     if hostname and hostname != target_ip:
-        targets = [f"https://{hostname}", f"http://{hostname}"]
+        targets = [f"https://{hostname}"]
     else:
-        targets = [f"http://{target_ip}", f"https://{target_ip}"]
+        targets = [f"https://{target_ip}", f"http://{target_ip}"]
 
     logger.info("NUCLEI_TARGETS", targets=targets)
 
@@ -19879,6 +19877,7 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
         "nuclei",
         "-silent",
         "-jsonl",
+        "-duc",           # disable update check — sin esto Nuclei cuelga conectando a GitHub
         "-timeout", "8",
         "-bulk-size", "5",
         "-rate-limit", "10",
@@ -19894,8 +19893,19 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
     for target in targets:
         cmd.extend(["-u", target])
 
+    # Entorno explícito: evita que el proceso hijo herede variables corruptas del fork de Celery
+    env = os.environ.copy()
+    env.setdefault("HOME", "/root")
+
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            env=env,
+            start_new_session=True,  # nueva sesión: no hereda signal mask del worker Celery prefork
+        )
         findings = []
 
         output = result.stdout or ""
@@ -20927,6 +20937,8 @@ app.conf.update(
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=10,
     task_acks_late=True,
+    task_time_limit=300,        # hard kill a los 5 min — evita workers zombi
+    task_soft_time_limit=270,   # SIGUSR1 a los 4.5 min para cleanup graceful
     # ESTO CUMPLE LA US-2.7 (Programación automática)
     beat_schedule={
         'recon-lunes-madrugada': {

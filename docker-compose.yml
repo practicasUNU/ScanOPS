@@ -35,6 +35,22 @@ services:
       timeout: 5s
       retries: 5
 
+  openvas:
+    image: immauss/openvas:latest
+    container_name: scanops-openvas
+    ports:
+      - "9392:9392"
+      - "9390:9390"
+    environment:
+      - USERNAME=admin
+      - PASSWORD=admin
+      - DB_PASSWORD=admin
+    volumes:
+      - openvas_data:/data
+    networks:
+      - scanops
+    restart: unless-stopped
+
   # services/asset_manager (M1)
   m1:
     build:
@@ -81,6 +97,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      openvas:
+        condition: service_started
     networks:
       - scanops
 
@@ -128,6 +146,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - openvas
     networks:
       - scanops
 
@@ -234,3 +253,4 @@ volumes:
   pgdata:
   trivy_data:
   zap_data:
+  openvas_data:
