@@ -4,12 +4,11 @@ from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
+# Solo templates HTTP ligeros — ssl/ y network/detection/ causan timeouts
 NUCLEI_TEMPLATES = [
     "http/technologies/",
-    "http/exposures/",
     "http/misconfiguration/",
-    "ssl/",
-    "network/detection/",
+    "http/exposures/",
 ]
 
 def run_nuclei_scan(target_ip: str, hostname: str = None):
@@ -20,15 +19,17 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
     else:
         targets = [f"http://{target_ip}", f"https://{target_ip}"]
 
+    logger.info("NUCLEI_TARGETS", targets=targets)
+
     cmd = [
         "nuclei",
         "-silent",
         "-jsonl",
-        "-timeout", "10",
+        "-timeout", "8",
         "-bulk-size", "5",
         "-rate-limit", "10",
-        "-retries", "2",
-        "-max-host-error", "5",
+        "-retries", "0",
+        "-max-host-error", "3",
         "-no-interactsh",
         "-follow-redirects",
     ]
@@ -40,7 +41,7 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
         cmd.extend(["-u", target])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         findings = []
 
         output = result.stdout or ""

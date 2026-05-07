@@ -128,5 +128,5 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     # Ejecutar en paralelo y llamar al callback al finalizar
     workflow = chord(group(tasks))(merge_and_persist_results.s(asset_id))
     
-    logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types)
+    logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types, hostname=asset_name)
     return {"status": "parallel_scans_initiated", "task_id": workflow.id}
