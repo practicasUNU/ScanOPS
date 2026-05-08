@@ -26,7 +26,7 @@ class TestHumanValidation:
             operator_id="USR-001"
         )
         
-        assert result["final_status"] == "approved"
+        assert result["final_status"] == "APPROVED"
         assert result["decision"] == "validada"
         assert result["operator_id"] == "USR-001"
         assert result["corrected_module"] is None
@@ -51,7 +51,7 @@ class TestHumanValidation:
             operator_id="USR-002"
         )
         
-        assert result["final_status"] == "approved_with_correction"
+        assert result["final_status"] == "APPROVED_WITH_CORRECTION"
         assert result["corrected_module"] == "exploit/windows/http/new_exploit"
 
     @pytest.mark.asyncio
@@ -73,7 +73,7 @@ class TestHumanValidation:
             operator_id="USR-003"
         )
         
-        assert result["final_status"] == "rejected"
+        assert result["final_status"] == "REJECTED"
 
     @pytest.mark.asyncio
     async def test_invalid_decision_raises_error(self):
@@ -110,7 +110,7 @@ class TestHumanValidation:
             operator_id="admin"
         )
         
-        assert result["final_status"] == "approved"
+        assert result["final_status"] == "APPROVED"
         assert result["approval_id"] == 99
         # Verificar que se llamó al INSERT
         called_queries = [call[0][0] for call in mock_cur.execute.call_args_list]
@@ -137,7 +137,7 @@ class TestHumanValidation:
             operator_id="admin"
         )
         
-        assert result["final_status"] == "approved_with_correction"
+        assert result["final_status"] == "APPROVED_WITH_CORRECTION"
         assert result["approval_id"] == 42
         # Verificar que se llamó al UPDATE
         called_queries = [call[0][0] for call in mock_cur.execute.call_args_list]
@@ -162,7 +162,7 @@ class TestHumanValidation:
             operator_id="admin"
         )
         
-        assert result["final_status"] == "rejected"
+        assert result["final_status"] == "REJECTED"
         assert result["approval_id"] == 101
         called_queries = [call[0][0] for call in mock_cur.execute.call_args_list]
         assert any("INSERT INTO m4_approvals" in q for q in called_queries)

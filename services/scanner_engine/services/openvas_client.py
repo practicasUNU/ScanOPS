@@ -83,18 +83,25 @@ class OpenVASClient:
                 logger.info("✓ Autenticación exitosa en OpenVAS GVM")
 
                 # 1. Crear Target
-                target_name = f"TGT_{asset_name}_{asset_id}"
                 response = gmp.create_target(
-                    name=target_name,
+                    name= target_name,
                     hosts=[asset_ip],
                     port_list_id="4a4717fe-57d2-11e1-9a26-406186ea4fc5"
                 )
                 logger.info(f"Target response attribs: {response.attrib}")
                 target_id = response.attrib.get("id")
                 if not target_id:
-                    logger.error(f"✗ No se obtuvo target_id. Response: {ET.tostring(response)}")
-                    return []
-                logger.info(f"✓ Target creado: {target_id}")
+                    # Target ya existe — buscarlo por nombre
+                    logger.info(f"Target ya existe, buscando por nombre: {target_name}")
+                    targets_resp = gmp.get_targets()
+                    for t in targets_resp.findall(".//target"):
+                        if t.find("name") is not None and t.find("name").text == target_name:
+                            target_id = t.attrib.get("id")
+                        break
+                    if not target_id:
+                        logger.error(f"No se pudo obtener target_id")
+                        return []
+                logger.info(f"Target ID: {target_id}")
 
                 # 2. Crear Task
                 task_name = f"TSK_{asset_name}_{asset_id}"

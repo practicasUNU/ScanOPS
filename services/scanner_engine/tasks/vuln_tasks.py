@@ -9,14 +9,14 @@ import time
 from typing import Dict, List, Any
 from datetime import datetime
 from celery import group, chord
+from celery.exceptions import SoftTimeLimitExceeded
 
 from shared.celery_app import app
 from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
-from services.scanner_engine.clients.openvas_client import OpenVASClient
-from services.scanner_engine.clients.nuclei_client import NucleiClient
 from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
+from services.scanner_engine.clients.nmap_client import run_nmap_scan
 
 logger = ScanLogger("scanner_tasks")
 
@@ -32,8 +32,20 @@ def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
         logger.error("NUCLEI_TASK_ERROR", error=str(e))
         return []
 
+@app.task(name="tasks.run_nmap_vulnerability_scan", queue="vulnerabilities")
+def run_nmap_task(asset_id: int, ip: str) -> List[Dict]:
+    """Ejecuta Nmap NSE y devuelve hallazgos sin persistir."""
+    logger.info("NMAP_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        findings = run_nmap_scan(asset_id, ip)
+        return findings
+    except Exception as e:
+        logger.error("NMAP_TASK_ERROR", error=str(e))
+        return []
+
 # --- TAREA: OPENVAS (US-3.1) ---
-@app.task(name="scanner.openvas.scan_asset", queue="scanner_tasks")
+@app.task(name="scanner.openvas.scan_asset", queue="heavy_scans",
+          time_limit=1800, soft_time_limit=1750)
 def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict]:
     """Ejecuta OpenVAS real y devuelve hallazgos normalizados."""
     logger.info("OPENVAS_TASK_START", ip=asset_ip)
@@ -44,6 +56,9 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
         client = loop.run_until_complete(get_openvas_client())
         findings = loop.run_until_complete(client.scan_asset(asset_id, asset_ip, asset_name))
         return [{"scanner": "OpenVAS", **f.to_dict()} for f in findings]
+    except SoftTimeLimitExceeded:
+        logger.error("OPENVAS_TASK_TIMEOUT", ip=asset_ip)
+        return []
     except Exception as e:
         logger.error("OPENVAS_TASK_ERROR", error=str(e))
         return []
@@ -78,15 +93,17 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     try:
         for f in all_findings:
             severity = f.get("severity", "INFO").upper()
+            raw_evidence = f.get("evidence", {})
+            evidence = raw_evidence if isinstance(raw_evidence, dict) else {"raw": str(raw_evidence)}
             vuln = VulnFinding(
                 asset_id=asset_id,
                 scan_id=scan_id,
-                vulnerability_id=f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC",
-                title=f.get("title", "Unknown Vulnerability"),
-                severity=severity,
+                vulnerability_id=(f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32],
+                title=f.get("title", "Unknown Vulnerability")[:255],
+                severity=severity[:16],
                 description=f.get("description", ""),
-                scanner_name=f.get("scanner", "Generic"),
-                evidence=f.get("evidence", {}),
+                scanner_name=f.get("scanner", "Generic")[:32],
+                evidence=evidence,
                 created_by="system-orchestrator"
             )
             db.add(vuln)
@@ -112,13 +129,13 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     Nuclei || OpenVAS || Nikto -> merge_and_persist_results
     """
     if not scan_types:
-        scan_types = ["nuclei", "openvas", "nikto"]
+        scan_types = ["nuclei", "nmap", "nikto"]
     
     tasks = []
     if "nuclei" in scan_types:
         tasks.append(run_nuclei_task.s(asset_id, asset_ip, asset_name))
-    if "openvas" in scan_types:
-        tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
+    if "openvas" in scan_types or "nmap" in scan_types:
+        tasks.append(run_nmap_task.s(asset_id, asset_ip))
     if "nikto" in scan_types:
         tasks.append(run_nikto_task.s(asset_id, asset_ip))
 

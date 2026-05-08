@@ -64,8 +64,8 @@ from services.scanner_engine.services.export_results import (
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""
     scan_types: List[str] = Field(
-        default=["openvas", "nuclei", "nikto"],
-        description="Scanners to run: openvas, nuclei, nikto"
+        default=["nmap", "nuclei", "nikto"],
+        description="Scanners to run: nmap, nuclei, nikto"
     )
     description: Optional[str] = None
 
@@ -288,7 +288,7 @@ async def health_check() -> HealthResponse:
 @router.post("/batch", response_model=BatchScanResponse)
 async def batch_scan_assets(
     asset_ids: List[int] = Query(...),
-    scan_types: List[str] = Query(default=["openvas", "nuclei", "nikto"]),
+    scan_types: List[str] = Query(default=["nmap", "nuclei", "nikto"]),
 ) -> BatchScanResponse:
     """Start batch scan for multiple assets."""
     try:

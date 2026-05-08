@@ -126,7 +126,11 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --break-system-packages --no-cache-dir -r requirements.txt
-RUN apt-get update && apt-get install -y nmap && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    nmap \
+    dnsutils \
+    whois \
+    && rm -rf /var/lib/apt/lists/*
 COPY services/recon_engine /app/services/recon_engine
 COPY shared /app/shared
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD python3 -c "import requests; requests.get('http://localhost:8003/health')" || exit 1
@@ -139,6 +143,9 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     nmap \
     hydra \
+    sqlmap \
+    sshpass \
+    iputils-ping \
     git \
     gcc \
     python3-dev \
@@ -920,6 +927,22 @@ services:
       timeout: 5s
       retries: 5
 
+  openvas:
+    image: immauss/openvas:latest
+    container_name: scanops-openvas
+    ports:
+      - "9392:9392"
+      - "9390:9390"
+    environment:
+      - USERNAME=admin
+      - PASSWORD=admin
+      - DB_PASSWORD=admin
+    volumes:
+      - openvas_data:/data
+    networks:
+      - scanops
+    restart: unless-stopped
+
   # services/asset_manager (M1)
   m1:
     build:
@@ -966,6 +989,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      openvas:
+        condition: service_started
     networks:
       - scanops
 
@@ -1013,6 +1038,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - openvas
     networks:
       - scanops
 
@@ -1119,6 +1145,7 @@ volumes:
   pgdata:
   trivy_data:
   zap_data:
+  openvas_data:
 FILE:docker-compose.yml.bak
 version: "3.9"
 
@@ -5160,64 +5187,60 @@ fi
 wait $OLLAMA_PID
 FILE:services\ai_reasoning\prompts\system_attack_vector.yaml
 name: attack_vector_suggester
-version: "2.0"
+version: "2.5"
 us: "US-4.7"
 ens: "op.exp.2"
 temperature: 0.2
 top_p: 0.9
-max_tokens: [REDACTED]
-description: "Sugiere módulo MSF + payload óptimo para validación de vector de ataque. Output es propuesta para human-in-the-loop, nunca ejecución directa."
+description: "Generador de vectores de ataque exhaustivos con análisis técnico profundo para validación human-in-the-loop."
 
 system: |
-  Eres un pentester senior con 10 años de experiencia en Metasploit Framework y certificación ENS Alto. Tu función es analizar el contexto completo de un activo y sus vulnerabilidades confirmadas, y sugerir el módulo exacto de Metasploit y el payload óptimo para validar el vector de ataque más probable.
+  Eres un Arquitecto de Ciberseguridad Senior con 15 años de experiencia en Red Teaming y cumplimiento de ENS Alto[cite: 457].
+  Tu objetivo es realizar un análisis exhaustivo y técnico de la superficie de ataque del activo.
 
-  RESTRICCIONES CRÍTICAS:
-  - Solo sugiere módulos que existen realmente en Metasploit Framework. Si no estás seguro del módulo exacto, escribe "UNKNOWN" en msf_module y explícalo en attack_rationale.
-  - Tu output es una PROPUESTA para validación humana. No es una orden de ejecución.
-  - Prioriza exploits con bajo riesgo de crash del servicio (staged payloads antes que singles).
-  - Para Windows: preferir windows/x64/meterpreter/reverse_tcp.
-  - Para Linux: preferir cmd/unix/reverse_bash o linux/x64/meterpreter/reverse_tcp.
-  - Si hay múltiples opciones válidas, elige la de mayor reliability (>= 4 en MSF) y menor impacto en el servicio.
-  - estimated_service_impact debe ser honesto. No lo subestimes.
-  - Responde ÚNICAMENTE con JSON válido. Sin texto antes ni después. Sin markdown.
+  RESTRICCIONES DE EXHAUSTIVIDAD:
+  - En 'attack_rationale', no te limites a una frase. Debes proporcionar un análisis de 3 párrafos:
+    1. Análisis de Superficie: Relación entre los servicios expuestos y las vulnerabilidades detectadas.
+    2. Vector Crítico: Por qué el módulo MSF seleccionado es la opción más lógica frente a las alternativas.
+    3. Evaluación de Riesgo: Impacto técnico real en la disponibilidad e integridad del activo.
+  - Añade un campo nuevo 'technical_steps' detallando la secuencia lógica del ataque.
+  - Si el módulo es 'exploit/multi/ssh/openssh_version_5', explica por qué se intenta un ataque de regresión o compatibilidad si la versión detectada es superior.
 
-  SCHEMA DE RESPUESTA:
+  SCHEMA DE RESPUESTA OBLIGATORIO:
   {
-    "msf_module": "exploit/windows/smb/ms17_010_eternalblue",
-    "msf_payload": "windows/x64/meterpreter/reverse_tcp",
-    "msf_options": {"RHOSTS": "TARGET_IP", "LPORT": "4444"},
-    "alternative_module": "exploit/... o null",
-    "attack_rationale": "2-3 líneas explicando por qué este vector para este activo concreto",
+    "msf_module": "ruta/del/modulo",
+    "msf_payload": "payload/sugerido",
+    "msf_options": {"RHOSTS": "IP", "LPORT": "4444"},
+    "alternative_module": "ruta/alternativa o null",
+    "attack_rationale": "Mínimo 150 palabras de justificación técnica detallada.",
+    "technical_steps": [
+        "Paso 1: Descripción técnica...",
+        "Paso 2: Explotación de la vulnerabilidad X...",
+        "Paso 3: Post-explotación y persistencia sugerida..."
+    ],
     "risk_level": "bajo/medio/alto",
-    "estimated_service_impact": "ninguno/degradacion/caida_posible",
+    "estimated_service_impact": "análisis detallado del impacto",
     "ens_article": "op.exp.2",
     "confidence": "alto/medio/bajo"
   }
 
 user_template: |
-  FICHA COMPLETA DEL ACTIVO:
-  - ID: {asset_id}
-  - Hostname: {hostname}
-  - IP: {target_ip}
-  - OS: {os} {os_version}
-  - Criticidad ENS: {ens_criticality}
-  - Exposición: {exposure_level}
+  SOLICITUD DE ANÁLISIS DE VULNERABILIDAD PROFUNDO:
+  - ACTIVO: {hostname} ({target_ip})
+  - SISTEMA: {os} {os_version}
+  - CRITICIDAD ENS: {ens_criticality}
 
-  SERVICIOS EXPUESTOS (de M2):
+  EVIDENCIA TÉCNICA DE M2 (Reconocimiento):
   {open_services}
 
-  VULNERABILIDADES CONFIRMADAS (ya filtradas, no son FP):
+  HALLAZGOS DE M3 (Vulnerabilidades Confirmadas):
   {confirmed_cves}
 
-  HISTORIAL DE INTENTOS PREVIOS EN ESTE ACTIVO:
+  HISTORIAL Y RESTRICCIONES:
   {exploitation_history}
+  - Servicios Intocables: {critical_services_no_touch}
 
-  RESTRICCIONES OPERACIONALES:
-  - Ventana de mantenimiento: {maintenance_window}
-  - Sandbox disponible: {sandbox_available}
-  - Servicios que NO deben caer bajo ningún concepto: {critical_services_no_touch}
-
-  Sugiere el módulo de Metasploit y el vector de ataque óptimo.
+  Proporciona un Plan de Explotación Exhaustivo.
 FILE:services\ai_reasoning\prompts\system_ens_mapper.yaml
 name: ens_article_mapper
 version: "1.0"
@@ -11641,8 +11664,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from config import DB_CONFIG, TARGETS, EXPLOITS
     from kill_switch_service import kill_switch_svc
-    from exploit_executor import get_executor
-    from msf_client import get_msf_client, get_fresh_msf_client
+    from sqlmap_executor import get_sqlmap_executor
     from hydra_executor import get_hydra_executor
     from netexec_client import get_netexec_client
     from production_monitor import get_monitor
@@ -11672,10 +11694,9 @@ class M4Orchestrator:
 
     def __init__(self, db_config=None):
         self.db_config = db_config or DB_CONFIG
-        self.executor = get_executor()
+        self.sqlmap = get_sqlmap_executor()
         self.hydra_executor = get_hydra_executor()
         self.netexec = get_netexec_client()
-        self.msf = get_fresh_msf_client()
         self.approval_svc = ApprovalService(db_config)
 
     def _get_connection(self):
@@ -11686,6 +11707,21 @@ class M4Orchestrator:
         Ejecuta orquestación completa:
         Monitor + Password Cracking + Exploits.
         """
+        try:
+            return self._run_internal(approval_id)
+        except Exception as e:
+            logger.error(f"💥 ERROR CRÍTICO EN ORQUESTADOR: {str(e)}", exc_info=True)
+            return {
+                'success': False,
+                'status': 'error',
+                'error': str(e),
+                'hydra_cracks': 0,
+                'exploits_executed': 0,
+                'exploits_failed': 0,
+                'aborted': True
+            }
+
+    def _run_internal(self, approval_id: Optional[int] = None) -> Dict:
         logger.info("=" * 80)
         logger.info("🚀 INICIANDO M4 ORCHESTRATOR - MÓDULO DE EXPLOTACIÓN")
         logger.info("=" * 80)
@@ -11702,20 +11738,7 @@ class M4Orchestrator:
                 'reason': 'Kill switch active at startup'
             }
 
-        # 2. AUTENTICAR CON MSF
-        logger.info("🔐 Autenticando con Metasploit...")
-        if not self.msf.login():
-            logger.error("❌ Error autenticando con MSF")
-            return {
-                'success': False,
-                'hydra_cracks': 0,
-                'exploits_executed': 0,
-                'exploits_failed': 0,
-                'aborted': False,
-                'reason': 'MSF authentication failed'
-            }
-
-        # 3. OBTENER APROBACIONES
+        # 2. OBTENER APROBACIONES
         approvals = self._get_pending_approvals(approval_id)
 
         if not approvals:
@@ -11861,43 +11884,45 @@ class M4Orchestrator:
                         'reason': 'Kill switch activated during lateral movement phase'
                     }
 
-                # ═══════════════════════════════════════════════════════════
-                # FASE 2: EXPLOITS METASPLOIT (US-5.5)
-                # ═══════════════════════════════════════════════════════════
+                # ═══════════════════════════════════════════════════════
+                # FASE 2: SQLMAP EXPLOITATION (US-5.5)
+                # ═══════════════════════════════════════════════════════
 
-                logger.info("🚀 FASE 2: Exploits Metasploit")
+                logger.info("💉 FASE 2: SQLMap Exploitation")
 
-                vuln_info = self._get_vulnerability_info(cve)
-
-                if not vuln_info:
-                    logger.error(f"❌ No se encontró info de {cve}")
-                    exploits_failed += 1
-                    continue
-
-                result = self.executor.execute(
-                    cve=cve,
-                    target_ip=target_ip,
-                    target_port=vuln_info.get('port', 445),
-                    msf_module=vuln_info.get('msf_module', 'exploit/windows/smb/ms17_010'),
-                    payload=vuln_info.get('payload', 'generic/shell_reverse_tcp'),
+                target_url = f"http://{target_ip}"
+                sqlmap_result = self.sqlmap.scan(
+                    target_url=target_url,
                     approval_id=approval_id,
                     executor_email=approval.get('requester', 'system@scanops'),
                     ip_origin='127.0.0.1'
                 )
 
-                if result['success']:
-                    logger.info(f"✅ Exploit exitoso en {approval_id}")
+                if sqlmap_result['success']:
+                    if sqlmap_result['vulnerable']:
+                        logger.info(f"✅ SQLMap encontró inyecciones en {target_url}")
+                        logger.info(f"   Inyecciones: {sqlmap_result['injections_found']}")
+                    else:
+                        logger.info(f"⚠️ SQLMap no encontró inyecciones en {target_url}")
                     self._update_approval_status(approval_id, 'EXECUTED')
                     exploits_executed += 1
                 else:
-                    logger.error(f"❌ Exploit fallido: {result['error']}")
+                    logger.error(f"❌ SQLMap falló: {sqlmap_result['error']}")
                     self._update_approval_status(approval_id, 'FAILED')
                     exploits_failed += 1
 
-                # CHECK KILL SWITCH DESPUÉS DE EXPLOIT (manual o automático)
+                # Save sqlmap result to DB
+                self._save_sqlmap_result(
+                    approval_id=approval_id,
+                    target_url=target_url,
+                    result=sqlmap_result,
+                    executor_email=approval.get('requester', 'system@scanops'),
+                    ip_origin='127.0.0.1'
+                )
+
+                # CHECK KILL SWITCH DESPUÉS DE SQLMAP
                 if kill_switch_svc.is_active():
-                    logger.warning(f"🛑 KILL SWITCH activado durante exploit")
-                    self.executor.abort_all_exploits()
+                    logger.warning(f"🛑 KILL SWITCH activado durante sqlmap")
                     return {
                         'success': False,
                         'hydra_cracks': hydra_cracks,
@@ -12179,6 +12204,38 @@ class M4Orchestrator:
             if conn:
                 conn.close()
 
+    def _save_sqlmap_result(self, approval_id, target_url, result, executor_email, ip_origin):
+        """Persiste resultado de sqlmap en exploit_results."""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO exploit_results (
+                            approval_id, cve_id, target_ip, target_port,
+                            msf_module, payload, success, started_at,
+                            ended_at, duration_seconds, output,
+                            executor_email, ip_origin
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        approval_id,
+                        'SQLMap-Scan',
+                        target_url,
+                        80,
+                        'sqlmap/http/injection',
+                        'sql_injection',
+                        result['vulnerable'],
+                        result['started_at'],
+                        result['ended_at'],
+                        result['duration'],
+                        result['output'][:2000],
+                        executor_email,
+                        ip_origin
+                    ))
+                    conn.commit()
+                    logger.info(f"✅ Resultado sqlmap guardado para approval {approval_id}")
+        except Exception as e:
+            logger.error(f"❌ Error guardando resultado sqlmap: {e}")
+
 # Singleton instance
 _orchestrator = None
 
@@ -12194,7 +12251,7 @@ if __name__ == "__main__":
     result = orchestrator.run()
     print(f"\nResultado: {result}")
 FILE:services\exploit_engine\main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from services.exploit_engine.api.approval_api import router as approval_router
 from services.exploit_engine.api.cancel_api import router as cancel_router
@@ -12221,6 +12278,8 @@ async def execute_m4(approval_id: int):
     from services.exploit_engine.m4_orchestrator import get_orchestrator
     orchestrator = get_orchestrator()
     result = orchestrator.run(approval_id)
+    if result.get('status') == 'error':
+        raise HTTPException(status_code=500, detail=result.get('error'))
     return result
 FILE:services\exploit_engine\msf_client.py
 """
@@ -13499,6 +13558,181 @@ def get_monitor(config=None) -> ProductionMonitor:
     elif _monitor is None:
         _monitor = ProductionMonitor()
     return _monitor
+FILE:services\exploit_engine\sqlmap_executor.py
+"""
+SQLMap Executor
+Ejecuta sqlmap contra targets HTTP para explotar inyecciones SQL.
+Integrado con Kill Switch para cancelación en tiempo real.
+"""
+
+import subprocess
+import logging
+import os
+from datetime import datetime
+from typing import Dict, Optional
+
+logger = logging.getLogger("SQLMapExecutor")
+
+class SQLMapExecutor:
+    """
+    Ejecuta sqlmap contra targets HTTP.
+    Detecta inyecciones SQL en parámetros GET/POST.
+    """
+
+    def __init__(self):
+        self.sqlmap_path = os.getenv('SQLMAP_PATH', 'sqlmap')
+        self.timeout = int(os.getenv('SQLMAP_TIMEOUT', '120'))
+
+    def scan(
+        self,
+        target_url: str,
+        approval_id: int,
+        executor_email: str,
+        ip_origin: str,
+        extra_args: Optional[list] = None
+    ) -> Dict:
+        """
+        Ejecuta sqlmap contra una URL target.
+
+        Returns:
+            {
+                success: bool,
+                vulnerable: bool,
+                injections_found: list,
+                target_url: str,
+                output: str,
+                error: str or None,
+                started_at: str,
+                ended_at: str,
+                duration: int
+            }
+        """
+        started_at = datetime.now()
+        logger.info(f"🎯 Iniciando sqlmap contra {target_url}")
+
+        try:
+            from kill_switch_service import kill_switch_svc
+            if kill_switch_svc.is_active():
+                logger.warning("🛑 Kill switch activo, abortando sqlmap")
+                return {
+                    'success': False,
+                    'vulnerable': False,
+                    'injections_found': [],
+                    'target_url': target_url,
+                    'output': '',
+                    'error': 'Kill switch activo',
+                    'started_at': started_at.isoformat(),
+                    'ended_at': datetime.now().isoformat(),
+                    'duration': 0
+                }
+        except ImportError:
+            pass
+
+        cmd = [
+            self.sqlmap_path,
+            '-u', target_url,
+            '--batch',
+            '--level=1',
+            '--risk=1',
+            '--timeout=10',
+            '--retries=1',
+            '--output-dir=/tmp/sqlmap_output',
+            '--forms',
+            '--crawl=1',
+            '-v', '0'
+        ]
+
+        if extra_args:
+            cmd.extend(extra_args)
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout
+            )
+
+            output = result.stdout + result.stderr
+            ended_at = datetime.now()
+            duration = int((ended_at - started_at).total_seconds())
+
+            vulnerable = any(keyword in output for keyword in [
+                'is vulnerable',
+                'Parameter:',
+                'Type: ',
+                'is injectable',
+                'sqlmap identified'
+            ])
+
+            injections_found = []
+            for line in output.split('\n'):
+                if 'Parameter:' in line or 'Type:' in line:
+                    injections_found.append(line.strip())
+
+            logger.info(f"{'✅ Vulnerable' if vulnerable else '⚠️ No vulnerable'}: {target_url}")
+
+            return {
+                'success': True,
+                'vulnerable': vulnerable,
+                'injections_found': injections_found,
+                'target_url': target_url,
+                'output': output[:5000],
+                'error': None,
+                'started_at': started_at.isoformat(),
+                'ended_at': ended_at.isoformat(),
+                'duration': duration
+            }
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"⏱️ sqlmap timeout en {target_url}")
+            return {
+                'success': False,
+                'vulnerable': False,
+                'injections_found': [],
+                'target_url': target_url,
+                'output': '',
+                'error': 'Timeout',
+                'started_at': started_at.isoformat(),
+                'ended_at': datetime.now().isoformat(),
+                'duration': self.timeout
+            }
+
+        except FileNotFoundError:
+            logger.error("❌ sqlmap no encontrado en el sistema")
+            return {
+                'success': False,
+                'vulnerable': False,
+                'injections_found': [],
+                'target_url': target_url,
+                'output': '',
+                'error': 'sqlmap not found',
+                'started_at': started_at.isoformat(),
+                'ended_at': datetime.now().isoformat(),
+                'duration': 0
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Error ejecutando sqlmap: {e}")
+            return {
+                'success': False,
+                'vulnerable': False,
+                'injections_found': [],
+                'target_url': target_url,
+                'output': '',
+                'error': str(e),
+                'started_at': started_at.isoformat(),
+                'ended_at': datetime.now().isoformat(),
+                'duration': 0
+            }
+
+_sqlmap_executor = None
+
+def get_sqlmap_executor() -> SQLMapExecutor:
+    global _sqlmap_executor
+    if _sqlmap_executor is None:
+        _sqlmap_executor = SQLMapExecutor()
+    return _sqlmap_executor
 FILE:services\exploit_engine\tasks.py
 
 FILE:services\exploit_engine\api\__init__.py
@@ -15361,6 +15595,147 @@ def test_monitor_loop_ssh_unavailable(mock_trigger, mock_check_all, monitor):
     monitor._monitor_loop()
 
     mock_trigger.assert_not_called()
+FILE:services\exploit_engine\tests\test_sqlmap_executor.py
+"""
+Tests for SQLMapExecutor
+"""
+
+import subprocess
+import sys
+import os
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from sqlmap_executor import SQLMapExecutor, get_sqlmap_executor
+
+@pytest.fixture(autouse=True)
+def reset_singleton():
+    import sqlmap_executor
+    sqlmap_executor._sqlmap_executor = None
+    yield
+    sqlmap_executor._sqlmap_executor = None
+
+def _make_completed_process(stdout='', stderr='', returncode=0):
+    result = MagicMock(spec=subprocess.CompletedProcess)
+    result.stdout = stdout
+    result.stderr = stderr
+    result.returncode = returncode
+    return result
+
+class TestSQLMapExecutorScan:
+
+    def test_returns_success_not_vulnerable_when_no_injection_found(self):
+        executor = SQLMapExecutor()
+        clean_output = "all tested parameters do not appear to be injectable"
+
+        with patch('subprocess.run', return_value=_make_completed_process(stdout=clean_output)):
+            result = executor.scan(
+                target_url='http://example.com',
+                approval_id=1,
+                executor_email='tester@test.com',
+                ip_origin='127.0.0.1'
+            )
+
+        assert result['success'] is True
+        assert result['vulnerable'] is False
+        assert result['injections_found'] == []
+        assert result['target_url'] == 'http://example.com'
+        assert result['error'] is None
+
+    def test_returns_vulnerable_true_when_output_contains_is_vulnerable(self):
+        executor = SQLMapExecutor()
+        vuln_output = "GET parameter 'id' is vulnerable. Do you want to keep testing the others"
+
+        with patch('subprocess.run', return_value=_make_completed_process(stdout=vuln_output)):
+            result = executor.scan(
+                target_url='http://example.com/page?id=1',
+                approval_id=2,
+                executor_email='tester@test.com',
+                ip_origin='127.0.0.1'
+            )
+
+        assert result['success'] is True
+        assert result['vulnerable'] is True
+
+    def test_returns_failure_sqlmap_not_found_on_file_not_found_error(self):
+        executor = SQLMapExecutor()
+
+        with patch('subprocess.run', side_effect=FileNotFoundError):
+            result = executor.scan(
+                target_url='http://example.com',
+                approval_id=3,
+                executor_email='tester@test.com',
+                ip_origin='127.0.0.1'
+            )
+
+        assert result['success'] is False
+        assert result['vulnerable'] is False
+        assert result['error'] == 'sqlmap not found'
+
+    def test_returns_failure_timeout_on_timeout_expired(self):
+        executor = SQLMapExecutor()
+
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd='sqlmap', timeout=120)):
+            result = executor.scan(
+                target_url='http://example.com',
+                approval_id=4,
+                executor_email='tester@test.com',
+                ip_origin='127.0.0.1'
+            )
+
+        assert result['success'] is False
+        assert result['vulnerable'] is False
+        assert result['error'] == 'Timeout'
+
+    def test_returns_failure_when_kill_switch_is_active(self):
+        executor = SQLMapExecutor()
+        mock_kill_switch = MagicMock()
+        mock_kill_switch.is_active.return_value = True
+
+        with patch.dict('sys.modules', {'kill_switch_service': MagicMock(kill_switch_svc=mock_kill_switch)}):
+            result = executor.scan(
+                target_url='http://example.com',
+                approval_id=5,
+                executor_email='tester@test.com',
+                ip_origin='127.0.0.1'
+            )
+
+        assert result['success'] is False
+        assert result['vulnerable'] is False
+        assert result['error'] == 'Kill switch activo'
+
+    def test_injections_found_parsed_from_parameter_and_type_lines(self):
+        executor = SQLMapExecutor()
+        vuln_output = (
+            "sqlmap identified the following injection point(s)\n"
+            "Parameter: id (GET)\n"
+            "    Type: boolean-based blind\n"
+            "    Title: AND boolean-based blind\n"
+        )
+
+        with patch('subprocess.run', return_value=_make_completed_process(stdout=vuln_output)):
+            result = executor.scan(
+                target_url='http://example.com/page?id=1',
+                approval_id=6,
+                executor_email='tester@test.com',
+                ip_origin='127.0.0.1'
+            )
+
+        assert result['vulnerable'] is True
+        assert any('Parameter:' in line for line in result['injections_found'])
+        assert any('Type:' in line for line in result['injections_found'])
+
+class TestGetSQLMapExecutorSingleton:
+
+    def test_get_sqlmap_executor_returns_same_instance(self):
+        instance_a = get_sqlmap_executor()
+        instance_b = get_sqlmap_executor()
+
+        assert instance_a is instance_b
+        assert isinstance(instance_a, SQLMapExecutor)
 FILE:services\recon_engine\__init__.py
 """Recon Engine - M2 Microservice"""
 __version__ = "1.0.0"
@@ -15634,8 +16009,22 @@ Separación de responsabilidades: M2 (Recon) vs M3 (Scanner).
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime
+
+class HttpHeaders(BaseModel):
+    server: Optional[str] = None
+    x_powered_by: Optional[str] = None
+    x_frame_options: Optional[str] = None
+    x_content_type_options: Optional[str] = None
+    strict_transport_security: Optional[str] = None
+    content_security_policy: Optional[str] = None
+
+class TlsInfo(BaseModel):
+    tls_version: Optional[str] = None
+    cert_expiry: Optional[str] = None
+    cert_issuer: Optional[str] = None
+    days_until_expiry: Optional[int] = None
 
 class PortDiscovery(BaseModel):
     """Puerto descubierto — datos técnicos puros (M2)."""
@@ -15646,6 +16035,8 @@ class PortDiscovery(BaseModel):
     version: str
     product: Optional[str] = None
     confidence: float = Field(0.0, ge=0.0, le=1.0)
+    http_headers: Optional[HttpHeaders] = None
+    tls_info: Optional[TlsInfo] = None
 
 class OSInformation(BaseModel):
     """Detección de SO (M2)."""
@@ -15659,12 +16050,30 @@ class HostInformation(BaseModel):
     mac_address: Optional[str] = None
     vendor: Optional[str] = None
     latency_ms: Optional[float] = None
+    asn: Optional[str] = None
+    asn_description: Optional[str] = None
+    country: Optional[str] = None
+
+class DomainRecon(BaseModel):
+    domain: str
+    dns_records: Dict[str, Any]
+    spf_record: Optional[str] = None
+    dmarc_record: Optional[str] = None
+    whois_info: Dict[str, Any]
+    scanned_at: str
+
+class SubdomainInfo(BaseModel):
+    subdomain: str
+    resolved_ip: Optional[str] = None
+    source: str = "subfinder"
 
 class ReconData(BaseModel):
     """Bloque principal de reconocimiento."""
     ports_discovered: List[PortDiscovery] = []
     os_information: Optional[OSInformation] = None
     host_information: Optional[HostInformation] = None
+    domain_recon: Optional[DomainRecon] = None
+    subdomains: List[SubdomainInfo] = []
 
 class ChangeDetection(BaseModel):
     """Detección de cambios respecto a snapshot anterior."""
@@ -15675,7 +16084,11 @@ class ChangeDetection(BaseModel):
 class ReconSummary(BaseModel):
     """Resumen cuantitativo (M2). SIN severidades."""
     total_ports_open: int = 0
+    total_ports_filtered: int = 0
     total_services_detected: int = 0
+    total_subdomains: int = 0
+    ssl_active: bool = False
+    firewall_detected: bool = False
     scan_duration_seconds: float = 0.0
 
 class ReconSnapshotSchema(BaseModel):
@@ -15703,6 +16116,8 @@ Captura banners de servicios en puertos abiertos usando asyncio.
 
 import asyncio
 import re
+import ssl
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from shared.scan_logger import ScanLogger
@@ -15711,83 +16126,176 @@ logger = ScanLogger("banner_grabber")
 
 TIMEOUT = 3.0
 
-# Mapeo básico de firmas comunes para extracción de versiones
 SIGNATURES = {
     "ssh": r"SSH-([\d\.]+)-([\w\._-]+)",
     "ftp": r"220[\s-]([\w\._-]+)",
-    "http": r"Server: ([\w\._\s\-\/]+)",
 }
+
+_HTTP_PORTS = {80, 443, 8080, 8443}
+_HTTPS_PORTS = {443, 8443}
+
+def _parse_http_response_headers(raw: str) -> Dict[str, str]:
+    headers: Dict[str, str] = {}
+    lines = raw.splitlines()
+    for line in lines[1:]:
+        if ":" in line:
+            k, _, v = line.partition(":")
+            headers[k.strip().lower()] = v.strip()
+    return headers
+
+def _extract_security_headers(headers: Dict[str, str]) -> Dict:
+    return {
+        "server": headers.get("server"),
+        "x_powered_by": headers.get("x-powered-by"),
+        "x_frame_options": headers.get("x-frame-options"),
+        "x_content_type_options": headers.get("x-content-type-options"),
+        "strict_transport_security": headers.get("strict-transport-security"),
+        "content_security_policy": headers.get("content-security-policy"),
+    }
+
+def _build_tls_info(cert: Optional[Dict], tls_version: Optional[str]) -> Dict:
+    info: Dict = {
+        "tls_version": tls_version,
+        "cert_expiry": None,
+        "cert_issuer": None,
+        "days_until_expiry": None,
+    }
+    if not cert:
+        return info
+    not_after = cert.get("notAfter")
+    if not_after:
+        try:
+            expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+            info["cert_expiry"] = expiry.isoformat()
+            info["days_until_expiry"] = (expiry - datetime.utcnow()).days
+        except ValueError:
+            pass
+    issuer = cert.get("issuer", ())
+    try:
+        issuer_dict = dict(x[0] for x in issuer)
+        info["cert_issuer"] = issuer_dict.get("organizationName") or issuer_dict.get("commonName")
+    except Exception:
+        pass
+    return info
 
 async def grab_banner(ip: str, port: int) -> Dict:
     """
-    Intenta capturar el banner de un puerto específico.
+    Captura el banner de un puerto específico.
+    Para HTTPS extrae TLS info y cabeceras de seguridad HTTP.
     """
-    result = {
+    result: Dict = {
         "port": port,
         "service": "unknown",
         "version": None,
-        "raw_banner": ""
+        "raw_banner": "",
+        "http_headers": None,
+        "tls_info": None,
     }
 
+    is_https = port in _HTTPS_PORTS
+    is_http = port in _HTTP_PORTS
+
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(ip, port),
-            timeout=TIMEOUT
-        )
+        if is_https:
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_OPTIONAL
 
-        # Algunos servicios envían el banner inmediatamente (SSH, FTP)
-        # Otros necesitan un probe (HTTP)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip, port, ssl=ssl_context),
+                timeout=TIMEOUT,
+            )
 
-        banner = ""
+            ssl_obj = writer.get_extra_info("ssl_object")
+            if ssl_obj:
+                try:
+                    result["tls_info"] = _build_tls_info(
+                        ssl_obj.getpeercert(), ssl_obj.version()
+                    )
+                except Exception as e:
+                    logger.debug("TLS_CERT_PARSE_ERROR", ip=ip, port=port, error=str(e))
 
-        # Lógica especial por puerto si es necesario
-        if port in [80, 443, 8080, 8443]:
-            writer.write(b"HEAD / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\n\r\n")
+            result["service"] = "https"
+
+            writer.write(
+                b"HEAD / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\nConnection: close\r\n\r\n"
+            )
             await writer.drain()
-            result["service"] = "http"
 
-        try:
-            data = await asyncio.wait_for(reader.read(1024), timeout=TIMEOUT)
-            banner = data.decode('utf-8', errors='ignore').strip()
-        except asyncio.TimeoutError:
-            pass
+            try:
+                data = await asyncio.wait_for(reader.read(4096), timeout=TIMEOUT)
+                banner = data.decode("utf-8", errors="ignore").strip()
+            except asyncio.TimeoutError:
+                banner = ""
 
-        writer.close()
-        await writer.wait_closed()
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
-        result["raw_banner"] = banner
+            result["raw_banner"] = banner
+            if banner:
+                parsed = _parse_http_response_headers(banner)
+                result["http_headers"] = _extract_security_headers(parsed)
+                server_val = parsed.get("server", "")
+                if server_val:
+                    result["version"] = server_val
 
-        # Identificación básica
-        if "SSH" in banner:
-            result["service"] = "ssh"
-            match = re.search(SIGNATURES["ssh"], banner)
-            if match:
-                result["version"] = match.group(2)
-        elif "220" in banner and ("FTP" in banner or "vsFTPd" in banner):
-            result["service"] = "ftp"
-            match = re.search(SIGNATURES["ftp"], banner)
-            if match:
-                result["version"] = match.group(1)
-        elif "HTTP" in banner or "Server:" in banner:
-            result["service"] = "http"
-            match = re.search(SIGNATURES["http"], banner)
-            if match:
-                result["version"] = match.group(1)
+        else:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip, port),
+                timeout=TIMEOUT,
+            )
 
-        # Si no hay versión pero hay banner, poner el banner corto
-        if not result["version"] and banner:
-            result["version"] = banner[:50].split('\n')[0]
+            if is_http:
+                writer.write(
+                    b"HEAD / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\nConnection: close\r\n\r\n"
+                )
+                await writer.drain()
+                result["service"] = "http"
 
-    except Exception as e:
-        # Fallo de conexión o timeout
+            try:
+                data = await asyncio.wait_for(reader.read(4096), timeout=TIMEOUT)
+                banner = data.decode("utf-8", errors="ignore").strip()
+            except asyncio.TimeoutError:
+                banner = ""
+
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+            result["raw_banner"] = banner
+
+            if is_http and banner:
+                parsed = _parse_http_response_headers(banner)
+                result["http_headers"] = _extract_security_headers(parsed)
+                server_val = parsed.get("server", "")
+                if server_val:
+                    result["version"] = server_val
+            elif "SSH" in banner:
+                result["service"] = "ssh"
+                match = re.search(SIGNATURES["ssh"], banner)
+                if match:
+                    result["version"] = match.group(2)
+            elif "220" in banner and ("FTP" in banner or "vsFTPd" in banner):
+                result["service"] = "ftp"
+                match = re.search(r"220[\s-]([\w\._-]+)", banner)
+                if match:
+                    result["version"] = match.group(1)
+
+            if not result["version"] and banner:
+                result["version"] = banner[:50].split("\n")[0]
+
+    except Exception:
         pass
 
     return result
 
 async def grab_all_banners(ip: str, ports: List[int]) -> List[Dict]:
-    """
-    Captura banners de una lista de puertos en paralelo.
-    """
+    """Captura banners de una lista de puertos en paralelo."""
     if not ports:
         return []
 
@@ -15796,7 +16304,6 @@ async def grab_all_banners(ip: str, ports: List[int]) -> List[Dict]:
     tasks = [grab_banner(ip, port) for port in ports]
     results = await asyncio.gather(*tasks)
 
-    # Filtrar resultados que no obtuvieron nada
     successful_results = [r for r in results if r["raw_banner"] or r["version"]]
 
     logger.info("BANNER_GRABBING_COMPLETE", count=len(successful_results))
@@ -15804,15 +16311,14 @@ async def grab_all_banners(ip: str, ports: List[int]) -> List[Dict]:
 FILE:services\recon_engine\services\dns_whois.py
 """
 DNS and WHOIS Service - Recon Engine
-Consultas de registros DNS e información de dominio (WHOIS).
+Consultas de registros DNS e información de dominio (WHOIS) y ASN.
 """
 
 import socket
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from datetime import datetime
 
-# Se asume que dnspython y python-whois están instalados
 try:
     import dns.resolver
     HAS_DNS = True
@@ -15829,54 +16335,117 @@ from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("dns_whois")
 
+def _lookup_asn_iana(target: str) -> Dict:
+    """Consulta ASN vía socket TCP a whois.iana.org (port 43). Sin dependencias extras."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5.0)
+        sock.connect(("whois.iana.org", 43))
+        sock.sendall((target + "\r\n").encode())
+        chunks = []
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        sock.close()
+        text = b"".join(chunks).decode("utf-8", errors="ignore")
+
+        asn = None
+        asn_desc = None
+        country = None
+        for line in text.splitlines():
+            lower = line.lower().strip()
+            if lower.startswith("origin:") or lower.startswith("aut-num:"):
+                asn = line.split(":", 1)[1].strip()
+            elif lower.startswith("descr:") and asn_desc is None:
+                asn_desc = line.split(":", 1)[1].strip()
+            elif lower.startswith("country:") and country is None:
+                country = line.split(":", 1)[1].strip().upper()
+        return {"asn": asn, "asn_description": asn_desc, "country": country}
+    except Exception as e:
+        logger.info("ASN_IANA_LOOKUP_FAILED", target=target, error=str(e))
+        return {"asn": None, "asn_description": None, "country": None}
+
+async def get_asn_info(target: str) -> Dict:
+    """
+    Obtiene ASN, descripción y país para una IP o dominio.
+    Intenta python-whois primero; usa IANA como fallback.
+    Nunca bloquea el flujo principal — retorna nulls en caso de error.
+    """
+    result = {"asn": None, "asn_description": None, "country": None}
+    try:
+        if HAS_WHOIS:
+            w = whois.whois(target)
+            asn = getattr(w, "asn", None)
+            if asn:
+                result["asn"] = str(asn)
+                result["asn_description"] = getattr(w, "asn_description", None)
+                result["country"] = getattr(w, "country", None)
+                return result
+        # Fallback: IANA socket
+        result = _lookup_asn_iana(target)
+    except Exception as e:
+        logger.info("ASN_LOOKUP_FAILED", target=target, error=str(e))
+        result = _lookup_asn_iana(target)
+    return result
+
 async def get_dns_info(domain: str) -> Dict:
     """
-    Realiza consultas DNS (A, MX, TXT, NS).
+    Realiza consultas DNS (A, MX, TXT, NS, CNAME).
+    Detecta SPF en registros TXT.
     """
-    results = {
+    results: Dict = {
         "A": [],
         "MX": [],
         "TXT": [],
-        "NS": []
+        "NS": [],
+        "CNAME": [],
+        "spf_record": None,
     }
 
     if not HAS_DNS:
         logger.warning("DNS_LIB_MISSING", hint="Install dnspython")
-        # Fallback básico para registro A usando socket
         try:
             results["A"] = [socket.gethostbyname(domain)]
-        except:
+        except Exception:
             pass
         return results
 
-    records = ["A", "MX", "TXT", "NS"]
-
-    for record in records:
+    for record in ["A", "MX", "TXT", "NS", "CNAME"]:
         try:
             answers = dns.resolver.resolve(domain, record)
             for rdata in answers:
                 if record == "MX":
                     results[record].append({
-                        "host": str(rdata.exchange).strip('.'),
-                        "priority": rdata.preference
+                        "host": str(rdata.exchange).strip("."),
+                        "priority": rdata.preference,
                     })
                 else:
                     results[record].append(str(rdata).strip('"'))
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers, Exception) as e:
-            logger.debug("DNS_QUERY_NO_DATA", domain=domain, record=record, error=str(e))
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN,
+                dns.resolver.NoNameservers, Exception) as e:
+            logger.info("DNS_QUERY_NO_DATA", domain=domain, record=record, error=str(e))
+
+    # SPF detection from TXT records
+    for txt in results["TXT"]:
+        if isinstance(txt, str) and txt.startswith("v=spf1"):
+            results["spf_record"] = txt
+            break
 
     return results
 
 async def get_whois_info(domain: str) -> Dict:
-    """
-    Extrae información WHOIS del dominio.
-    """
+    """Extrae información WHOIS incluyendo ASN cuando está disponible."""
     results = {
         "registrar": None,
         "creation_date": None,
         "expiration_date": None,
         "name_servers": [],
-        "status": None
+        "status": None,
+        "asn": None,
+        "asn_description": None,
+        "country": None,
     }
 
     if not HAS_WHOIS:
@@ -15884,16 +16453,14 @@ async def get_whois_info(domain: str) -> Dict:
         return results
 
     try:
-        # La librería whois es bloqueante, pero para una sola consulta suele ser rápida
         w = whois.whois(domain)
 
         results["registrar"] = w.registrar
 
-        # Las fechas pueden ser una lista o un datetime simple
         def parse_date(date_val):
             if isinstance(date_val, list):
                 return date_val[0].isoformat() if date_val else None
-            return date_val.isoformat() if hasattr(date_val, 'isoformat') else str(date_val)
+            return date_val.isoformat() if hasattr(date_val, "isoformat") else str(date_val) if date_val else None
 
         results["creation_date"] = parse_date(w.creation_date)
         results["expiration_date"] = parse_date(w.expiration_date)
@@ -15903,30 +16470,56 @@ async def get_whois_info(domain: str) -> Dict:
 
         results["status"] = w.status[0] if isinstance(w.status, list) else w.status
 
+        # ASN fields (available for some TLDs/IPs via python-whois)
+        asn_val = getattr(w, "asn", None)
+        if asn_val:
+            results["asn"] = str(asn_val)
+            results["asn_description"] = getattr(w, "asn_description", None)
+        results["country"] = getattr(w, "country", None)
+
     except Exception as e:
         logger.error("WHOIS_QUERY_FAILED", domain=domain, error=str(e))
 
     return results
 
+async def _get_dmarc_record(domain: str) -> Optional[str]:
+    """Consulta registro DMARC en _dmarc.<domain>."""
+    if not HAS_DNS:
+        return None
+    try:
+        answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT")
+        for rdata in answers:
+            txt = str(rdata).strip('"')
+            if "DMARC1" in txt or "v=DMARC" in txt.upper():
+                return txt
+        # Return first TXT if none matched explicitly
+        for rdata in answers:
+            return str(rdata).strip('"')
+    except Exception as e:
+        logger.info("DMARC_QUERY_FAILED", domain=domain, error=str(e))
+    return None
+
 async def get_domain_recon(domain: str) -> Dict:
-    """
-    Orquesta la recolección de información DNS y WHOIS.
-    """
+    """Orquesta DNS, WHOIS, SPF y DMARC para un dominio."""
     logger.info("DOMAIN_RECON_START", domain=domain)
 
-    # Ejecutamos ambos en paralelo si es posible
-    # Aunque whois es bloqueante, en un wrapper async no hay problema mayor
-    # para una sola tarea
     dns_data = await get_dns_info(domain)
     whois_data = await get_whois_info(domain)
+
+    # SPF is extracted from TXT records inside get_dns_info
+    spf_record = dns_data.pop("spf_record", None)
+
+    dmarc_record = await _get_dmarc_record(domain)
 
     logger.info("DOMAIN_RECON_COMPLETE", domain=domain)
 
     return {
         "domain": domain,
         "dns_records": dns_data,
+        "spf_record": spf_record,
+        "dmarc_record": dmarc_record,
         "whois_info": whois_data,
-        "scanned_at": datetime.utcnow().isoformat()
+        "scanned_at": datetime.utcnow().isoformat(),
     }
 FILE:services\recon_engine\services\scanner_hardening.py
 import paramiko
@@ -16253,6 +16846,7 @@ NO realiza análisis de vulnerabilidades ni severidades.
 """
 
 import asyncio
+import re
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
@@ -16263,10 +16857,15 @@ from shared.database import SessionLocal
 from services.recon_engine.models.recon import ReconSnapshot, ReconFinding, ReconSubdomain
 from services.recon_engine.models.schemas import (
     ReconSnapshotSchema, PortDiscovery, OSInformation,
-    HostInformation, ReconData, ReconSummary
+    HostInformation, ReconData, ReconSummary, DomainRecon, SubdomainInfo,
+    HttpHeaders, TlsInfo,
 )
+from services.recon_engine.services.dns_whois import get_domain_recon, get_asn_info
+from services.recon_engine.services.banner_grabber import grab_all_banners
 
 logger = ScanLogger("scanner_network")
+
+_IP_PATTERN = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 async def _run_tool(cmd: List[str]) -> Tuple[str, str, int]:
     """Ejecuta herramienta externa de forma asíncrona."""
@@ -16274,145 +16873,148 @@ async def _run_tool(cmd: List[str]) -> Tuple[str, str, int]:
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout_bytes, stderr_bytes = await process.communicate()
         return (
-            stdout_bytes.decode('utf-8', errors='ignore'),
-            stderr_bytes.decode('utf-8', errors='ignore'),
-            process.returncode
+            stdout_bytes.decode("utf-8", errors="ignore"),
+            stderr_bytes.decode("utf-8", errors="ignore"),
+            process.returncode,
         )
     except Exception as e:
         logger.error("TOOL_EXECUTION_ERROR", cmd=" ".join(cmd), error=str(e))
         raise
 
-def parse_nmap_xml(xml_output: str) -> Tuple[List[PortDiscovery], Optional[OSInformation], Optional[HostInformation]]:
+def parse_nmap_xml(
+    xml_output: str,
+) -> Tuple[List[PortDiscovery], Optional[OSInformation], Optional[HostInformation], int]:
     """
-    Parsea el output XML de Nmap para extraer hechos técnicos.
-    M2: Solo reconocimiento.
+    Parsea el output XML de Nmap.
+    Devuelve (ports_open, os_info, host_info, filtered_count).
     """
-    ports_discovered = []
-    os_info = None
-    host_info = None
+    ports_discovered: List[PortDiscovery] = []
+    os_info: Optional[OSInformation] = None
+    host_info: Optional[HostInformation] = None
+    filtered_count = 0
 
     if not xml_output:
-        return ports_discovered, os_info, host_info
+        return ports_discovered, os_info, host_info, filtered_count
 
     try:
         root = ET.fromstring(xml_output)
 
-        for host in root.findall('host'):
-            # Host Information
-            status = host.find('status')
-            if status is not None and status.get('state') != 'up':
+        for host in root.findall("host"):
+            status = host.find("status")
+            if status is not None and status.get("state") != "up":
                 continue
 
             address = host.find('address[@addrtype="ipv4"]')
-            ip = address.get('addr') if address is not None else "unknown"
+            ip = address.get("addr") if address is not None else "unknown"
 
-            # MAC and Vendor
             mac_addr_elem = host.find('address[@addrtype="mac"]')
-            mac_val = mac_addr_elem.get('addr') if mac_addr_elem is not None else None
-            vendor_val = mac_addr_elem.get('vendor') if mac_addr_elem is not None else None
+            mac_val = mac_addr_elem.get("addr") if mac_addr_elem is not None else None
+            vendor_val = mac_addr_elem.get("vendor") if mac_addr_elem is not None else None
 
-            # Latency
-            times = host.find('times')
+            times = host.find("times")
             latency = None
-            if times is not None and times.get('srtt'):
+            if times is not None and times.get("srtt"):
                 try:
-                    latency = float(times.get('srtt')) / 1000.0  # microseconds → ms
+                    latency = float(times.get("srtt")) / 1000.0
                 except (ValueError, TypeError):
                     latency = None
 
             host_info = HostInformation(
                 mac_address=mac_val,
                 vendor=vendor_val,
-                latency_ms=latency
+                latency_ms=latency,
             )
 
-            # Ports
-            ports_elem = host.find('ports')
+            ports_elem = host.find("ports")
             if ports_elem is not None:
-                for port_elem in ports_elem.findall('port'):
-                    state_elem = port_elem.find('state')
-                    if state_elem is not None and state_elem.get('state') == 'open':
-                        service_elem = port_elem.find('service')
+                for port_elem in ports_elem.findall("port"):
+                    state_elem = port_elem.find("state")
+                    if state_elem is None:
+                        continue
+                    state_val = state_elem.get("state")
 
-                        port_id = int(port_elem.get('portid'))
-                        protocol = port_elem.get('protocol')
-                        service_name = service_elem.get('name') if service_elem is not None else "unknown"
-                        product = service_elem.get('product') if service_elem is not None else None
-                        version = service_elem.get('version') if service_elem is not None else ""
-                        extrainfo = service_elem.get('extrainfo') if service_elem is not None else ""
+                    if state_val == "filtered":
+                        filtered_count += 1
+                        continue
+
+                    if state_val == "open":
+                        service_elem = port_elem.find("service")
+                        port_id = int(port_elem.get("portid"))
+                        protocol = port_elem.get("protocol")
+                        service_name = service_elem.get("name") if service_elem is not None else "unknown"
+                        product = service_elem.get("product") if service_elem is not None else None
+                        version = service_elem.get("version") if service_elem is not None else ""
+                        extrainfo = service_elem.get("extrainfo") if service_elem is not None else ""
 
                         parts = [p for p in [product, version, extrainfo] if p and p.strip()]
                         full_version = " ".join(parts) if parts else "unknown"
 
-                        # Confidence based on method
                         conf = 0.7
                         if service_elem is not None:
-                            method = service_elem.get('method')
-                            if method == 'probed': conf = 0.9
-                            elif method == 'table': conf = 0.5
+                            method = service_elem.get("method")
+                            if method == "probed":
+                                conf = 0.9
+                            elif method == "table":
+                                conf = 0.5
 
-                        ports_discovered.append(PortDiscovery(
-                            port=port_id,
-                            protocol=protocol,
-                            state="open",
-                            service=service_name,
-                            version=full_version or "unknown",
-                            product=product,
-                            confidence=conf
-                        ))
+                        ports_discovered.append(
+                            PortDiscovery(
+                                port=port_id,
+                                protocol=protocol,
+                                state="open",
+                                service=service_name,
+                                version=full_version or "unknown",
+                                product=product,
+                                confidence=conf,
+                            )
+                        )
 
-            # OS Information
-            os_elem = host.find('os')
+            os_elem = host.find("os")
             if os_elem is not None:
-                os_match = os_elem.find('osmatch')
+                os_match = os_elem.find("osmatch")
                 if os_match is not None:
-                    os_class = os_match.find('osclass')
-
-                    # Extraer CPE si existe
+                    os_class = os_match.find("osclass")
                     cpe_text = ""
                     if os_class is not None:
-                        cpe_elem = os_class.find('cpe')
+                        cpe_elem = os_class.find("cpe")
                         if cpe_elem is not None and cpe_elem.text:
                             cpe_text = cpe_elem.text
 
                     os_info = OSInformation(
-                        detected_family=os_class.get('osfamily', 'Unknown') if os_class is not None else 'Unknown',
-                        detected_version=os_match.get('name', 'Unknown'),
+                        detected_family=os_class.get("osfamily", "Unknown") if os_class is not None else "Unknown",
+                        detected_version=os_match.get("name", "Unknown"),
                         cpe=cpe_text or None,
-                        confidence=float(os_match.get('accuracy', '50')) / 100
+                        confidence=float(os_match.get("accuracy", "50")) / 100,
                     )
 
     except Exception as e:
         logger.error("XML_PARSE_ERROR", error=str(e))
 
-    return ports_discovered, os_info, host_info
+    return ports_discovered, os_info, host_info, filtered_count
 
-async def run_nmap_scan(target: str) -> Tuple[List[PortDiscovery], Optional[OSInformation], Optional[HostInformation]]:
+async def run_nmap_scan(
+    target: str,
+) -> Tuple[List[PortDiscovery], Optional[OSInformation], Optional[HostInformation], int]:
     """Ejecuta Nmap con detección de versiones y SO."""
     logger.info("NMAP_RECON_START", target=target)
 
-    # -sV: Version detection
-    # -O: OS detection
-    # -oX: XML output
-    # -T4: Aggressive timing
     cmd = ["nmap", "-sV", "-O", "--osscan-limit", "-T4", "-oX", "-", target]
 
     try:
         stdout, stderr, returncode = await _run_tool(cmd)
         if returncode != 0:
             logger.warning("NMAP_RECON_PARTIAL", error=stderr[:200])
-
         return parse_nmap_xml(stdout)
     except FileNotFoundError:
         logger.error("NMAP_NOT_INSTALLED")
-        return [], None, None
+        return [], None, None, 0
     except Exception as e:
         logger.error("NMAP_SCAN_ERROR", error=str(e))
-        return [], None, None
+        return [], None, None, 0
 
 async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> ReconSnapshotSchema:
     """
@@ -16421,7 +17023,6 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
     """
     start_time = datetime.utcnow()
 
-    # 1. Crear o recuperar snapshot usando cycle_id
     snapshot_db = db.query(ReconSnapshot).filter(
         ReconSnapshot.cycle_id == snapshot_id
     ).first()
@@ -16431,30 +17032,65 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
             cycle_id=snapshot_id,
             target=target,
             status="running",
-            started_at=start_time
+            started_at=start_time,
         )
         db.add(snapshot_db)
         db.commit()
         db.refresh(snapshot_db)
 
-    # 2. Ejecutar Nmap
-    ports, os_info, host_info = await run_nmap_scan(target)
+    # Determinar si el target es un hostname/dominio o IP pura
+    is_domain = not _IP_PATTERN.match(target)
 
-    # 3. Persistir puertos como ReconFinding (usando schema real)
+    if is_domain:
+        (ports, os_info, host_info, filtered_count), domain_recon_dict = await asyncio.gather(
+            run_nmap_scan(target),
+            get_domain_recon(target),
+        )
+    else:
+        ports, os_info, host_info, filtered_count = await run_nmap_scan(target)
+        domain_recon_dict = None
+
+    # Banner grabbing en paralelo sobre puertos abiertos
+    open_ports = [p.port for p in ports]
+    banners = await grab_all_banners(target, open_ports)
+
+    # Enriquecer ports con banner / TLS / HTTP headers
+    banner_map = {b["port"]: b for b in banners}
+    for port_obj in ports:
+        banner = banner_map.get(port_obj.port)
+        if banner:
+            raw_headers = banner.get("http_headers")
+            if raw_headers:
+                port_obj.http_headers = HttpHeaders(**raw_headers)
+            raw_tls = banner.get("tls_info")
+            if raw_tls:
+                port_obj.tls_info = TlsInfo(**raw_tls)
+
+    # Persistir findings
     for p in ports:
         finding = ReconFinding(
-            snapshot_id=snapshot_db.id,            # INTEGER (PK de snapshot)
+            snapshot_id=snapshot_db.id,
             host=target,
-            port=str(p.port),                      # VARCHAR en BD
+            port=str(p.port),
             service=p.service,
             version=p.version,
             state=p.state,
             source="nmap",
-            first_seen_snapshot_id=snapshot_db.id
+            first_seen_snapshot_id=snapshot_db.id,
         )
         db.add(finding)
 
-    # 4. Actualizar snapshot con OS y host info
+    # ASN para targets IP
+    if not is_domain and host_info:
+        try:
+            asn_info = await get_asn_info(target)
+            host_info.asn = asn_info.get("asn")
+            host_info.asn_description = asn_info.get("asn_description")
+            host_info.country = asn_info.get("country")
+        except Exception as e:
+            logger.debug("ASN_ENRICH_FAILED", target=target, error=str(e))
+
+    # Actualizar snapshot
     end_time = datetime.utcnow()
     scan_duration = (end_time - start_time).total_seconds()
     snapshot_db.status = "completed"
@@ -16474,27 +17110,53 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
     db.commit()
     db.refresh(snapshot_db)
 
-    # 5. Construir ReconData para response
+    # Recuperar subdominios persistidos
+    subdomains_db = db.query(ReconSubdomain).filter(
+        ReconSubdomain.snapshot_id == snapshot_db.id
+    ).all()
+    subdomains = [
+        SubdomainInfo(subdomain=s.subdomain, source=s.source or "subfinder")
+        for s in subdomains_db
+    ]
+
+    # Construir domain_recon schema si procede
+    domain_recon: Optional[DomainRecon] = None
+    if domain_recon_dict:
+        try:
+            domain_recon = DomainRecon(**domain_recon_dict)
+        except Exception as e:
+            logger.warning("DOMAIN_RECON_SCHEMA_ERROR", error=str(e))
+
+    # Calcular flags de superficie
+    ssl_active = any(p.port == 443 for p in ports)
+    firewall_detected = filtered_count > 0
+
     recon_data = ReconData(
         ports_discovered=ports,
         os_information=os_info,
-        host_information=host_info
+        host_information=host_info,
+        domain_recon=domain_recon,
+        subdomains=subdomains,
     )
 
     summary = ReconSummary(
         total_ports_open=len(ports),
+        total_ports_filtered=filtered_count,
         total_services_detected=len([p for p in ports if p.service != "unknown"]),
-        scan_duration_seconds=scan_duration
+        total_subdomains=len(subdomains),
+        ssl_active=ssl_active,
+        firewall_detected=firewall_detected,
+        scan_duration_seconds=scan_duration,
     )
 
     return ReconSnapshotSchema(
-        snapshot_id=snapshot_db.cycle_id,      # cycle_id como string
+        snapshot_id=snapshot_db.cycle_id,
         target=snapshot_db.target,
         status=snapshot_db.status,
-        created_at=snapshot_db.started_at,     # started_at → created_at
+        created_at=snapshot_db.started_at,
         finished_at=snapshot_db.finished_at,
         reconnaissance=recon_data,
-        summary=summary
+        summary=summary,
     )
 FILE:services\recon_engine\services\surface_diff.py
 """
@@ -17012,6 +17674,7 @@ def cleanup_database(test_session):
     test_session.commit()
 FILE:services\recon_engine\tests\test_banner_grabber.py
 import pytest
+import ssl
 import asyncio
 from unittest.mock import patch, AsyncMock, MagicMock
 from services.recon_engine.services.banner_grabber import grab_banner, grab_all_banners
@@ -17035,7 +17698,6 @@ async def test_grab_banner_ssh_success():
 async def test_grab_banner_http_success():
     """Test exitoso capturando banner de HTTP."""
     mock_reader = AsyncMock()
-    # Simulamos respuesta HTTP con header Server
     mock_reader.read.return_value = b"HTTP/1.1 200 OK\r\nServer: nginx/1.14.1\r\n\r\n"
     mock_writer = MagicMock()
 
@@ -17057,8 +17719,10 @@ async def test_grab_banner_timeout():
 async def test_grab_all_banners_parallel():
     """Verificar ejecución en paralelo de múltiples puertos."""
     mock_results = [
-        {"port": 22, "service": "ssh", "version": "v1", "raw_banner": "b1"},
-        {"port": 80, "service": "http", "version": "v2", "raw_banner": "b2"}
+        {"port": 22, "service": "ssh", "version": "v1", "raw_banner": "b1",
+         "http_headers": None, "tls_info": None},
+        {"port": 80, "service": "http", "version": "v2", "raw_banner": "b2",
+         "http_headers": None, "tls_info": None},
     ]
 
     with patch("services.recon_engine.services.banner_grabber.grab_banner", side_effect=mock_results):
@@ -17067,10 +17731,67 @@ async def test_grab_all_banners_parallel():
         assert len(results) == 2
         assert results[0]["port"] == 22
         assert results[1]["port"] == 80
+
+# ── Nuevos tests Capacidad 1 ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_tls_info_populated():
+    """Mock ssl handshake → tls_info.tls_version no es None."""
+    mock_reader = AsyncMock()
+    mock_reader.read.return_value = b"HTTP/1.1 200 OK\r\nServer: nginx\r\n\r\n"
+    mock_writer = MagicMock()
+
+    mock_ssl_obj = MagicMock()
+    mock_ssl_obj.getpeercert.return_value = {
+        "notAfter": "Nov  1 00:00:00 2027 GMT",
+        "issuer": ((("organizationName", "Let's Encrypt"),),),
+    }
+    mock_ssl_obj.version.return_value = "TLSv1.3"
+    mock_writer.get_extra_info.return_value = mock_ssl_obj
+
+    with patch("asyncio.open_connection", return_value=(mock_reader, mock_writer)):
+        result = await grab_banner("127.0.0.1", 443)
+
+    assert result["tls_info"] is not None
+    assert result["tls_info"]["tls_version"] == "TLSv1.3"
+    assert result["tls_info"]["cert_issuer"] == "Let's Encrypt"
+    assert result["tls_info"]["days_until_expiry"] is not None
+
+@pytest.mark.asyncio
+async def test_http_headers_extracted():
+    """Mock HEAD response con cabeceras → x_frame_options poblado."""
+    mock_reader = AsyncMock()
+    mock_reader.read.return_value = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"X-Frame-Options: SAMEORIGIN\r\n"
+        b"X-Content-Type-Options: nosniff\r\n"
+        b"Server: Apache/2.4.58\r\n\r\n"
+    )
+    mock_writer = MagicMock()
+
+    with patch("asyncio.open_connection", return_value=(mock_reader, mock_writer)):
+        result = await grab_banner("127.0.0.1", 80)
+
+    assert result["http_headers"] is not None
+    assert result["http_headers"]["x_frame_options"] == "SAMEORIGIN"
+    assert result["http_headers"]["x_content_type_options"] == "nosniff"
+    assert result["http_headers"]["server"] == "Apache/2.4.58"
+
+@pytest.mark.asyncio
+async def test_tls_failure_returns_null():
+    """Excepción SSL en puerto 443 → tls_info es None y no rompe el flujo."""
+    with patch("asyncio.open_connection", side_effect=ssl.SSLError("handshake failed")):
+        result = await grab_banner("127.0.0.1", 443)
+
+    assert result["tls_info"] is None
+    assert result["port"] == 443
+    assert result["raw_banner"] == ""
 FILE:services\recon_engine\tests\test_dns_whois.py
 import pytest
-from unittest.mock import patch, MagicMock
-from services.recon_engine.services.dns_whois import get_dns_info, get_whois_info, get_domain_recon
+from unittest.mock import patch, MagicMock, AsyncMock
+from services.recon_engine.services.dns_whois import (
+    get_dns_info, get_whois_info, get_domain_recon,
+)
 
 @pytest.mark.asyncio
 async def test_get_dns_info_success():
@@ -17078,7 +17799,6 @@ async def test_get_dns_info_success():
     mock_answer = [MagicMock(address="1.1.1.1")]
 
     with patch("dns.resolver.resolve", return_value=mock_answer):
-        # Forzamos HAS_DNS a True para el test
         with patch("services.recon_engine.services.dns_whois.HAS_DNS", True):
             result = await get_dns_info("google.com")
             assert "A" in result
@@ -17091,6 +17811,9 @@ async def test_get_whois_info_success():
     mock_whois.registrar = "Google LLC"
     mock_whois.creation_date = "1997-09-15"
     mock_whois.name_servers = ["ns1.google.com", "ns2.google.com"]
+    mock_whois.status = "active"
+    mock_whois.expiration_date = None
+    mock_whois.asn = None
 
     with patch("whois.whois", return_value=mock_whois):
         with patch("services.recon_engine.services.dns_whois.HAS_WHOIS", True):
@@ -17101,8 +17824,12 @@ async def test_get_whois_info_success():
 @pytest.mark.asyncio
 async def test_get_domain_recon_integration():
     """Test de la función orquestadora de DNS/WHOIS."""
-    with patch("services.recon_engine.services.dns_whois.get_dns_info", return_value={"A": ["1.2.3.4"]}), \
-         patch("services.recon_engine.services.dns_whois.get_whois_info", return_value={"registrar": "Test"}):
+    with patch("services.recon_engine.services.dns_whois.get_dns_info",
+               return_value={"A": ["1.2.3.4"], "spf_record": None}), \
+         patch("services.recon_engine.services.dns_whois.get_whois_info",
+               return_value={"registrar": "Test"}), \
+         patch("services.recon_engine.services.dns_whois._get_dmarc_record",
+               new_callable=AsyncMock, return_value=None):
 
         result = await get_domain_recon("example.com")
 
@@ -17113,12 +17840,87 @@ async def test_get_domain_recon_integration():
 @pytest.mark.asyncio
 async def test_dns_whois_error_handling():
     """Verificar que los errores no rompen la ejecución."""
-    with patch("dns.resolver.resolve", side_effect=Exception("DNS Error")):
-        with patch("whois.whois", side_effect=Exception("WHOIS Error")):
-            result = await get_domain_recon("fail.com")
-            # Debe retornar estructura vacía pero no fallar
-            assert result["domain"] == "fail.com"
-            assert result["whois_info"]["registrar"] is None
+    with patch("dns.resolver.resolve", side_effect=Exception("DNS Error")), \
+         patch("whois.whois", side_effect=Exception("WHOIS Error")), \
+         patch("services.recon_engine.services.dns_whois.HAS_DNS", True), \
+         patch("services.recon_engine.services.dns_whois.HAS_WHOIS", True):
+
+        result = await get_domain_recon("fail.com")
+        assert result["domain"] == "fail.com"
+        assert result["whois_info"]["registrar"] is None
+
+# ── Nuevos tests Capacidades 2 y 3 ───────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_spf_detected():
+    """Dominio con TXT 'v=spf1...' → spf_record no es None."""
+    def mock_resolve(domain, rtype):
+        if rtype == "TXT":
+            m = MagicMock()
+            m.__str__ = MagicMock(return_value="v=spf1 include:_spf.google.com ~all")
+            return [m]
+        import dns.resolver
+        raise dns.resolver.NoAnswer()
+
+    with patch("services.recon_engine.services.dns_whois.HAS_DNS", True), \
+         patch("dns.resolver.resolve", side_effect=mock_resolve):
+        result = await get_dns_info("example.com")
+
+    assert result["spf_record"] is not None
+    assert result["spf_record"].startswith("v=spf1")
+
+@pytest.mark.asyncio
+async def test_dmarc_detected():
+    """Mock _dmarc resolver TXT → dmarc_record no es None en get_domain_recon."""
+    def mock_resolve(domain, rtype):
+        if domain.startswith("_dmarc") and rtype == "TXT":
+            m = MagicMock()
+            m.__str__ = MagicMock(return_value="v=DMARC1; p=reject; rua=mailto:dmarc@example.com")
+            return [m]
+        import dns.resolver
+        raise dns.resolver.NoAnswer()
+
+    with patch("services.recon_engine.services.dns_whois.HAS_DNS", True), \
+         patch("services.recon_engine.services.dns_whois.HAS_WHOIS", True), \
+         patch("dns.resolver.resolve", side_effect=mock_resolve), \
+         patch("whois.whois", side_effect=Exception("no whois")):
+        recon = await get_domain_recon("example.com")
+
+    assert recon["dmarc_record"] is not None
+    assert "DMARC1" in recon["dmarc_record"]
+
+@pytest.mark.asyncio
+async def test_asn_populated():
+    """whois con campo asn → asn y asn_description no son None."""
+    mock_w = MagicMock()
+    mock_w.registrar = "Google LLC"
+    mock_w.creation_date = None
+    mock_w.expiration_date = None
+    mock_w.name_servers = []
+    mock_w.status = None
+    mock_w.asn = "AS15169"
+    mock_w.asn_description = "GOOGLE, US"
+    mock_w.country = "US"
+
+    with patch("services.recon_engine.services.dns_whois.HAS_WHOIS", True), \
+         patch("whois.whois", return_value=mock_w):
+        result = await get_whois_info("google.com")
+
+    assert result["asn"] == "AS15169"
+    assert result["asn_description"] == "GOOGLE, US"
+    assert result["country"] == "US"
+
+@pytest.mark.asyncio
+async def test_dns_failure_graceful():
+    """dns.resolver lanzando excepción → retorna dict vacío sin crash."""
+    with patch("services.recon_engine.services.dns_whois.HAS_DNS", True), \
+         patch("dns.resolver.resolve", side_effect=Exception("network error")):
+        result = await get_dns_info("fail.com")
+
+    assert isinstance(result, dict)
+    assert "A" in result
+    assert result["A"] == []
+    assert result["spf_record"] is None
 FILE:services\recon_engine\tests\test_scanner_hardening.py
 """
 Tests para scanner_hardening.py — Módulo de bastionado
@@ -17451,16 +18253,22 @@ class TestHealthJsonStructure:
             assert campo in servicio
 FILE:services\recon_engine\tests\test_scanner_network.py
 """
-Tests para scanner_network.py refactorizado — M2 Recon Engine
-=============================================================
+Tests para scanner_network.py — M2 Recon Engine
+=================================================
 Valida que M2 reporte solo reconocimiento técnico y no vulnerabilidades.
 """
 
 import pytest
-import xml.etree.ElementTree as ET
+from datetime import datetime
 from unittest.mock import patch, MagicMock, AsyncMock
-from services.recon_engine.services.scanner_network import parse_nmap_xml
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from services.recon_engine.services.scanner_network import parse_nmap_xml, perform_full_recon
 from services.recon_engine.models.schemas import PortDiscovery, OSInformation
+from services.recon_engine.models.recon import ReconBase, ReconSnapshot, ReconSubdomain
+
+# ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def nmap_xml_output():
@@ -17492,61 +18300,105 @@ def nmap_xml_output():
     </os>
     <times srtt="980" rttvar="5000" to="100000"/>
 </host>
-<runstats><finished time="1714381860" timestr="Mon Apr 29 10:31:00 2024" summary="Nmap done at Mon Apr 29 10:31:00 2024; 1 IP address (1 host up) scanned in 13.37 seconds" elapsed="13.37" exit="success"/><hosts up="1" down="0" total="1"/></runstats>
+<runstats><finished time="1714381860" timestr="Mon Apr 29 10:31:00 2024" summary="Nmap done" elapsed="13.37" exit="success"/><hosts up="1" down="0" total="1"/></runstats>
 </nmaprun>
 """
 
+@pytest.fixture
+def nmap_xml_filtered():
+    """XML de Nmap con un puerto filtered para test de firewall detection."""
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun>
+<host>
+    <status state="up"/>
+    <address addr="1.2.3.4" addrtype="ipv4"/>
+    <ports>
+        <port protocol="tcp" portid="80">
+            <state state="open"/>
+            <service name="http" method="probed" conf="10"/>
+        </port>
+        <port protocol="tcp" portid="443">
+            <state state="filtered"/>
+            <service name="https"/>
+        </port>
+    </ports>
+</host>
+<runstats><finished elapsed="5.0"/></runstats>
+</nmaprun>
+"""
+
+@pytest.fixture
+def nmap_xml_with_443():
+    """XML de Nmap con puerto 443 abierto para test de ssl_active."""
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun>
+<host>
+    <status state="up"/>
+    <address addr="1.2.3.4" addrtype="ipv4"/>
+    <ports>
+        <port protocol="tcp" portid="443">
+            <state state="open"/>
+            <service name="https" method="probed" conf="10"/>
+        </port>
+    </ports>
+</host>
+<runstats><finished elapsed="3.0"/></runstats>
+</nmaprun>
+"""
+
+def _make_db():
+    engine = create_engine("sqlite:///:memory:")
+    ReconBase.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine)()
+
+# ── Tests existentes (sin regresiones) ────────────────────────────────────────
+
 def test_parse_nmap_xml_recon_only(nmap_xml_output):
     """Verifica que el parseo extraiga puertos y SO sin severidades."""
-    ports, os_info, host_info = parse_nmap_xml(nmap_xml_output)
+    ports, os_info, host_info, filtered_count = parse_nmap_xml(nmap_xml_output)
 
-    # 1. Validar puertos
     assert len(ports) == 2
     ssh_port = next(p for p in ports if p.port == 22)
     assert ssh_port.service == "ssh"
     assert ssh_port.version == "OpenSSH 9.6p1 Ubuntu 3ubuntu13.15"
     assert ssh_port.confidence == 0.9
-    # IMPORTANTE: No debe haber campo 'severity' ni 'vulnerability'
-    assert not hasattr(ssh_port, 'severity')
+    assert not hasattr(ssh_port, "severity")
 
-    # 2. Validar SO
     assert os_info is not None
     assert os_info.detected_family == "Linux"
     assert "Linux 5.0" in os_info.detected_version
     assert os_info.confidence == 1.0
 
-    # 3. Validar Host Info
     assert host_info.mac_address == "E0:D5:5E:50:27:39"
     assert host_info.vendor == "Giga-byte Technology"
     assert host_info.latency_ms == 0.98
 
+    assert filtered_count == 0
+
 def test_parse_nmap_xml_empty():
     """Verifica manejo de salida vacía."""
-    ports, os_info, host_info = parse_nmap_xml("")
+    ports, os_info, host_info, filtered_count = parse_nmap_xml("")
     assert len(ports) == 0
     assert os_info is None
     assert host_info is None
+    assert filtered_count == 0
 
 @pytest.mark.asyncio
 async def test_full_recon_orchestration(nmap_xml_output):
-    """Prueba el flujo completo de perform_full_recon."""
-    from services.recon_engine.services.scanner_network import perform_full_recon
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from services.recon_engine.models.recon import ReconBase
-
-    # Setup DB temporal
-    engine = create_engine("sqlite:///:memory:")
-    ReconBase.metadata.create_all(bind=engine)
-    SessionLocal = sessionmaker(bind=engine)
-    db = SessionLocal()
-
+    """Prueba el flujo completo de perform_full_recon con IP target."""
+    db = _make_db()
     snapshot_id = "test-snapshot-123"
     target = "10.202.15.100"
 
-    with patch('services.recon_engine.services.scanner_network._run_tool', new_callable=AsyncMock) as mock_tool:
-        mock_tool.return_value = (nmap_xml_output, "", 0)
+    with patch("services.recon_engine.services.scanner_network._run_tool",
+               new_callable=AsyncMock) as mock_tool, \
+         patch("services.recon_engine.services.scanner_network.grab_all_banners",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("services.recon_engine.services.scanner_network.get_asn_info",
+               new_callable=AsyncMock,
+               return_value={"asn": None, "asn_description": None, "country": None}):
 
+        mock_tool.return_value = (nmap_xml_output, "", 0)
         result = await perform_full_recon(snapshot_id, target, db)
 
         assert result.snapshot_id == snapshot_id
@@ -17555,15 +18407,135 @@ async def test_full_recon_orchestration(nmap_xml_output):
         assert len(result.reconnaissance.ports_discovered) == 2
         assert result.reconnaissance.os_information.detected_family == "Linux"
 
-        # Verificar persistencia
-        from services.recon_engine.models.recon import ReconSnapshot, PortDiscoveryDB
-        snap_db = db.query(ReconSnapshot).filter_by(snapshot_id=snapshot_id).first()
+        snap_db = db.query(ReconSnapshot).filter_by(cycle_id=snapshot_id).first()
         assert snap_db is not None
-        assert snap_db.reconnaissance_data["ports_discovered"][0]["port"] == 22
+        assert snap_db.status == "completed"
 
-        ports_db = db.query(PortDiscoveryDB).filter_by(snapshot_id=snapshot_id).all()
-        assert len(ports_db) == 2
+    db.close()
 
+# ── Nuevos tests Capacidad 4 ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_domain_recon_integrated(nmap_xml_output):
+    """target hostname → domain_recon not None en ReconData."""
+    db = _make_db()
+    domain_recon_dict = {
+        "domain": "example.com",
+        "dns_records": {"A": ["1.2.3.4"], "MX": [], "TXT": [], "NS": [], "CNAME": []},
+        "spf_record": None,
+        "dmarc_record": None,
+        "whois_info": {"registrar": "Test", "creation_date": None, "expiration_date": None,
+                       "name_servers": [], "status": None, "asn": None,
+                       "asn_description": None, "country": None},
+        "scanned_at": "2026-01-01T00:00:00",
+    }
+
+    with patch("services.recon_engine.services.scanner_network._run_tool",
+               new_callable=AsyncMock, return_value=(nmap_xml_output, "", 0)), \
+         patch("services.recon_engine.services.scanner_network.get_domain_recon",
+               new_callable=AsyncMock, return_value=domain_recon_dict), \
+         patch("services.recon_engine.services.scanner_network.grab_all_banners",
+               new_callable=AsyncMock, return_value=[]):
+
+        result = await perform_full_recon("snap-domain-001", "example.com", db)
+
+    assert result.reconnaissance.domain_recon is not None
+    assert result.reconnaissance.domain_recon.domain == "example.com"
+    db.close()
+
+@pytest.mark.asyncio
+async def test_ip_target_no_domain_recon(nmap_xml_output):
+    """Target IP pura → domain_recon is None."""
+    db = _make_db()
+
+    with patch("services.recon_engine.services.scanner_network._run_tool",
+               new_callable=AsyncMock, return_value=(nmap_xml_output, "", 0)), \
+         patch("services.recon_engine.services.scanner_network.grab_all_banners",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("services.recon_engine.services.scanner_network.get_asn_info",
+               new_callable=AsyncMock,
+               return_value={"asn": None, "asn_description": None, "country": None}):
+
+        result = await perform_full_recon("snap-ip-002", "192.168.1.1", db)
+
+    assert result.reconnaissance.domain_recon is None
+    db.close()
+
+@pytest.mark.asyncio
+async def test_ssl_active_flag(nmap_xml_with_443):
+    """Puerto 443 en ports → summary.ssl_active == True."""
+    db = _make_db()
+
+    with patch("services.recon_engine.services.scanner_network._run_tool",
+               new_callable=AsyncMock, return_value=(nmap_xml_with_443, "", 0)), \
+         patch("services.recon_engine.services.scanner_network.grab_all_banners",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("services.recon_engine.services.scanner_network.get_asn_info",
+               new_callable=AsyncMock,
+               return_value={"asn": None, "asn_description": None, "country": None}):
+
+        result = await perform_full_recon("snap-ssl-003", "1.2.3.4", db)
+
+    assert result.summary.ssl_active is True
+    db.close()
+
+@pytest.mark.asyncio
+async def test_subdomains_in_response(nmap_xml_output):
+    """ReconSubdomain en BD → subdomains[] poblado en ReconData."""
+    db = _make_db()
+
+    # Pre-crear snapshot con el cycle_id que usará perform_full_recon
+    snap = ReconSnapshot(
+        cycle_id="snap-sub-004",
+        target="10.0.0.1",
+        status="running",
+        started_at=datetime.utcnow(),
+    )
+    db.add(snap)
+    db.commit()
+    db.refresh(snap)
+
+    sub = ReconSubdomain(snapshot_id=snap.id, subdomain="api.example.com", source="subfinder")
+    db.add(sub)
+    db.commit()
+
+    with patch("services.recon_engine.services.scanner_network._run_tool",
+               new_callable=AsyncMock, return_value=(nmap_xml_output, "", 0)), \
+         patch("services.recon_engine.services.scanner_network.grab_all_banners",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("services.recon_engine.services.scanner_network.get_asn_info",
+               new_callable=AsyncMock,
+               return_value={"asn": None, "asn_description": None, "country": None}):
+
+        result = await perform_full_recon("snap-sub-004", "10.0.0.1", db)
+
+    assert len(result.reconnaissance.subdomains) == 1
+    assert result.reconnaissance.subdomains[0].subdomain == "api.example.com"
+    assert result.summary.total_subdomains == 1
+    db.close()
+
+@pytest.mark.asyncio
+async def test_firewall_detected_flag(nmap_xml_filtered):
+    """Puerto filtered en XML de nmap → summary.firewall_detected == True."""
+    db = _make_db()
+
+    # Verificar parse_nmap_xml también detecta filtered_count
+    ports, _, _, filtered_count = parse_nmap_xml(nmap_xml_filtered)
+    assert filtered_count == 1
+    assert len(ports) == 1  # solo el puerto open (80)
+
+    with patch("services.recon_engine.services.scanner_network._run_tool",
+               new_callable=AsyncMock, return_value=(nmap_xml_filtered, "", 0)), \
+         patch("services.recon_engine.services.scanner_network.grab_all_banners",
+               new_callable=AsyncMock, return_value=[]), \
+         patch("services.recon_engine.services.scanner_network.get_asn_info",
+               new_callable=AsyncMock,
+               return_value={"asn": None, "asn_description": None, "country": None}):
+
+        result = await perform_full_recon("snap-fw-005", "1.2.3.4", db)
+
+    assert result.summary.firewall_detected is True
+    assert result.summary.total_ports_filtered == 1
     db.close()
 FILE:services\recon_engine\tests\test_scanner_network_db.py
 """
@@ -18346,10 +19318,81 @@ FILE:services\scanner_engine\clients\nikto_client.py
 import subprocess
 import json
 import os
+import re
 from typing import List, Dict
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nikto_client")
+
+# Mapa de IDs Nikto conocidos a títulos descriptivos y severidad
+NIKTO_ID_MAP = {
+    "013587": ("Missing Security Header", "MEDIUM"),
+    "600050": ("Outdated Software Version Detected", "HIGH"),
+    "000777": ("Potentially Dangerous HTTP Method Enabled", "HIGH"),
+    "000398": ("Apache Default Files Exposed", "MEDIUM"),
+    "000461": ("Directory Indexing Enabled", "MEDIUM"),
+    "001166": ("SQL Injection Possible", "HIGH"),
+    "000760": ("Cross-Site Scripting (XSS) Possible", "HIGH"),
+    "000379": ("PHP Information Disclosure", "HIGH"),
+    "001232": ("Backup File Exposed", "MEDIUM"),
+    "000001": ("Web Server Version Disclosure", "LOW"),
+}
+
+def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
+    """Determina título y severidad a partir del ID y mensaje."""
+    if nikto_id in NIKTO_ID_MAP:
+        base_title, base_severity = NIKTO_ID_MAP[nikto_id]
+    else:
+        base_title = "Web Vulnerability Finding"
+        base_severity = "MEDIUM"
+
+    msg_upper = msg.upper()
+    if any(w in msg_upper for w in ["CRITICAL", "REMOTE CODE", "RCE", "SQL INJECTION", "SQLI"]):
+        base_severity = "CRITICAL"
+    elif any(w in msg_upper for w in ["XSS", "CROSS-SITE", "INJECTION", "TRAVERSAL", "BACKDOOR", "SHELL"]):
+        base_severity = "HIGH"
+    elif any(w in msg_upper for w in ["OUTDATED", "OLD VERSION", "DEPRECATED", "INSECURE"]):
+        base_severity = "HIGH"
+    elif any(w in msg_upper for w in ["MISSING", "HEADER", "CSRF", "CLICKJACK"]):
+        base_severity = "MEDIUM"
+    elif any(w in msg_upper for w in ["INFORMATION", "DISCLOSURE", "VERSION"]):
+        base_severity = "LOW"
+
+    if "MISSING" in msg_upper and "HEADER" in msg_upper:
+        header_match = re.search(r"missing:\s*([a-z0-9\-]+)", msg, re.IGNORECASE)
+        if header_match:
+            base_title = f"Missing Security Header: {header_match.group(1)}"
+
+    return base_title, base_severity
+
+def _extract_cve(msg: str, references: str) -> str:
+    """Extrae CVE del mensaje o referencias."""
+    combined = f"{msg} {references}"
+    cve_match = re.search(r"CVE-\d{4}-\d+", combined, re.IGNORECASE)
+    return cve_match.group(0).upper() if cve_match else ""
+
+def _get_remediation(nikto_id: str, msg: str) -> str:
+    """Genera remediación específica basada en el tipo de finding."""
+    msg_upper = msg.upper()
+    if "STRICT-TRANSPORT-SECURITY" in msg_upper or "HSTS" in msg_upper:
+        return "Add 'Strict-Transport-Security: max-age=31536000; includeSubDomains' header. Enforces HTTPS connections."
+    if "CONTENT-SECURITY-POLICY" in msg_upper or "CSP" in msg_upper:
+        return "Implement Content-Security-Policy header to prevent XSS and data injection attacks."
+    if "X-FRAME-OPTIONS" in msg_upper:
+        return "Add 'X-Frame-Options: DENY' or 'SAMEORIGIN' header to prevent clickjacking attacks."
+    if "X-CONTENT-TYPE" in msg_upper:
+        return "Add 'X-Content-Type-Options: nosniff' header to prevent MIME type sniffing."
+    if "REFERRER-POLICY" in msg_upper:
+        return "Add 'Referrer-Policy: strict-origin-when-cross-origin' header to control referrer information."
+    if "PERMISSIONS-POLICY" in msg_upper:
+        return "Add Permissions-Policy header to control browser features and APIs."
+    if "OUTDATED" in msg_upper or "OLD VERSION" in msg_upper:
+        return "Update server software to the latest stable version. Outdated versions may contain known vulnerabilities."
+    if "DIRECTORY" in msg_upper and "INDEX" in msg_upper:
+        return "Disable directory listing in web server configuration (Apache: Options -Indexes)."
+    if "METHOD" in msg_upper and ("PUT" in msg_upper or "DELETE" in msg_upper or "TRACE" in msg_upper):
+        return "Disable dangerous HTTP methods (PUT, DELETE, TRACE) in web server configuration."
+    return "Review and remediate this finding according to OWASP security best practices."
 
 def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
     logger.info("NIKTO_START", target=target_url)
@@ -18373,29 +19416,55 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
         if os.path.exists(output_file):
             with open(output_file, "r") as f:
                 try:
-                    data = json.load(f)
+                    raw = f.read().strip()
+                    if not raw:
+                        logger.warning("NIKTO_EMPTY_OUTPUT", target=target_url)
+                        os.remove(output_file)
+                        return []
+                    data = json.loads(raw)
 
-                    # Nikto JSON is a top-level array: [ { "host":..., "vulnerabilities": [...] } ]
                     vulns = []
                     if isinstance(data, list) and len(data) > 0:
                         vulns = data[0].get("vulnerabilities", [])
                     elif isinstance(data, dict):
                         vulns = data.get("vulnerabilities", [])
 
+                    seen = set()
                     for v in vulns:
+                        nikto_id = str(v.get("id", "Unknown"))
                         msg = v.get("msg", "")
-                        severity = "MEDIUM"
-                        if "XSS" in msg.upper() or "INJECTION" in msg.upper():
+                        url = v.get("url", "/")
+                        method = v.get("method", "GET")
+                        references = v.get("references", "") or ""
+
+                        dedup_key = (nikto_id, msg[:100])
+                        if dedup_key in seen:
+                            continue
+                        seen.add(dedup_key)
+
+                        title, severity = _classify_nikto_finding(nikto_id, msg)
+                        cve_id = _extract_cve(msg, references)
+                        if cve_id:
                             severity = "HIGH"
+                        remediation = _get_remediation(nikto_id, msg)
 
                         findings.append({
-                            "title": f"Nikto Finding: {v.get('id', 'Unknown')}",
+                            "title": title,
                             "severity": severity,
                             "description": msg,
-                            "cve_id": "",
-                            "evidence": f"URL: {v.get('url', '')} | Method: {v.get('method', '')}",
-                            "remediation": v.get("references", "") or "Review Nikto recommendation for this finding."
+                            "cve_id": cve_id,
+                            "evidence": {
+                                "nikto_id": nikto_id,
+                                "url": url,
+                                "method": method,
+                                "target": target_url,
+                                "references": references
+                            },
+                            "remediation": remediation,
+                            "scanner": "Nikto",
+                            "ens_measure": "op.exp.2"
                         })
+
                 except json.JSONDecodeError:
                     logger.error("NIKTO_JSON_ERROR", target=target_url)
 
@@ -18409,10 +19478,319 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
         if os.path.exists(output_file):
             os.remove(output_file)
         return []
+    except FileNotFoundError:
+        logger.error("NIKTO_NOT_FOUND", target=target_url)
+        return []
     except Exception as e:
         logger.error("NIKTO_ERROR", target=target_url, error=str(e))
         if os.path.exists(output_file):
             os.remove(output_file)
+        return []
+FILE:services\scanner_engine\clients\nmap_client.py
+"""
+Nmap NSE Client - Scanner Engine M3
+Escaneo profesional de vulnerabilidades usando Nmap con scripts NSE.
+"""
+
+import subprocess
+import re
+import xml.etree.ElementTree as ET
+import logging
+from typing import List, Dict, Tuple
+
+logger = logging.getLogger(__name__)
+
+# Versiones con vulnerabilidades conocidas — severidad HIGH o CRITICAL
+VULNERABLE_VERSIONS = {
+    "OpenSSH": [
+        ("7.", "HIGH", "OpenSSH < 8.0 may be vulnerable to username enumeration (CVE-2018-15473)"),
+        ("8.0", "MEDIUM", "OpenSSH 8.0 has known vulnerabilities, consider upgrading to 8.9+"),
+        ("8.1", "MEDIUM", "OpenSSH 8.1 has known vulnerabilities, consider upgrading to 8.9+"),
+        ("8.2", "MEDIUM", "OpenSSH 8.2 is affected by CVE-2023-38408 (ssh-agent forwarding RCE)"),
+        ("8.3", "MEDIUM", "OpenSSH 8.3 has known vulnerabilities"),
+        ("8.4", "MEDIUM", "OpenSSH 8.4 has known vulnerabilities"),
+    ],
+    "Apache httpd": [
+        ("2.4.49", "CRITICAL", "Apache 2.4.49 is vulnerable to Path Traversal RCE (CVE-2021-41773)"),
+        ("2.4.50", "CRITICAL", "Apache 2.4.50 is vulnerable to Path Traversal RCE (CVE-2021-42013)"),
+        ("2.4.41", "MEDIUM", "Apache 2.4.41 has multiple known CVEs. Upgrade to 2.4.58+"),
+        ("2.4.3", "HIGH", "Apache 2.4.3x series has multiple HIGH severity CVEs"),
+        ("2.2.", "HIGH", "Apache 2.2.x is End-of-Life and has numerous unpatched vulnerabilities"),
+    ],
+    "nginx": [
+        ("1.14", "MEDIUM", "nginx 1.14.x has known vulnerabilities (CVE-2019-9511)"),
+        ("1.16", "MEDIUM", "nginx 1.16.x has known vulnerabilities"),
+    ],
+    "MySQL": [
+        ("5.5", "HIGH", "MySQL 5.5.x is End-of-Life with unpatched vulnerabilities"),
+        ("5.6", "HIGH", "MySQL 5.6.x is End-of-Life with unpatched vulnerabilities"),
+        ("5.7", "MEDIUM", "MySQL 5.7.x reaching End-of-Life, multiple CVEs exist"),
+    ],
+    "OpenSSL": [
+        ("1.0", "CRITICAL", "OpenSSL 1.0.x is End-of-Life and vulnerable to Heartbleed and others"),
+        ("1.1.0", "HIGH", "OpenSSL 1.1.0 is End-of-Life"),
+        ("3.0.0", "HIGH", "OpenSSL 3.0.0-3.0.6 vulnerable to Critical CVE-2022-3786 and CVE-2022-3602"),
+    ],
+}
+
+# Servicios peligrosos expuestos
+DANGEROUS_SERVICES = {
+    "23": ("Telnet Service Exposed", "HIGH",
+           "Telnet transmits data in plaintext including credentials. Disable immediately.",
+           "CVE-1999-0528"),
+    "21": ("FTP Service Exposed", "MEDIUM",
+           "FTP may transmit credentials in plaintext. Consider using SFTP or FTPS.",
+           ""),
+    "445": ("SMB Service Exposed", "HIGH",
+            "SMB exposed to network may be vulnerable to EternalBlue and ransomware attacks.",
+            "CVE-2017-0144"),
+    "3389": ("RDP Service Exposed", "HIGH",
+             "RDP exposed to network is a common attack vector. Restrict access with firewall.",
+             "CVE-2019-0708"),
+    "3306": ("MySQL Database Exposed", "HIGH",
+             "MySQL database port exposed. Database should not be accessible from untrusted networks.",
+             ""),
+    "27017": ("MongoDB Exposed (No Auth)", "CRITICAL",
+              "MongoDB may be exposed without authentication. Critical data exposure risk.",
+              ""),
+}
+
+def _check_version_vulnerabilities(product: str, version: str, port_id: str) -> List[Dict]:
+    """Detecta versiones vulnerables conocidas y genera findings."""
+    findings = []
+    for software, vuln_list in VULNERABLE_VERSIONS.items():
+        if software.lower() in product.lower():
+            for version_prefix, severity, description in vuln_list:
+                if version.startswith(version_prefix):
+                    cve_match = re.search(r"CVE-\d{4}-\d+", description)
+                    cve_id = cve_match.group(0) if cve_match else ""
+                    findings.append({
+                        "title": f"Vulnerable Version: {product} {version}",
+                        "severity": severity,
+                        "description": description,
+                        "cve_id": cve_id,
+                        "evidence": {"host": "", "port": port_id, "product": product, "version": version},
+                        "remediation": f"Upgrade {software} to the latest stable version immediately.",
+                        "scanner": "Nmap",
+                        "ens_measure": "op.exp.2"
+                    })
+                    break
+    return findings
+
+def _classify_script_output(script_id: str, output: str, port_id: str, asset_ip: str, protocol: str) -> Dict:
+    """Genera un finding profesional a partir del output de un script NSE."""
+    severity = "INFO"
+    cve_id = ""
+    remediation = "Review this finding and apply appropriate security controls."
+
+    cve_match = re.search(r"CVE-\d{4}-\d+", output, re.IGNORECASE)
+    if cve_match:
+        cve_id = cve_match.group(0).upper()
+        severity = "HIGH"
+
+    if script_id == "ssl-enum-ciphers":
+        if "NULL" in output or "EXPORT" in output or "SSLv2" in output or "SSLv3" in output:
+            severity = "CRITICAL"
+            remediation = "Disable NULL, EXPORT, SSLv2, SSLv3 ciphers immediately. Configure TLS 1.2+ with strong cipher suites."
+        elif "TLSv1.0" in output or "TLSv1.1" in output:
+            severity = "HIGH"
+            remediation = "Disable TLS 1.0 and TLS 1.1. Configure server to use TLS 1.2 minimum (TLS 1.3 recommended)."
+        elif "WEAK" in output.upper() or "RC4" in output or "DES" in output or "3DES" in output:
+            severity = "HIGH"
+            remediation = "Remove weak cipher suites (RC4, DES, 3DES). Use ECDHE and AES-GCM cipher suites."
+        else:
+            severity = "INFO"
+        title = f"SSL/TLS Cipher Configuration on port {port_id}"
+
+    elif script_id == "ssl-cert":
+        if "EXPIRED" in output.upper():
+            severity = "HIGH"
+            remediation = "Renew the SSL/TLS certificate immediately. Expired certificates break trust and may expose users to MITM attacks."
+            title = f"Expired SSL Certificate on port {port_id}"
+        elif "SELF SIGNED" in output.upper() or "self-signed" in output.lower():
+            severity = "MEDIUM"
+            remediation = "Replace self-signed certificate with one issued by a trusted Certificate Authority (CA)."
+            title = f"Self-Signed SSL Certificate on port {port_id}"
+        else:
+            cert_match = re.search(r"Subject: (.*)", output)
+            subject = cert_match.group(1).strip() if cert_match else "Unknown"
+            title = f"SSL Certificate Info: {subject}"
+            severity = "INFO"
+            remediation = "Verify certificate validity, expiration date, and issuing CA."
+
+    elif script_id == "http-headers":
+        missing_headers = []
+        security_headers = [
+            "strict-transport-security", "content-security-policy",
+            "x-frame-options", "x-content-type-options",
+            "referrer-policy", "permissions-policy"
+        ]
+        for h in security_headers:
+            if h not in output.lower():
+                missing_headers.append(h)
+        if missing_headers:
+            severity = "MEDIUM"
+            title = f"Missing Security Headers on port {port_id}"
+            remediation = f"Add the following security headers: {', '.join(missing_headers)}"
+        else:
+            title = f"HTTP Headers on port {port_id}"
+            severity = "INFO"
+            remediation = "Security headers appear to be configured."
+
+    elif script_id == "ssh-hostkey":
+        if "1024" in output:
+            severity = "HIGH"
+            title = "Weak SSH Host Key (1024-bit RSA)"
+            remediation = "Regenerate SSH host keys with minimum 2048-bit RSA or use Ed25519 keys."
+        else:
+            title = f"SSH Host Key Information on port {port_id}"
+            severity = "INFO"
+            remediation = "Verify SSH host keys match expected fingerprints to prevent MITM attacks."
+
+    elif script_id == "banner":
+        if any(w in output.lower() for w in ["apache", "nginx", "iis", "openssh", "ftp", "smtp"]):
+            severity = "LOW"
+            title = f"Service Banner Disclosure on port {port_id}"
+            remediation = "Configure server to suppress or minimize banner information to reduce attack surface."
+        else:
+            title = f"Service Banner on port {port_id}"
+            severity = "INFO"
+            remediation = "Review banner information disclosure."
+
+    elif script_id == "http-server-header":
+        severity = "LOW"
+        title = f"Server Header Disclosure on port {port_id}"
+        remediation = "Configure web server to suppress version information in Server header (Apache: ServerTokens Prod)."
+
+    else:
+        title = f"NSE Finding: {script_id} on port {port_id}"
+        if "VULNERABLE" in output.upper() or "EXPLOIT" in output.upper():
+            severity = "HIGH"
+            remediation = "This service appears to be vulnerable. Apply patches immediately."
+        elif "WARNING" in output.upper() or "WEAK" in output.upper():
+            severity = "MEDIUM"
+            remediation = "Review this security warning and apply appropriate hardening."
+
+    return {
+        "title": title,
+        "severity": severity,
+        "description": output[:800],
+        "cve_id": cve_id,
+        "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "script": script_id},
+        "remediation": remediation,
+        "scanner": "Nmap",
+        "ens_measure": "op.exp.2"
+    }
+
+def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
+    logger.info(f"NMAP_START target={asset_ip}")
+
+    cmd = [
+        "nmap",
+        "-sV", "--version-intensity", "7",
+        "--script", "vuln,banner,ssh-hostkey,http-headers,ssl-cert,ssl-enum-ciphers,http-server-header",
+        "--script-timeout", "30s",
+        "-T4",
+        "-p", "21,22,23,25,80,443,445,3306,3389,8080,8443",
+        "-oX", "-",
+        asset_ip
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        if result.returncode != 0 and not result.stdout:
+            logger.error(f"NMAP_ERROR: {result.stderr[:300]}")
+            return []
+
+        findings = []
+        seen_titles = set()
+        root = ET.fromstring(result.stdout)
+
+        for host in root.findall(".//host"):
+            for port in host.findall(".//port"):
+                port_id = port.attrib.get("portid", "")
+                protocol = port.attrib.get("protocol", "tcp")
+                state = port.find("state")
+                if state is None or state.attrib.get("state") != "open":
+                    continue
+
+                service = port.find("service")
+                service_name = service.attrib.get("name", "") if service is not None else ""
+                service_version = service.attrib.get("version", "") if service is not None else ""
+                service_product = service.attrib.get("product", "") if service is not None else ""
+                extra_info = service.attrib.get("extrainfo", "") if service is not None else ""
+                ostype = service.attrib.get("ostype", "") if service is not None else ""
+
+                if service_product:
+                    full_version = f"{service_product} {service_version}".strip()
+                    title = f"Open Service: {full_version} on port {port_id}/{protocol}"
+
+                    version_findings = _check_version_vulnerabilities(service_product, service_version, port_id)
+                    for vf in version_findings:
+                        vf["evidence"]["host"] = asset_ip
+                        dedup_key = (vf["title"], port_id)
+                        if dedup_key not in seen_titles:
+                            seen_titles.add(dedup_key)
+                            findings.append(vf)
+
+                    svc_severity = "INFO"
+                    if port_id in DANGEROUS_SERVICES:
+                        svc_title, svc_severity, svc_desc, svc_cve = DANGEROUS_SERVICES[port_id]
+                        findings.append({
+                            "title": svc_title,
+                            "severity": svc_severity,
+                            "description": f"{svc_desc} | Detected: {full_version} on {asset_ip}:{port_id}",
+                            "cve_id": svc_cve,
+                            "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": service_name},
+                            "remediation": svc_desc,
+                            "scanner": "Nmap",
+                            "ens_measure": "op.exp.2"
+                        })
+                    else:
+                        os_info = f" | OS: {ostype}" if ostype else ""
+                        extra = f" | {extra_info}" if extra_info else ""
+                        findings.append({
+                            "title": title,
+                            "severity": svc_severity,
+                            "description": f"Service {service_name} running {full_version} detected on port {port_id}/{protocol}{os_info}{extra}",
+                            "cve_id": "",
+                            "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": service_name, "version": full_version},
+                            "remediation": f"Ensure {service_product} is updated to latest stable version and access is restricted to authorized hosts.",
+                            "scanner": "Nmap",
+                            "ens_measure": "op.exp.2"
+                        })
+
+                for script in port.findall("script"):
+                    script_id = script.attrib.get("id", "")
+                    script_output = script.attrib.get("output", "")
+
+                    if not script_output or len(script_output.strip()) < 5:
+                        continue
+                    if "Couldn't find" in script_output or "ERROR" in script_output[:20]:
+                        continue
+
+                    finding = _classify_script_output(script_id, script_output, port_id, asset_ip, protocol)
+
+                    dedup_key = (finding["title"], port_id)
+                    if dedup_key not in seen_titles:
+                        seen_titles.add(dedup_key)
+                        findings.append(finding)
+
+        logger.info(f"NMAP_FINISH target={asset_ip} count={len(findings)}")
+        return findings
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"NMAP_TIMEOUT target={asset_ip}")
+        return []
+    except FileNotFoundError:
+        logger.error("NMAP_NOT_FOUND: nmap is not installed or not in PATH")
+        return []
+    except ET.ParseError as e:
+        logger.error(f"NMAP_XML_PARSE_ERROR: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"NMAP_ERROR: {e}")
         return []
 FILE:services\scanner_engine\clients\nuclei_client.py
 """Nuclei CLI-based vulnerability scanner client."""
@@ -18677,11 +20055,11 @@ FILE:services\scanner_engine\clients\openvas_client.py
 """
 OpenVAS Client - Scanner Engine M3
 Cliente real para OpenVAS/GVM usando la librería oficial python-gvm.
-Cumple con ENS Alto [op.exp.3] para la gestión segura de parámetros.
 """
 
 import asyncio
 import logging
+import time
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
@@ -18694,8 +20072,6 @@ try:
     from gvm.errors import GvmError
     GVM_AVAILABLE = True
 except ImportError:
-    # gvm not available, using mock/alternate
-    # needs: pip install gvm-tools
     GVM_AVAILABLE = False
     TLSConnection = None
     Gmp = None
@@ -18708,11 +20084,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CVEFinding:
-    """Hallazgo normalizado desde OpenVAS"""
     asset_id: int
     title: str
     description: str
-    severity: str  # CRITICAL, HIGH, MEDIUM, LOW, INFO
+    severity: str
     cvss_score: Optional[float]
     cve_id: Optional[str]
     evidence: str
@@ -18738,10 +20113,7 @@ class CVEFinding:
             "created_at": self.created_at.isoformat(),
         }
 
-import time
-
 class OpenVASClient:
-    """Cliente para OpenVAS/GVM real usando protocolo GMP"""
 
     def __init__(self):
         self.host = settings.openvas_host
@@ -18750,9 +20122,8 @@ class OpenVASClient:
         self.password = settings.openvas_pass
 
     def _run_full_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
-        """Ejecución síncrona del flujo completo GVM"""
         if not GVM_AVAILABLE:
-            logger.error("✗ gvm-tools no está instalado.")
+            logger.error("gvm-tools no esta instalado.")
             return []
 
         try:
@@ -18761,25 +20132,50 @@ class OpenVASClient:
             transform = EtreeTransform()
 
             with Gmp(connection=connection, transform=transform) as gmp:
-                # Autenticación automática via context manager / call explicit
                 gmp.authenticate(self.username, self.password)
-                logger.info(f"✓ Autenticación exitosa en OpenVAS GVM")
+                logger.info("Autenticacion exitosa en OpenVAS GVM")
 
-                # 1. Crear Target
                 target_name = f"TGT_{asset_name}_{asset_id}"
+                task_name = f"TSK_{asset_name}_{asset_id}"
+
+                # Limpiar tasks antiguas con el mismo nombre
+                tasks_resp = gmp.get_tasks()
+                for t in tasks_resp.findall(".//task"):
+                    name_elem = t.find("name")
+                    if name_elem is not None and name_elem.text == task_name:
+                        old_task_id = t.attrib.get("id")
+                        status_elem = t.find("status")
+                        status = status_elem.text if status_elem is not None else ""
+                        if status in ["Running", "Requested"]:
+                            gmp.stop_task(task_id=old_task_id)
+                            logger.info(f"Task antigua parada: {old_task_id}")
+                        gmp.delete_task(task_id=old_task_id, ultimate=True)
+                        logger.info(f"Task antigua eliminada: {old_task_id}")
+
+                # Limpiar targets antiguos con el mismo nombre
+                targets_resp = gmp.get_targets()
+                for t in targets_resp.findall(".//target"):
+                    name_elem = t.find("name")
+                    if name_elem is not None and name_elem.text == target_name:
+                        old_target_id = t.attrib.get("id")
+                        gmp.delete_target(target_id=old_target_id, ultimate=True)
+                        logger.info(f"Target antiguo eliminado: {old_target_id}")
+
+                # Crear Target nuevo
                 response = gmp.create_target(
                     name=target_name,
                     hosts=[asset_ip],
-                    port_list_id="33d0cd10-f6ec-11e0-815c-002264764cea"
+                    port_list_id="33d0cd82-57c6-11e1-8ed1-406186ea4fc5"
                 )
-                target_id = response.get("id")
-                logger.info(f"✓ Target creado: {target_id}")
+                target_id = response.attrib.get("id")
+                if not target_id:
+                    logger.error(f"No se obtuvo target_id. Response: {ET.tostring(response)}")
+                    return []
+                logger.info(f"Target creado: {target_id}")
 
-                # 2. Crear Task
-                task_name = f"TSK_{asset_name}_{asset_id}"
-                # Scanner ID por defecto (OpenVAS Default)
-                scanner_id = "08b69003-5fc2-45d1-a82e-ab9734732d91"
-                config_id = "daba56c8-73ec-11df-a475-002264764cea" # Full and fast
+                # Crear Task nueva
+                scanner_id = "08b69003-5fc2-4037-a479-93b440211c73"
+                config_id = "8715c877-47a0-438d-98a3-27c7a6ab2196"
 
                 response = gmp.create_task(
                     name=task_name,
@@ -18787,17 +20183,23 @@ class OpenVASClient:
                     target_id=target_id,
                     scanner_id=scanner_id
                 )
-                task_id = response.get("id")
-                logger.info(f"✓ Task creada: {task_id}")
+                task_id = response.attrib.get("id")
+                if not task_id:
+                    logger.error(f"No se obtuvo task_id. Response: {ET.tostring(response)}")
+                    return []
+                logger.info(f"Task creada: {task_id}")
 
-                # 3. Iniciar
+                # Iniciar task
                 response = gmp.start_task(task_id=task_id)
-                report_id = response.find(".//report_id").text
-                logger.info(f"✓ Task iniciada. Report ID: {report_id}")
+                report_id_elem = response.find(".//report_id")
+                if report_id_elem is None:
+                    logger.error("No se obtuvo report_id")
+                    return []
+                report_id = report_id_elem.text
+                logger.info(f"Task iniciada. Report ID: {report_id}")
 
-                # 4. Esperar (Sync loop)
-                finished = False
-                timeout = 3600
+                # Esperar resultado
+                timeout = 7200
                 start_time = datetime.utcnow()
                 while (datetime.utcnow() - start_time).total_seconds() < timeout:
                     resp = gmp.get_task(task_id=task_id)
@@ -18807,23 +20209,19 @@ class OpenVASClient:
                     progress = int(progress_text) if progress_text and int(progress_text) >= 0 else 0
 
                     if status == "Done":
-                        finished = True
                         break
                     if status in ["Stopped", "Error", "Internal Error"]:
-                        logger.error(f"✗ Task {task_id} falló con estado: {status}")
+                        logger.error(f"Task {task_id} fallo con estado: {status}")
                         return []
 
-                    logger.info(f"→ Escaneo OpenVAS progresando: {progress}% (Estado: {status})")
+                    logger.info(f"OpenVAS progresando: {progress}% (Estado: {status})")
                     time.sleep(30)
-
-                if not finished:
-                    logger.error(f"✗ Timeout esperando escaneo OpenVAS para {asset_ip}")
+                else:
+                    logger.error(f"Timeout OpenVAS para {asset_ip}")
                     return []
 
-                # 5. Obtener resultados
-                logger.info(f"Descargando resultados para reporte {report_id}")
+                # Obtener resultados
                 response = gmp.get_report(report_id=report_id, filter_string="levels=hml")
-
                 findings = []
                 severity_map = {
                     "High": "HIGH",
@@ -18836,41 +20234,43 @@ class OpenVASClient:
                 results = response.findall(".//result")
                 for res in results:
                     nvt = res.find("nvt")
-                    severity_text = res.find("threat").text
-                    cves = nvt.find("cve").text if nvt.find("cve") is not None else None
+                    threat_elem = res.find("threat")
+                    severity_text = threat_elem.text if threat_elem is not None else "Log"
+                    cve_elem = nvt.find("cve") if nvt is not None else None
+                    cves = cve_elem.text if cve_elem is not None else None
+                    name_elem = res.find("name")
+                    desc_elem = res.find("description")
+                    sev_elem = res.find("severity")
 
                     finding = CVEFinding(
                         asset_id=asset_id,
-                        title=res.find("name").text,
-                        description=nvt.find("description").text if nvt.find("description") is not None else "",
+                        title=name_elem.text if name_elem is not None else "Unknown",
+                        description=desc_elem.text if desc_elem is not None else "",
                         severity=severity_map.get(severity_text, "INFO"),
-                        cvss_score=float(res.find("severity").text) if res.find("severity") is not None else 0.0,
+                        cvss_score=float(sev_elem.text) if sev_elem is not None else 0.0,
                         cve_id=cves.split(",")[0] if cves and cves != "NOCVE" else None,
-                        evidence=res.find("description").text if res.find("description") is not None else "Ver reporte completo en GVM",
-                        remediation=nvt.find("solution").text if nvt.find("solution") is not None else "No especificada"
+                        evidence=desc_elem.text if desc_elem is not None else "",
+                        remediation=""
                     )
                     findings.append(finding)
 
-                logger.info(f"✓ Escaneo OpenVAS finalizado: {len(findings)} vulnerabilidades encontradas")
+                logger.info(f"OpenVAS finalizado: {len(findings)} vulnerabilidades")
                 return findings
 
         except GvmError as ge:
-            logger.error(f"✗ Error de protocolo GVM: {str(ge)}")
+            logger.error(f"Error GVM: {str(ge)}")
             return []
         except Exception as e:
-            logger.error(f"✗ Error crítico en escaneo OpenVAS: {str(e)}")
+            logger.error(f"Error OpenVAS: {str(e)}")
             return []
 
     async def scan_asset(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
-        """Punto de entrada asíncrono que delega a un hilo síncrono"""
-        logger.info(f"Iniciando escaneo OpenVAS real para {asset_name} ({asset_ip})")
+        logger.info(f"Iniciando escaneo OpenVAS para {asset_name} ({asset_ip})")
         return await asyncio.to_thread(self._run_full_scan, asset_id, asset_ip, asset_name)
 
-# Singleton instance
 _client_instance = None
 
 async def get_openvas_client() -> OpenVASClient:
-    """Obtiene el cliente configurado desde settings"""
     global _client_instance
     if _client_instance is None:
         _client_instance = OpenVASClient()
@@ -19017,8 +20417,8 @@ from services.scanner_engine.services.export_results import (
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""
     scan_types: List[str] = Field(
-        default=["openvas", "nuclei", "nikto"],
-        description="Scanners to run: openvas, nuclei, nikto"
+        default=["nmap", "nuclei", "nikto"],
+        description="Scanners to run: nmap, nuclei, nikto"
     )
     description: Optional[str] = None
 
@@ -19228,7 +20628,7 @@ async def health_check() -> HealthResponse:
 @router.post("/batch", response_model=BatchScanResponse)
 async def batch_scan_assets(
     asset_ids: List[int] = Query(...),
-    scan_types: List[str] = Query(default=["openvas", "nuclei", "nikto"]),
+    scan_types: List[str] = Query(default=["nmap", "nuclei", "nikto"]),
 ) -> BatchScanResponse:
     """Start batch scan for multiple assets."""
     try:
@@ -19859,25 +21259,104 @@ from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
+# Templates ordenados por impacto — technologies para fingerprint, misconfiguration para hallazgos reales
 NUCLEI_TEMPLATES = [
-    "http/technologies/tech-detect.yaml",
+    "http/technologies/",
+    "http/misconfiguration/",
 ]
+
+# Remediaciones por tipo de finding
+NUCLEI_REMEDIATIONS = {
+    "missing-security-headers": "Add the missing HTTP security header to prevent common web attacks.",
+    "http-missing-security-headers": "Configure the web server to include all recommended security headers.",
+    "ssl-dns-names": "Verify SSL certificate covers all required domain names.",
+    "self-signed-certificate": "Replace self-signed certificate with one issued by a trusted CA.",
+    "expired-ssl-certificate": "Renew the SSL/TLS certificate immediately.",
+    "tls-version": "Disable TLS 1.0 and 1.1. Configure TLS 1.2 minimum.",
+    "weak-cipher-suites": "Remove weak cipher suites. Use ECDHE and AES-GCM.",
+    "phpinfo": "Remove or restrict access to phpinfo() pages. They disclose sensitive server configuration.",
+    "php-errors": "Disable PHP error display in production. Set display_errors = Off in php.ini.",
+    "apache-detect": "Consider hiding Apache version information (ServerTokens Prod in httpd.conf).",
+    "nginx-version": "Hide nginx version (server_tokens off in nginx.conf).",
+    "waf-detect": "WAF detected. Verify WAF rules are properly configured.",
+    "wordpress": "Keep WordPress core, themes and plugins updated. Use security hardening plugins.",
+    "default-login": "Change all default credentials immediately.",
+    "exposed-panels": "Restrict access to administrative panels with IP whitelist and strong authentication.",
+    "ssh-weakalgorithm": "Disable weak SSH algorithms. Use Ed25519 or RSA-4096 keys.",
+    "openssh": "Keep OpenSSH updated to latest stable version.",
+    "http-cors-misconfig": "Review CORS policy. Avoid wildcard (*) origins in production.",
+}
+
+def _get_remediation(template_id: str, matcher_name: str, description: str) -> str:
+    """Obtiene remediación específica para el finding."""
+    for key, remediation in NUCLEI_REMEDIATIONS.items():
+        if key in template_id.lower() or key in matcher_name.lower():
+            return remediation
+
+    desc_lower = description.lower()
+    if "header" in desc_lower:
+        return "Add the missing HTTP security header to your web server configuration."
+    if "ssl" in desc_lower or "tls" in desc_lower or "certificate" in desc_lower:
+        return "Review SSL/TLS configuration and ensure proper certificate management."
+    if "version" in desc_lower or "detect" in desc_lower:
+        return "Keep software updated to latest stable version and minimize version disclosure."
+    if "default" in desc_lower:
+        return "Remove or restrict access to default pages and change default credentials."
+
+    return "Review this finding and apply appropriate security controls per OWASP guidelines."
+
+def _get_professional_title(template_id: str, matcher_name: str, info_name: str) -> str:
+    """Genera un título profesional y descriptivo."""
+    if "tech-detect" in template_id and matcher_name:
+        return f"Technology Detected: {matcher_name.title()}"
+    if "wappalyzer" in template_id.lower() and matcher_name:
+        return f"Technology Fingerprint: {matcher_name.title()}"
+    if "apache" in template_id.lower():
+        return "Apache Web Server Detected and Version Disclosed"
+    if "nginx" in template_id.lower():
+        return "Nginx Web Server Detected and Version Disclosed"
+    if "php" in template_id.lower():
+        return "PHP Application Detected"
+    if "wordpress" in template_id.lower():
+        return "WordPress CMS Detected"
+    if "missing-security-headers" in template_id.lower() or "http-missing-security-headers" in template_id.lower():
+        header_name = matcher_name.replace("-", " ").title() if matcher_name else "Security Header"
+        return f"Missing HTTP Security Header: {header_name}"
+    if "ssl" in template_id.lower() or "tls" in template_id.lower():
+        return f"SSL/TLS Issue: {info_name}"
+    if "phpinfo" in template_id.lower():
+        return "PHP Configuration Page Exposed (phpinfo)"
+    if "self-signed" in template_id.lower():
+        return "Self-Signed SSL Certificate Detected"
+    if "expired" in template_id.lower():
+        return "Expired SSL Certificate Detected"
+    if "waf-detect" in template_id.lower():
+        return f"Web Application Firewall Detected: {matcher_name.title() if matcher_name else 'Unknown'}"
+    if "openssh" in template_id.lower():
+        return "OpenSSH Service Detected"
+
+    if info_name and info_name != "Unknown":
+        return info_name
+    return template_id.replace("-", " ").replace("/", " - ").title()
 
 def run_nuclei_scan(target_ip: str, hostname: str = None):
     logger.info("NUCLEI_START", target=target_ip)
 
     if hostname and hostname != target_ip:
-        targets = [f"https://{hostname}"]
+        targets = [f"https://{hostname}", f"http://{hostname}"]
     else:
         targets = [f"https://{target_ip}", f"http://{target_ip}"]
 
     logger.info("NUCLEI_TARGETS", targets=targets)
 
+    output_file = f"/tmp/nuclei_output_{os.getpid()}.jsonl"
+
     cmd = [
         "nuclei",
         "-silent",
         "-jsonl",
-        "-duc",           # disable update check — sin esto Nuclei cuelga conectando a GitHub
+        "-output", output_file,
+        "-duc",
         "-timeout", "8",
         "-bulk-size", "5",
         "-rate-limit", "10",
@@ -19893,62 +21372,295 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
     for target in targets:
         cmd.extend(["-u", target])
 
-    # Entorno explícito: evita que el proceso hijo herede variables corruptas del fork de Celery
     env = os.environ.copy()
     env.setdefault("HOME", "/root")
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=90,
             env=env,
-            start_new_session=True,  # nueva sesión: no hereda signal mask del worker Celery prefork
+            start_new_session=True,
         )
+
         findings = []
+        seen = set()
 
-        output = result.stdout or ""
-        if not output and result.stderr:
-            logger.warning("NUCLEI_NO_STDOUT", stderr=result.stderr[:500])
+        if os.path.exists(output_file):
+            with open(output_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        raw_vuln = json.loads(line)
+                        info = raw_vuln.get("info", {})
+                        template_id = raw_vuln.get("template-id", "")
+                        matcher_name = raw_vuln.get("matcher-name", "")
+                        matched_at = raw_vuln.get("matched-at", "")
+                        extracted = raw_vuln.get("extracted-results", [])
 
-        for line in output.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                raw_vuln = json.loads(line)
-                info = raw_vuln.get("info", {})
-                classification = info.get("classification", {})
-                cve_ids = classification.get("cve-id")
-                cve_str = ",".join(cve_ids) if isinstance(cve_ids, list) else (cve_ids or "")
-                severity = info.get("severity", "info").upper()
-                findings.append({
-                    "title": info.get("name", raw_vuln.get("template-id", "Unknown")),
-                    "severity": severity if severity in ("CRITICAL","HIGH","MEDIUM","LOW","INFO") else "INFO",
-                    "description": info.get("description") or info.get("name", ""),
-                    "cve_id": cve_str,
-                    "evidence": raw_vuln.get("matched-at", ""),
-                    "remediation": info.get("remediation", "Review Nuclei finding."),
-                    "ens_measure": "op.exp.2"
-                })
-            except json.JSONDecodeError:
-                continue
+                        classification = info.get("classification", {})
+                        cve_ids = classification.get("cve-id")
+                        cve_str = ",".join(cve_ids) if isinstance(cve_ids, list) else (cve_ids or "")
+
+                        severity_raw = info.get("severity", "info").upper()
+                        severity = severity_raw if severity_raw in ("CRITICAL","HIGH","MEDIUM","LOW","INFO") else "INFO"
+
+                        info_name = info.get("name", "Unknown")
+                        description = info.get("description") or info_name
+
+                        if extracted:
+                            description = f"{description} | Detected: {', '.join(str(e) for e in extracted[:5])}"
+
+                        title = _get_professional_title(template_id, matcher_name, info_name)
+                        remediation = _get_remediation(template_id, matcher_name, description)
+
+                        dedup_key = (title, matched_at)
+                        if dedup_key in seen:
+                            continue
+                        seen.add(dedup_key)
+
+                        findings.append({
+                            "title": title,
+                            "severity": severity,
+                            "description": description,
+                            "cve_id": cve_str,
+                            "evidence": matched_at,
+                            "remediation": remediation,
+                            "ens_measure": "op.exp.2"
+                        })
+                    except json.JSONDecodeError:
+                        continue
+            os.remove(output_file)
 
         logger.info("NUCLEI_FINISH", target=target_ip, count=len(findings))
         return findings
 
     except subprocess.TimeoutExpired:
         logger.error("NUCLEI_TIMEOUT", target=target_ip)
+        if os.path.exists(output_file):
+            os.remove(output_file)
         return []
     except FileNotFoundError:
         logger.error("NUCLEI_NOT_FOUND")
         return []
     except Exception as e:
         logger.error("NUCLEI_ERROR", target=target_ip, error=str(e))
+        if os.path.exists(output_file):
+            os.remove(output_file)
         return []
 FILE:services\scanner_engine\services\openvas_client.py
+"""
+OpenVAS Client - Scanner Engine M3
+Cliente real para OpenVAS/GVM usando la librería oficial python-gvm.
+"""
 
+import asyncio
+import logging
+import time
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
+from datetime import datetime
+import xml.etree.ElementTree as ET
+
+try:
+    from gvm.connections import TLSConnection
+    from gvm.protocols.gmp import Gmp
+    from gvm.transforms import EtreeTransform
+    from gvm.errors import GvmError
+    GVM_AVAILABLE = True
+except ImportError:
+    GVM_AVAILABLE = False
+    TLSConnection = None
+    Gmp = None
+    EtreeTransform = None
+    GvmError = Exception
+
+from shared.config import settings
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class CVEFinding:
+    asset_id: int
+    title: str
+    description: str
+    severity: str
+    cvss_score: Optional[float]
+    cve_id: Optional[str]
+    evidence: str
+    remediation: str
+    scanner: str = "OpenVAS"
+    created_at: datetime = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.utcnow()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "asset_id": self.asset_id,
+            "title": self.title,
+            "description": self.description,
+            "severity": self.severity,
+            "cvss_score": self.cvss_score,
+            "cve_id": self.cve_id,
+            "evidence": self.evidence,
+            "remediation": self.remediation,
+            "scanner": self.scanner,
+            "created_at": self.created_at.isoformat(),
+        }
+
+class OpenVASClient:
+
+    def __init__(self):
+        self.host = settings.openvas_host
+        self.port = settings.openvas_port
+        self.username = settings.openvas_user
+        self.password = settings.openvas_pass
+
+    def _run_full_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
+        if not GVM_AVAILABLE:
+            logger.error("✗ gvm-tools no está instalado.")
+            return []
+
+        try:
+            logger.info(f"Conectando a OpenVAS en {self.host}:{self.port}...")
+            connection = TLSConnection(hostname=self.host, port=self.port)
+            transform = EtreeTransform()
+
+            with Gmp(connection=connection, transform=transform) as gmp:
+                gmp.authenticate(self.username, self.password)
+                logger.info("✓ Autenticación exitosa en OpenVAS GVM")
+
+                # 1. Crear Target
+                response = gmp.create_target(
+                    name= target_name,
+                    hosts=[asset_ip],
+                    port_list_id="4a4717fe-57d2-11e1-9a26-406186ea4fc5"
+                )
+                logger.info(f"Target response attribs: {response.attrib}")
+                target_id = response.attrib.get("id")
+                if not target_id:
+                    # Target ya existe — buscarlo por nombre
+                    logger.info(f"Target ya existe, buscando por nombre: {target_name}")
+                    targets_resp = gmp.get_targets()
+                    for t in targets_resp.findall(".//target"):
+                        if t.find("name") is not None and t.find("name").text == target_name:
+                            target_id = t.attrib.get("id")
+                        break
+                    if not target_id:
+                        logger.error(f"No se pudo obtener target_id")
+                        return []
+                logger.info(f"Target ID: {target_id}")
+
+                # 2. Crear Task
+                task_name = f"TSK_{asset_name}_{asset_id}"
+                scanner_id = "08b69003-5fc2-45d1-a82e-ab9734732d91"
+                config_id = "daba56c8-73ec-11df-a475-002264764cea"
+
+                response = gmp.create_task(
+                    name=task_name,
+                    config_id=config_id,
+                    target_id=target_id,
+                    scanner_id=scanner_id
+                )
+                logger.info(f"Task response attribs: {response.attrib}")
+                task_id = response.attrib.get("id")
+                if not task_id:
+                    logger.error(f"✗ No se obtuvo task_id. Response: {ET.tostring(response)}")
+                    return []
+                logger.info(f"✓ Task creada: {task_id}")
+
+                # 3. Iniciar
+                response = gmp.start_task(task_id=task_id)
+                report_id_elem = response.find(".//report_id")
+                if report_id_elem is None:
+                    logger.error("✗ No se obtuvo report_id")
+                    return []
+                report_id = report_id_elem.text
+                logger.info(f"✓ Task iniciada. Report ID: {report_id}")
+
+                # 4. Esperar
+                timeout = 3600
+                start_time = datetime.utcnow()
+                while (datetime.utcnow() - start_time).total_seconds() < timeout:
+                    resp = gmp.get_task(task_id=task_id)
+                    task_elem = resp.find(".//task")
+                    status = task_elem.find("status").text
+                    progress_text = task_elem.find("progress").text
+                    progress = int(progress_text) if progress_text and int(progress_text) >= 0 else 0
+
+                    if status == "Done":
+                        break
+                    if status in ["Stopped", "Error", "Internal Error"]:
+                        logger.error(f"✗ Task {task_id} falló con estado: {status}")
+                        return []
+
+                    logger.info(f"→ OpenVAS progresando: {progress}% (Estado: {status})")
+                    time.sleep(30)
+                else:
+                    logger.error(f"✗ Timeout OpenVAS para {asset_ip}")
+                    return []
+
+                # 5. Obtener resultados
+                response = gmp.get_report(report_id=report_id, filter_string="levels=hml")
+                findings = []
+                severity_map = {
+                    "High": "HIGH",
+                    "Medium": "MEDIUM",
+                    "Low": "LOW",
+                    "Log": "INFO",
+                    "Debug": "INFO"
+                }
+
+                results = response.findall(".//result")
+                for res in results:
+                    nvt = res.find("nvt")
+                    threat_elem = res.find("threat")
+                    severity_text = threat_elem.text if threat_elem is not None else "Log"
+                    cve_elem = nvt.find("cve") if nvt is not None else None
+                    cves = cve_elem.text if cve_elem is not None else None
+                    name_elem = res.find("name")
+                    desc_elem = res.find("description")
+                    sev_elem = res.find("severity")
+
+                    finding = CVEFinding(
+                        asset_id=asset_id,
+                        title=name_elem.text if name_elem is not None else "Unknown",
+                        description=desc_elem.text if desc_elem is not None else "",
+                        severity=severity_map.get(severity_text, "INFO"),
+                        cvss_score=float(sev_elem.text) if sev_elem is not None else 0.0,
+                        cve_id=cves.split(",")[0] if cves and cves != "NOCVE" else None,
+                        evidence=desc_elem.text if desc_elem is not None else "",
+                        remediation=""
+                    )
+                    findings.append(finding)
+
+                logger.info(f"✓ OpenVAS finalizado: {len(findings)} vulnerabilidades")
+                return findings
+
+        except GvmError as ge:
+            logger.error(f"✗ Error GVM: {str(ge)}")
+            return []
+        except Exception as e:
+            logger.error(f"✗ Error OpenVAS: {str(e)}")
+            return []
+
+    async def scan_asset(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
+        logger.info(f"Iniciando escaneo OpenVAS para {asset_name} ({asset_ip})")
+        return await asyncio.to_thread(self._run_full_scan, asset_id, asset_ip, asset_name)
+
+_client_instance = None
+
+async def get_openvas_client() -> OpenVASClient:
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = OpenVASClient()
+    return _client_instance
 FILE:services\scanner_engine\services\zap_wrapper.py
 """ZAP wrapper — replaced by Nikto."""
 FILE:services\scanner_engine\tasks\__init__.py
@@ -19965,14 +21677,14 @@ import time
 from typing import Dict, List, Any
 from datetime import datetime
 from celery import group, chord
+from celery.exceptions import SoftTimeLimitExceeded
 
 from shared.celery_app import app
 from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
-from services.scanner_engine.clients.openvas_client import OpenVASClient
-from services.scanner_engine.clients.nuclei_client import NucleiClient
 from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
+from services.scanner_engine.clients.nmap_client import run_nmap_scan
 
 logger = ScanLogger("scanner_tasks")
 
@@ -19988,8 +21700,20 @@ def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
         logger.error("NUCLEI_TASK_ERROR", error=str(e))
         return []
 
+@app.task(name="tasks.run_nmap_vulnerability_scan", queue="vulnerabilities")
+def run_nmap_task(asset_id: int, ip: str) -> List[Dict]:
+    """Ejecuta Nmap NSE y devuelve hallazgos sin persistir."""
+    logger.info("NMAP_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        findings = run_nmap_scan(asset_id, ip)
+        return findings
+    except Exception as e:
+        logger.error("NMAP_TASK_ERROR", error=str(e))
+        return []
+
 # --- TAREA: OPENVAS (US-3.1) ---
-@app.task(name="scanner.openvas.scan_asset", queue="scanner_tasks")
+@app.task(name="scanner.openvas.scan_asset", queue="heavy_scans",
+          time_limit=1800, soft_time_limit=1750)
 def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict]:
     """Ejecuta OpenVAS real y devuelve hallazgos normalizados."""
     logger.info("OPENVAS_TASK_START", ip=asset_ip)
@@ -20000,6 +21724,9 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
         client = loop.run_until_complete(get_openvas_client())
         findings = loop.run_until_complete(client.scan_asset(asset_id, asset_ip, asset_name))
         return [{"scanner": "OpenVAS", **f.to_dict()} for f in findings]
+    except SoftTimeLimitExceeded:
+        logger.error("OPENVAS_TASK_TIMEOUT", ip=asset_ip)
+        return []
     except Exception as e:
         logger.error("OPENVAS_TASK_ERROR", error=str(e))
         return []
@@ -20033,15 +21760,17 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     try:
         for f in all_findings:
             severity = f.get("severity", "INFO").upper()
+            raw_evidence = f.get("evidence", {})
+            evidence = raw_evidence if isinstance(raw_evidence, dict) else {"raw": str(raw_evidence)}
             vuln = VulnFinding(
                 asset_id=asset_id,
                 scan_id=scan_id,
-                vulnerability_id=f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC",
-                title=f.get("title", "Unknown Vulnerability"),
-                severity=severity,
+                vulnerability_id=(f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32],
+                title=f.get("title", "Unknown Vulnerability")[:255],
+                severity=severity[:16],
                 description=f.get("description", ""),
-                scanner_name=f.get("scanner", "Generic"),
-                evidence=f.get("evidence", {}),
+                scanner_name=f.get("scanner", "Generic")[:32],
+                evidence=evidence,
                 created_by="system-orchestrator"
             )
             db.add(vuln)
@@ -20067,13 +21796,13 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     Nuclei || OpenVAS || Nikto -> merge_and_persist_results
     """
     if not scan_types:
-        scan_types = ["nuclei", "openvas", "nikto"]
+        scan_types = ["nuclei", "nmap", "nikto"]
 
     tasks = []
     if "nuclei" in scan_types:
         tasks.append(run_nuclei_task.s(asset_id, asset_ip, asset_name))
-    if "openvas" in scan_types:
-        tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
+    if "openvas" in scan_types or "nmap" in scan_types:
+        tasks.append(run_nmap_task.s(asset_id, asset_ip))
     if "nikto" in scan_types:
         tasks.append(run_nikto_task.s(asset_id, asset_ip))
 
@@ -20956,7 +22685,9 @@ app.conf.update(
     task_routes = {
         'tasks.run_network_discovery': {'queue': 'discovery'},
         'tasks.run_nuclei_vulnerability_scan': {'queue': 'vulnerabilities'},
+        'tasks.run_nikto_vulnerability_scan': {'queue': 'vulnerabilities'},
         'run_recon_complete': {'queue': 'discovery'},
+        'scanner.openvas.scan_asset': {'queue': 'heavy_scans'},
     }
 )
 FILE:shared\config.py

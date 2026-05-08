@@ -28,6 +28,7 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class CVEFinding:
     asset_id: int
@@ -83,21 +84,46 @@ class OpenVASClient:
                 logger.info("Autenticacion exitosa en OpenVAS GVM")
 
                 target_name = f"TGT_{asset_name}_{asset_id}"
+                task_name = f"TSK_{asset_name}_{asset_id}"
+
+                # Limpiar tasks antiguas con el mismo nombre
+                tasks_resp = gmp.get_tasks()
+                for t in tasks_resp.findall(".//task"):
+                    name_elem = t.find("name")
+                    if name_elem is not None and name_elem.text == task_name:
+                        old_task_id = t.attrib.get("id")
+                        status_elem = t.find("status")
+                        status = status_elem.text if status_elem is not None else ""
+                        if status in ["Running", "Requested"]:
+                            gmp.stop_task(task_id=old_task_id)
+                            logger.info(f"Task antigua parada: {old_task_id}")
+                        gmp.delete_task(task_id=old_task_id, ultimate=True)
+                        logger.info(f"Task antigua eliminada: {old_task_id}")
+
+                # Limpiar targets antiguos con el mismo nombre
+                targets_resp = gmp.get_targets()
+                for t in targets_resp.findall(".//target"):
+                    name_elem = t.find("name")
+                    if name_elem is not None and name_elem.text == target_name:
+                        old_target_id = t.attrib.get("id")
+                        gmp.delete_target(target_id=old_target_id, ultimate=True)
+                        logger.info(f"Target antiguo eliminado: {old_target_id}")
+
+                # Crear Target nuevo
                 response = gmp.create_target(
                     name=target_name,
                     hosts=[asset_ip],
-                    port_list_id="4a4717fe-57d2-11e1-9a26-406186ea4fc5"
+                    port_list_id="33d0cd82-57c6-11e1-8ed1-406186ea4fc5"
                 )
-                logger.info(f"Target response attribs: {response.attrib}")
                 target_id = response.attrib.get("id")
                 if not target_id:
                     logger.error(f"No se obtuvo target_id. Response: {ET.tostring(response)}")
                     return []
                 logger.info(f"Target creado: {target_id}")
 
-                task_name = f"TSK_{asset_name}_{asset_id}"
+                # Crear Task nueva
                 scanner_id = "08b69003-5fc2-4037-a479-93b440211c73"
-                config_id = "daba56c8-73ec-11df-a475-002264764cea"
+                config_id = "8715c877-47a0-438d-98a3-27c7a6ab2196"
 
                 response = gmp.create_task(
                     name=task_name,
@@ -105,13 +131,13 @@ class OpenVASClient:
                     target_id=target_id,
                     scanner_id=scanner_id
                 )
-                logger.info(f"Task response attribs: {response.attrib}")
                 task_id = response.attrib.get("id")
                 if not task_id:
                     logger.error(f"No se obtuvo task_id. Response: {ET.tostring(response)}")
                     return []
                 logger.info(f"Task creada: {task_id}")
 
+                # Iniciar task
                 response = gmp.start_task(task_id=task_id)
                 report_id_elem = response.find(".//report_id")
                 if report_id_elem is None:
@@ -120,7 +146,8 @@ class OpenVASClient:
                 report_id = report_id_elem.text
                 logger.info(f"Task iniciada. Report ID: {report_id}")
 
-                timeout = 3600
+                # Esperar resultado
+                timeout = 7200
                 start_time = datetime.utcnow()
                 while (datetime.utcnow() - start_time).total_seconds() < timeout:
                     resp = gmp.get_task(task_id=task_id)
@@ -141,6 +168,7 @@ class OpenVASClient:
                     logger.error(f"Timeout OpenVAS para {asset_ip}")
                     return []
 
+                # Obtener resultados
                 response = gmp.get_report(report_id=report_id, filter_string="levels=hml")
                 findings = []
                 severity_map = {

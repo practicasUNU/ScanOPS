@@ -8,7 +8,9 @@
       "Bash(xargs grep -l \"nuclei\\\\|template\")",
       "Bash(python3 -c ' *)",
       "Bash(python3)",
-      "Bash(python -m pytest services/exploit_engine/tests/test_sqlmap_executor.py -v)"
+      "Bash(python -m pytest services/exploit_engine/tests/test_sqlmap_executor.py -v)",
+      "Bash(Sort-Object)",
+      "Bash(docker exec *)"
     ]
   }
 }

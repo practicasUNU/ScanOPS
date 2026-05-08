@@ -1,16 +1,87 @@
 import subprocess
 import json
 import os
+import re
 from typing import List, Dict
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nikto_client")
 
+# Mapa de IDs Nikto conocidos a títulos descriptivos y severidad
+NIKTO_ID_MAP = {
+    "013587": ("Missing Security Header", "MEDIUM"),
+    "600050": ("Outdated Software Version Detected", "HIGH"),
+    "000777": ("Potentially Dangerous HTTP Method Enabled", "HIGH"),
+    "000398": ("Apache Default Files Exposed", "MEDIUM"),
+    "000461": ("Directory Indexing Enabled", "MEDIUM"),
+    "001166": ("SQL Injection Possible", "HIGH"),
+    "000760": ("Cross-Site Scripting (XSS) Possible", "HIGH"),
+    "000379": ("PHP Information Disclosure", "HIGH"),
+    "001232": ("Backup File Exposed", "MEDIUM"),
+    "000001": ("Web Server Version Disclosure", "LOW"),
+}
+
+def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
+    """Determina título y severidad a partir del ID y mensaje."""
+    if nikto_id in NIKTO_ID_MAP:
+        base_title, base_severity = NIKTO_ID_MAP[nikto_id]
+    else:
+        base_title = "Web Vulnerability Finding"
+        base_severity = "MEDIUM"
+
+    msg_upper = msg.upper()
+    if any(w in msg_upper for w in ["CRITICAL", "REMOTE CODE", "RCE", "SQL INJECTION", "SQLI"]):
+        base_severity = "CRITICAL"
+    elif any(w in msg_upper for w in ["XSS", "CROSS-SITE", "INJECTION", "TRAVERSAL", "BACKDOOR", "SHELL"]):
+        base_severity = "HIGH"
+    elif any(w in msg_upper for w in ["OUTDATED", "OLD VERSION", "DEPRECATED", "INSECURE"]):
+        base_severity = "HIGH"
+    elif any(w in msg_upper for w in ["MISSING", "HEADER", "CSRF", "CLICKJACK"]):
+        base_severity = "MEDIUM"
+    elif any(w in msg_upper for w in ["INFORMATION", "DISCLOSURE", "VERSION"]):
+        base_severity = "LOW"
+
+    if "MISSING" in msg_upper and "HEADER" in msg_upper:
+        header_match = re.search(r"missing:\s*([a-z0-9\-]+)", msg, re.IGNORECASE)
+        if header_match:
+            base_title = f"Missing Security Header: {header_match.group(1)}"
+
+    return base_title, base_severity
+
+def _extract_cve(msg: str, references: str) -> str:
+    """Extrae CVE del mensaje o referencias."""
+    combined = f"{msg} {references}"
+    cve_match = re.search(r"CVE-\d{4}-\d+", combined, re.IGNORECASE)
+    return cve_match.group(0).upper() if cve_match else ""
+
+def _get_remediation(nikto_id: str, msg: str) -> str:
+    """Genera remediación específica basada en el tipo de finding."""
+    msg_upper = msg.upper()
+    if "STRICT-TRANSPORT-SECURITY" in msg_upper or "HSTS" in msg_upper:
+        return "Add 'Strict-Transport-Security: max-age=31536000; includeSubDomains' header. Enforces HTTPS connections."
+    if "CONTENT-SECURITY-POLICY" in msg_upper or "CSP" in msg_upper:
+        return "Implement Content-Security-Policy header to prevent XSS and data injection attacks."
+    if "X-FRAME-OPTIONS" in msg_upper:
+        return "Add 'X-Frame-Options: DENY' or 'SAMEORIGIN' header to prevent clickjacking attacks."
+    if "X-CONTENT-TYPE" in msg_upper:
+        return "Add 'X-Content-Type-Options: nosniff' header to prevent MIME type sniffing."
+    if "REFERRER-POLICY" in msg_upper:
+        return "Add 'Referrer-Policy: strict-origin-when-cross-origin' header to control referrer information."
+    if "PERMISSIONS-POLICY" in msg_upper:
+        return "Add Permissions-Policy header to control browser features and APIs."
+    if "OUTDATED" in msg_upper or "OLD VERSION" in msg_upper:
+        return "Update server software to the latest stable version. Outdated versions may contain known vulnerabilities."
+    if "DIRECTORY" in msg_upper and "INDEX" in msg_upper:
+        return "Disable directory listing in web server configuration (Apache: Options -Indexes)."
+    if "METHOD" in msg_upper and ("PUT" in msg_upper or "DELETE" in msg_upper or "TRACE" in msg_upper):
+        return "Disable dangerous HTTP methods (PUT, DELETE, TRACE) in web server configuration."
+    return "Review and remediate this finding according to OWASP security best practices."
+
 def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
     logger.info("NIKTO_START", target=target_url)
-    
+
     output_file = f"/tmp/nikto_{asset_id}.json"
-    
+
     cmd = [
         "nikto",
         "-h", target_url,
@@ -23,39 +94,65 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
 
     try:
         subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        
+
         findings = []
         if os.path.exists(output_file):
             with open(output_file, "r") as f:
                 try:
-                    data = json.load(f)
-                    
-                    # Nikto JSON is a top-level array: [ { "host":..., "vulnerabilities": [...] } ]
+                    raw = f.read().strip()
+                    if not raw:
+                        logger.warning("NIKTO_EMPTY_OUTPUT", target=target_url)
+                        os.remove(output_file)
+                        return []
+                    data = json.loads(raw)
+
                     vulns = []
                     if isinstance(data, list) and len(data) > 0:
                         vulns = data[0].get("vulnerabilities", [])
                     elif isinstance(data, dict):
                         vulns = data.get("vulnerabilities", [])
 
+                    seen = set()
                     for v in vulns:
+                        nikto_id = str(v.get("id", "Unknown"))
                         msg = v.get("msg", "")
-                        severity = "MEDIUM"
-                        if "XSS" in msg.upper() or "INJECTION" in msg.upper():
+                        url = v.get("url", "/")
+                        method = v.get("method", "GET")
+                        references = v.get("references", "") or ""
+
+                        dedup_key = (nikto_id, msg[:100])
+                        if dedup_key in seen:
+                            continue
+                        seen.add(dedup_key)
+
+                        title, severity = _classify_nikto_finding(nikto_id, msg)
+                        cve_id = _extract_cve(msg, references)
+                        if cve_id:
                             severity = "HIGH"
-                            
+                        remediation = _get_remediation(nikto_id, msg)
+
                         findings.append({
-                            "title": f"Nikto Finding: {v.get('id', 'Unknown')}",
+                            "title": title,
                             "severity": severity,
                             "description": msg,
-                            "cve_id": "",
-                            "evidence": f"URL: {v.get('url', '')} | Method: {v.get('method', '')}",
-                            "remediation": v.get("references", "") or "Review Nikto recommendation for this finding."
+                            "cve_id": cve_id,
+                            "evidence": {
+                                "nikto_id": nikto_id,
+                                "url": url,
+                                "method": method,
+                                "target": target_url,
+                                "references": references
+                            },
+                            "remediation": remediation,
+                            "scanner": "Nikto",
+                            "ens_measure": "op.exp.2"
                         })
+
                 except json.JSONDecodeError:
                     logger.error("NIKTO_JSON_ERROR", target=target_url)
-            
+
             os.remove(output_file)
-            
+
         logger.info("NIKTO_FINISH", target=target_url, count=len(findings))
         return findings
 
@@ -63,6 +160,9 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
         logger.error("NIKTO_TIMEOUT", target=target_url)
         if os.path.exists(output_file):
             os.remove(output_file)
+        return []
+    except FileNotFoundError:
+        logger.error("NIKTO_NOT_FOUND", target=target_url)
         return []
     except Exception as e:
         logger.error("NIKTO_ERROR", target=target_url, error=str(e))

@@ -33,9 +33,9 @@ async def process_human_decision(
 
     # 3. Mapear decisión a status
     status_map = {
-        "validada": "approved",
-        "corregida": "approved_with_correction",
-        "rechazada": "rejected"
+        "validada": "APPROVED",
+        "corregida": "APPROVED_WITH_CORRECTION",
+        "rechazada": "REJECTED"
     }
     final_status = status_map[decision]
     decided_at = datetime.utcnow()

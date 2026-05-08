@@ -45,6 +45,8 @@ app.conf.update(
     task_routes = {
         'tasks.run_network_discovery': {'queue': 'discovery'},
         'tasks.run_nuclei_vulnerability_scan': {'queue': 'vulnerabilities'},
+        'tasks.run_nikto_vulnerability_scan': {'queue': 'vulnerabilities'},
         'run_recon_complete': {'queue': 'discovery'},
+        'scanner.openvas.scan_asset': {'queue': 'heavy_scans'},
     }
 )
