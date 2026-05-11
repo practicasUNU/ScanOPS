@@ -10,7 +10,30 @@
       "Bash(python3)",
       "Bash(python -m pytest services/exploit_engine/tests/test_sqlmap_executor.py -v)",
       "Bash(Sort-Object)",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "PowerShell(docker volume ls)",
+      "PowerShell(docker exec scanops-wazuh bash -c \"grep -r 'password' /var/ossec/api/configuration/api.yaml 2>/dev/null | head -20; echo '---'; cat /var/ossec/api/configuration/api.yaml 2>/dev/null | head -40\")",
+      "PowerShell(docker exec scanops-wazuh bash -c \"cat /var/ossec/etc/ossec.conf 2>/dev/null | grep -A5 'api\\\\|password\\\\|auth' | head -30; echo '---USERS---'; ls /var/ossec/api/configuration/ 2>/dev/null\")",
+      "PowerShell(docker exec scanops-wazuh bash -c \"ls /var/ossec/api/configuration/security/; echo '---'; cat /var/ossec/api/configuration/security/user.yml 2>/dev/null || cat /var/ossec/api/configuration/security/users 2>/dev/null || ls /var/ossec/api/configuration/security/\")",
+      "PowerShell(docker exec scanops-wazuh sqlite3 /var/ossec/api/configuration/security/rbac.db \"SELECT username, password FROM users LIMIT 10;\")",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\services\\\\siem_engine\\\\tests\" -Force)",
+      "PowerShell(New-Item -ItemType File -Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\services\\\\siem_engine\\\\tests\\\\__init__.py\" -Force)",
+      "PowerShell(New-Item -ItemType File -Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\services\\\\siem_engine\\\\__init__.py\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\config\\\\crowdsec\" -Force)",
+      "PowerShell(docker compose -f docker-compose.siem.yml up -d scanops-suricata 2>&1)",
+      "PowerShell(docker compose up -d --build m5 2>&1)",
+      "PowerShell(tail -20)",
+      "PowerShell(docker run --rm --entrypoint cat jasonish/suricata:latest /docker-entrypoint.sh 2>&1)",
+      "Bash(Select-String \"3306\")",
+      "PowerShell(docker search beelzebub 2>&1)",
+      "PowerShell(docker exec scanops-beelzebub ls /app/configurations/services/ 2>&1)",
+      "PowerShell(docker exec scanops-m5 python -m pytest services/siem_engine/tests/test_us64.py -v 2>&1)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:8006/siem/honeypots/status\" -UseBasicParsing)",
+      "Bash(python3 -c \"import os; files=os.listdir\\('config/crowdsec/collections'\\); print\\(repr\\(files\\)\\)\")",
+      "PowerShell([System.IO.File]::GetAttributes\\(\"config\\\\crowdsec\\\\collections\\\\linux.yaml\"\\))",
+      "Bash(git push *)",
+      "PowerShell(Get-ChildItem -Path \"config\\\\crowdsec\" -Recurse -File | Where-Object { $_.Attributes -notmatch \"ReparsePoint\" } | Measure-Object | Select-Object Count)",
+      "Bash(xargs -0 git add)"
     ]
   }
 }
