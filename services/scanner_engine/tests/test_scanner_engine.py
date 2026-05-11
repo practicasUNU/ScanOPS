@@ -186,6 +186,70 @@ class TestFindingModels:
         assert normalize_cvss_score(None) is None
         assert normalize_cvss_score(11.0) is None  # Invalid range
 
+    def test_enrich_missing_security_header(self):
+        """Test static enrichment: x-content-type-options gets CVSS 5.3."""
+        from services.scanner_engine.models.finding import normalize_nuclei_findings
+
+        findings = normalize_nuclei_findings([{
+            "template-id": "missing-headers",
+            "name": "Missing Security Header: x-content-type-options",
+            "severity": "medium",
+            "matched-at": "http://target/",
+            "description": "Header missing"
+        }], asset_id=1)
+
+        assert len(findings) == 1
+        assert findings[0].cvss_score == 5.3
+        assert findings[0].cve_id is None
+
+    def test_enrich_hsts_missing(self):
+        """Test static enrichment: strict-transport-security gets CVSS 7.4."""
+        from services.scanner_engine.models.finding import normalize_nuclei_findings
+
+        findings = normalize_nuclei_findings([{
+            "template-id": "hsts-missing",
+            "name": "Missing Security Header: strict-transport-security",
+            "severity": "medium",
+            "matched-at": "http://target/",
+            "description": "HSTS missing"
+        }], asset_id=1)
+
+        assert findings[0].cvss_score == 7.4
+
+    def test_nmap_vulnerable_version_has_cvss(self):
+        """Test Apache 2.4.49 gets CVE-2021-41773 and CVSS 9.8."""
+        from services.scanner_engine.clients.nmap_client import _check_version_vulnerabilities
+        findings = _check_version_vulnerabilities("Apache httpd", "2.4.49", "80")
+        assert len(findings) == 1
+        assert findings[0]["cvss_score"] == 9.8
+        assert findings[0]["cve_id"] == "CVE-2021-41773"
+
+    def test_nmap_cve_empty_string_becomes_none(self):
+        """Test Apache version without specific CVE gets cve_id=None and CVSS fallback."""
+        from services.scanner_engine.clients.nmap_client import _check_version_vulnerabilities
+        findings = _check_version_vulnerabilities("Apache httpd", "2.4.41", "80")
+        assert len(findings) == 1
+        assert findings[0]["cve_id"] is None
+        assert findings[0]["cvss_score"] == 5.0  # fallback MEDIUM
+
+    def test_nikto_missing_header_has_cvss(self):
+        """Test x-content-type-options keyword resolves to CVSS 5.3."""
+        from services.scanner_engine.clients.nikto_client import _resolve_nikto_cvss
+        score = _resolve_nikto_cvss("", "Missing Security Header: x-content-type-options", "MEDIUM")
+        assert score == 5.3
+
+    def test_nikto_hsts_has_cvss(self):
+        """Test strict-transport-security keyword resolves to CVSS 7.4."""
+        from services.scanner_engine.clients.nikto_client import _resolve_nikto_cvss
+        score = _resolve_nikto_cvss("", "Missing Security Header: strict-transport-security", "MEDIUM")
+        assert score == 7.4
+
+    def test_nikto_fallback_high(self):
+        """Test title with no keyword match falls back to severity-based CVSS."""
+        from services.scanner_engine.clients.nikto_client import _resolve_nikto_cvss
+        score = _resolve_nikto_cvss("", "Outdated Software Version Detected", "HIGH")
+        assert score == 7.5
+
 
 # ============================================================================
 # TEST CONFIG (config.py)

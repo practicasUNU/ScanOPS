@@ -161,7 +161,13 @@ SCHEMA DE RESPUESTA:
                 clean_json = clean_json.split("```json")[1].split("```")[0].strip()
             elif "```" in clean_json:
                 clean_json = clean_json.split("```")[1].strip()
-            
+            if clean_json.startswith("'") and clean_json.endswith("'"):
+                clean_json = clean_json[1:-1].strip()
+            if not clean_json.startswith("{") and "{" in clean_json:
+                clean_json = clean_json[clean_json.index("{"):]
+            if not clean_json.endswith("}") and "}" in clean_json:
+                clean_json = clean_json[:clean_json.rindex("}")+1]
+
             return json.loads(clean_json)
             
         except Exception as e:

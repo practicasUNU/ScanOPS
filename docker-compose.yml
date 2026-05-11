@@ -235,7 +235,7 @@ services:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      OLLAMA_MODEL: qwen3.5:latest
+      OLLAMA_MODEL: mistral:7b
       M3_URL: http://scanner-engine:8002
       M1_URL: http://m1:8001
     depends_on:

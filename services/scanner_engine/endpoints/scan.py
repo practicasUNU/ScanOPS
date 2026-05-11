@@ -240,7 +240,17 @@ async def get_scan_results(asset_id: int) -> ScanResultsResponse:
     from services.scanner_engine.models.vulnerability import VulnFinding
     db = SessionLocal()
     try:
-        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        latest = db.query(VulnFinding.scan_id).filter(
+            VulnFinding.asset_id == asset_id
+        ).order_by(VulnFinding.created_at.desc()).first()
+
+        if not latest:
+            return ScanResultsResponse(asset_id=asset_id, total_findings=0, findings_by_scanner={}, created_at=datetime.utcnow(), completed_at=datetime.utcnow())
+
+        vulns = db.query(VulnFinding).filter(
+            VulnFinding.asset_id == asset_id,
+            VulnFinding.scan_id == latest.scan_id
+        ).all()
         findings_by_scanner = {}
         for v in vulns:
             if v.scanner_name not in findings_by_scanner:
@@ -396,9 +406,19 @@ async def get_attack_vector(asset_id: int):
         from services.scanner_engine.models.vulnerability import VulnFinding
         db = SessionLocal()
         try:
-            vulns = db.query(VulnFinding).filter(
+            # Solo el scan_id más reciente
+            latest = db.query(VulnFinding.scan_id).filter(
                 VulnFinding.asset_id == asset_id
-            ).all()
+            ).order_by(VulnFinding.created_at.desc()).first()
+
+            if latest:
+                vulns = db.query(VulnFinding).filter(
+                    VulnFinding.asset_id == asset_id,
+                    VulnFinding.scan_id == latest.scan_id,
+                    VulnFinding.severity.in_(["CRITICAL", "HIGH", "MEDIUM"])
+                ).order_by(VulnFinding.created_at.desc()).limit(10).all()
+            else:
+                vulns = []
         finally:
             db.close()
 
@@ -407,8 +427,10 @@ async def get_attack_vector(asset_id: int):
 
         confirmed_vulns = []
         for v in vulns:
+            cvss_str = f", CVSS: {v.cvss_v3_score}" if v.cvss_v3_score else ""
+            cve_str = f", CVE: {v.scanner_reference}" if v.scanner_reference else ""
             confirmed_vulns.append(
-                f"- {v.title} (Severidad: {v.severity}, Scanner: {v.scanner_name})"
+                f"- {v.title} (Severidad: {v.severity}{cvss_str}{cve_str}, Scanner: {v.scanner_name})"
             )
 
         ficha_unica = {

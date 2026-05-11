@@ -104,7 +104,9 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
                 description=f.get("description", ""),
                 scanner_name=f.get("scanner", "Generic")[:32],
                 evidence=evidence,
-                created_by="system-orchestrator"
+                created_by="system-orchestrator",
+                cvss_v3_score=f.get("cvss_score"),
+                scanner_reference=(f.get("cve_id") or "")[:128],
             )
             db.add(vuln)
             stats["total"] += 1

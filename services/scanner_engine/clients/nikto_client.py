@@ -21,6 +21,46 @@ NIKTO_ID_MAP = {
     "000001": ("Web Server Version Disclosure", "LOW"),
 }
 
+NIKTO_CVSS_MAP = {
+    "CVE-2017-9798": 7.5,
+    "CVE-2019-0211": 7.8,
+    # Specific header keywords before the generic "missing security header"
+    "strict-transport-security": 7.4,
+    "content-security-policy": 6.1,
+    "x-frame-options": 6.1,
+    "x-content-type-options": 5.3,
+    "referrer-policy": 3.1,
+    "permissions-policy": 3.1,
+    "missing security header": 5.3,
+    "outdated software": 7.5,
+    "dangerous http method": 6.5,
+    "directory indexing": 5.3,
+    "sql injection": 9.8,
+    "cross-site scripting": 6.1,
+    "php information": 5.3,
+    "backup file": 5.3,
+    "web server version": 5.3,
+    "_CRITICAL": 9.0,
+    "_HIGH": 7.5,
+    "_MEDIUM": 5.0,
+    "_LOW": 3.1,
+    "_INFO": 0.0,
+}
+
+
+def _resolve_nikto_cvss(cve_id: str, title: str, severity: str) -> float:
+    """Resuelve CVSS: primero CVE, luego keyword en título, luego fallback severidad."""
+    if cve_id and cve_id in NIKTO_CVSS_MAP:
+        return NIKTO_CVSS_MAP[cve_id]
+    title_lower = title.lower()
+    for keyword, score in NIKTO_CVSS_MAP.items():
+        if keyword.startswith("_"):
+            continue
+        if keyword in title_lower:
+            return score
+    return NIKTO_CVSS_MAP.get(f"_{severity.upper()}", 0.0)
+
+
 def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
     """Determina título y severidad a partir del ID y mensaje."""
     if nikto_id in NIKTO_ID_MAP:
@@ -135,7 +175,8 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
                             "title": title,
                             "severity": severity,
                             "description": msg,
-                            "cve_id": cve_id,
+                            "cve_id": cve_id if cve_id else None,
+                            "cvss_score": _resolve_nikto_cvss(cve_id, title, severity),
                             "evidence": {
                                 "nikto_id": nikto_id,
                                 "url": url,

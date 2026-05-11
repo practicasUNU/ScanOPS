@@ -33,7 +33,9 @@
       "PowerShell([System.IO.File]::GetAttributes\\(\"config\\\\crowdsec\\\\collections\\\\linux.yaml\"\\))",
       "Bash(git push *)",
       "PowerShell(Get-ChildItem -Path \"config\\\\crowdsec\" -Recurse -File | Where-Object { $_.Attributes -notmatch \"ReparsePoint\" } | Measure-Object | Select-Object Count)",
-      "Bash(xargs -0 git add)"
+      "Bash(xargs -0 git add)",
+      "Bash(docker compose *)",
+      "Bash(docker cp *)"
     ]
   }
 }
