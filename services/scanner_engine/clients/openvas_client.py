@@ -1,11 +1,11 @@
 """
 OpenVAS Client - Scanner Engine M3
 Cliente real para OpenVAS/GVM usando la librería oficial python-gvm.
-Cumple con ENS Alto [op.exp.3] para la gestión segura de parámetros.
 """
 
 import asyncio
 import logging
+import time
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,8 +18,6 @@ try:
     from gvm.errors import GvmError
     GVM_AVAILABLE = True
 except ImportError:
-    # gvm not available, using mock/alternate
-    # needs: pip install gvm-tools
     GVM_AVAILABLE = False
     TLSConnection = None
     Gmp = None
@@ -30,13 +28,13 @@ from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class CVEFinding:
-    """Hallazgo normalizado desde OpenVAS"""
     asset_id: int
     title: str
     description: str
-    severity: str  # CRITICAL, HIGH, MEDIUM, LOW, INFO
+    severity: str
     cvss_score: Optional[float]
     cve_id: Optional[str]
     evidence: str
@@ -62,10 +60,8 @@ class CVEFinding:
             "created_at": self.created_at.isoformat(),
         }
 
-import time
 
 class OpenVASClient:
-    """Cliente para OpenVAS/GVM real usando protocolo GMP"""
 
     def __init__(self):
         self.host = settings.openvas_host
@@ -74,9 +70,8 @@ class OpenVASClient:
         self.password = settings.openvas_pass
 
     def _run_full_scan(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
-        """Ejecución síncrona del flujo completo GVM"""
         if not GVM_AVAILABLE:
-            logger.error("✗ gvm-tools no está instalado.")
+            logger.error("gvm-tools no esta instalado.")
             return []
 
         try:
@@ -85,25 +80,50 @@ class OpenVASClient:
             transform = EtreeTransform()
 
             with Gmp(connection=connection, transform=transform) as gmp:
-                # Autenticación automática via context manager / call explicit
                 gmp.authenticate(self.username, self.password)
-                logger.info(f"✓ Autenticación exitosa en OpenVAS GVM")
+                logger.info("Autenticacion exitosa en OpenVAS GVM")
 
-                # 1. Crear Target
                 target_name = f"TGT_{asset_name}_{asset_id}"
+                task_name = f"TSK_{asset_name}_{asset_id}"
+
+                # Limpiar tasks antiguas con el mismo nombre
+                tasks_resp = gmp.get_tasks()
+                for t in tasks_resp.findall(".//task"):
+                    name_elem = t.find("name")
+                    if name_elem is not None and name_elem.text == task_name:
+                        old_task_id = t.attrib.get("id")
+                        status_elem = t.find("status")
+                        status = status_elem.text if status_elem is not None else ""
+                        if status in ["Running", "Requested"]:
+                            gmp.stop_task(task_id=old_task_id)
+                            logger.info(f"Task antigua parada: {old_task_id}")
+                        gmp.delete_task(task_id=old_task_id, ultimate=True)
+                        logger.info(f"Task antigua eliminada: {old_task_id}")
+
+                # Limpiar targets antiguos con el mismo nombre
+                targets_resp = gmp.get_targets()
+                for t in targets_resp.findall(".//target"):
+                    name_elem = t.find("name")
+                    if name_elem is not None and name_elem.text == target_name:
+                        old_target_id = t.attrib.get("id")
+                        gmp.delete_target(target_id=old_target_id, ultimate=True)
+                        logger.info(f"Target antiguo eliminado: {old_target_id}")
+
+                # Crear Target nuevo
                 response = gmp.create_target(
                     name=target_name,
                     hosts=[asset_ip],
-                    port_list_id="33d0cd10-f6ec-11e0-815c-002264764cea"
+                    port_list_id="33d0cd82-57c6-11e1-8ed1-406186ea4fc5"
                 )
-                target_id = response.get("id")
-                logger.info(f"✓ Target creado: {target_id}")
+                target_id = response.attrib.get("id")
+                if not target_id:
+                    logger.error(f"No se obtuvo target_id. Response: {ET.tostring(response)}")
+                    return []
+                logger.info(f"Target creado: {target_id}")
 
-                # 2. Crear Task
-                task_name = f"TSK_{asset_name}_{asset_id}"
-                # Scanner ID por defecto (OpenVAS Default)
-                scanner_id = "08b69003-5fc2-45d1-a82e-ab9734732d91"
-                config_id = "daba56c8-73ec-11df-a475-002264764cea" # Full and fast
+                # Crear Task nueva
+                scanner_id = "08b69003-5fc2-4037-a479-93b440211c73"
+                config_id = "8715c877-47a0-438d-98a3-27c7a6ab2196"
 
                 response = gmp.create_task(
                     name=task_name,
@@ -111,17 +131,23 @@ class OpenVASClient:
                     target_id=target_id,
                     scanner_id=scanner_id
                 )
-                task_id = response.get("id")
-                logger.info(f"✓ Task creada: {task_id}")
+                task_id = response.attrib.get("id")
+                if not task_id:
+                    logger.error(f"No se obtuvo task_id. Response: {ET.tostring(response)}")
+                    return []
+                logger.info(f"Task creada: {task_id}")
 
-                # 3. Iniciar
+                # Iniciar task
                 response = gmp.start_task(task_id=task_id)
-                report_id = response.find(".//report_id").text
-                logger.info(f"✓ Task iniciada. Report ID: {report_id}")
+                report_id_elem = response.find(".//report_id")
+                if report_id_elem is None:
+                    logger.error("No se obtuvo report_id")
+                    return []
+                report_id = report_id_elem.text
+                logger.info(f"Task iniciada. Report ID: {report_id}")
 
-                # 4. Esperar (Sync loop)
-                finished = False
-                timeout = 3600
+                # Esperar resultado
+                timeout = 7200
                 start_time = datetime.utcnow()
                 while (datetime.utcnow() - start_time).total_seconds() < timeout:
                     resp = gmp.get_task(task_id=task_id)
@@ -131,23 +157,19 @@ class OpenVASClient:
                     progress = int(progress_text) if progress_text and int(progress_text) >= 0 else 0
 
                     if status == "Done":
-                        finished = True
                         break
                     if status in ["Stopped", "Error", "Internal Error"]:
-                        logger.error(f"✗ Task {task_id} falló con estado: {status}")
+                        logger.error(f"Task {task_id} fallo con estado: {status}")
                         return []
 
-                    logger.info(f"→ Escaneo OpenVAS progresando: {progress}% (Estado: {status})")
+                    logger.info(f"OpenVAS progresando: {progress}% (Estado: {status})")
                     time.sleep(30)
-
-                if not finished:
-                    logger.error(f"✗ Timeout esperando escaneo OpenVAS para {asset_ip}")
+                else:
+                    logger.error(f"Timeout OpenVAS para {asset_ip}")
                     return []
 
-                # 5. Obtener resultados
-                logger.info(f"Descargando resultados para reporte {report_id}")
+                # Obtener resultados
                 response = gmp.get_report(report_id=report_id, filter_string="levels=hml")
-
                 findings = []
                 severity_map = {
                     "High": "HIGH",
@@ -160,42 +182,45 @@ class OpenVASClient:
                 results = response.findall(".//result")
                 for res in results:
                     nvt = res.find("nvt")
-                    severity_text = res.find("threat").text
-                    cves = nvt.find("cve").text if nvt.find("cve") is not None else None
+                    threat_elem = res.find("threat")
+                    severity_text = threat_elem.text if threat_elem is not None else "Log"
+                    cve_elem = nvt.find("cve") if nvt is not None else None
+                    cves = cve_elem.text if cve_elem is not None else None
+                    name_elem = res.find("name")
+                    desc_elem = res.find("description")
+                    sev_elem = res.find("severity")
 
                     finding = CVEFinding(
                         asset_id=asset_id,
-                        title=res.find("name").text,
-                        description=nvt.find("description").text if nvt.find("description") is not None else "",
+                        title=name_elem.text if name_elem is not None else "Unknown",
+                        description=desc_elem.text if desc_elem is not None else "",
                         severity=severity_map.get(severity_text, "INFO"),
-                        cvss_score=float(res.find("severity").text) if res.find("severity") is not None else 0.0,
+                        cvss_score=float(sev_elem.text) if sev_elem is not None else 0.0,
                         cve_id=cves.split(",")[0] if cves and cves != "NOCVE" else None,
-                        evidence=res.find("description").text if res.find("description") is not None else "Ver reporte completo en GVM",
-                        remediation=nvt.find("solution").text if nvt.find("solution") is not None else "No especificada"
+                        evidence=desc_elem.text if desc_elem is not None else "",
+                        remediation=""
                     )
                     findings.append(finding)
 
-                logger.info(f"✓ Escaneo OpenVAS finalizado: {len(findings)} vulnerabilidades encontradas")
+                logger.info(f"OpenVAS finalizado: {len(findings)} vulnerabilidades")
                 return findings
 
         except GvmError as ge:
-            logger.error(f"✗ Error de protocolo GVM: {str(ge)}")
+            logger.error(f"Error GVM: {str(ge)}")
             return []
         except Exception as e:
-            logger.error(f"✗ Error crítico en escaneo OpenVAS: {str(e)}")
+            logger.error(f"Error OpenVAS: {str(e)}")
             return []
 
     async def scan_asset(self, asset_id: int, asset_ip: str, asset_name: str) -> List[CVEFinding]:
-        """Punto de entrada asíncrono que delega a un hilo síncrono"""
-        logger.info(f"Iniciando escaneo OpenVAS real para {asset_name} ({asset_ip})")
+        logger.info(f"Iniciando escaneo OpenVAS para {asset_name} ({asset_ip})")
         return await asyncio.to_thread(self._run_full_scan, asset_id, asset_ip, asset_name)
 
-# Singleton instance
+
 _client_instance = None
 
 async def get_openvas_client() -> OpenVASClient:
-    """Obtiene el cliente configurado desde settings"""
     global _client_instance
     if _client_instance is None:
         _client_instance = OpenVASClient()
-    return _client_instance
+    return _client_instance

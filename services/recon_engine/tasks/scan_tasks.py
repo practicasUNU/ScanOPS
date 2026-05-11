@@ -67,7 +67,7 @@ def run_recon_complete(self, target, asset_id=None):
                     app.send_task(
                         "services.scanner_engine.tasks.vuln_tasks.scan_asset_parallel",
                         args=[asset_id or 0, ip, f"Discovered_{ip}"],
-                        kwargs={"scan_types": ["nuclei", "openvas", "zap"]}
+                        kwargs={"scan_types": ["nuclei", "openvas", "nikto"]}
                     )
                 except Exception as e:
                     logger.error(f"Error al disparar M3 para {ip}: {e}")

@@ -33,26 +33,35 @@ async def process_human_decision(
 
     # 3. Mapear decisión a status
     status_map = {
-        "validada": "approved",
-        "corregida": "approved_with_correction",
-        "rechazada": "rejected"
+        "validada": "APPROVED",
+        "corregida": "APPROVED_WITH_CORRECTION",
+        "rechazada": "REJECTED"
     }
     final_status = status_map[decision]
     decided_at = datetime.utcnow()
 
     # 4. Persistir en m4_approvals
-    # Si existe registro previo con finding_id → actualizar status
-    # Si no existe → crear registro nuevo con status PENDING→final
     conn = None
     approval_id = None
     try:
         conn = psycopg2.connect(DB_CONFIG["dsn"])
         with conn:
             with conn.cursor() as cur:
+
+                # Resolver IP real del activo desde assets
+                target_ip = asset_id
+                try:
+                    cur.execute("SELECT ip FROM assets WHERE id = %s", (asset_id,))
+                    asset_row = cur.fetchone()
+                    if asset_row:
+                        target_ip = asset_row[0]
+                except Exception:
+                    pass
+
                 # Buscar si ya existe aprobación para este finding
                 cur.execute(
                     "SELECT id FROM m4_approvals WHERE cve_id = %s AND target_ip = %s ORDER BY created_at DESC LIMIT 1",
-                    (finding_id, asset_id)
+                    (finding_id, target_ip)
                 )
                 row = cur.fetchone()
 
@@ -75,7 +84,7 @@ async def process_human_decision(
                                (cve_id, target_ip, requester, status, created_at, updated_at)
                            VALUES (%s, %s, %s, %s, %s, %s)
                            RETURNING id""",
-                        (finding_id, asset_id, operator_id, final_status, decided_at, decided_at)
+                        (finding_id, target_ip, operator_id, final_status, decided_at, decided_at)
                     )
                     approval_id = cur.fetchone()[0]
                     logger.info(f"[ENS_EVIDENCE] approval_id={approval_id} created with {final_status} by {operator_id}")

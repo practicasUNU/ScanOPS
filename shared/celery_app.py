@@ -26,6 +26,8 @@ app.conf.update(
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=10,
     task_acks_late=True,
+    task_time_limit=300,        # hard kill a los 5 min — evita workers zombi
+    task_soft_time_limit=270,   # SIGUSR1 a los 4.5 min para cleanup graceful
     # ESTO CUMPLE LA US-2.7 (Programación automática)
     beat_schedule={
         'recon-lunes-madrugada': {
@@ -43,6 +45,8 @@ app.conf.update(
     task_routes = {
         'tasks.run_network_discovery': {'queue': 'discovery'},
         'tasks.run_nuclei_vulnerability_scan': {'queue': 'vulnerabilities'},
+        'tasks.run_nikto_vulnerability_scan': {'queue': 'vulnerabilities'},
         'run_recon_complete': {'queue': 'discovery'},
+        'scanner.openvas.scan_asset': {'queue': 'heavy_scans'},
     }
 )

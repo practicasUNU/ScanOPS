@@ -1,6 +1,5 @@
 """Scanner clients module"""
-from .openvas_client import OpenVASClient
+from .nikto_client import run_nikto_scan
 from .nuclei_client import NucleiClient
-from .zap_client import ZAPClient
 
-__all__ = ["OpenVASClient", "NucleiClient", "ZAPClient"]
+__all__ = ["run_nikto_scan", "NucleiClient"]

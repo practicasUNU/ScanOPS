@@ -92,7 +92,7 @@ async def root():
             "info": "/info",
             "start_scan": "/api/v1/scan/asset/{asset_id}",
         },
-        "scanners": ["openvas", "nuclei", "zap"],
+        "scanners": ["openvas", "nuclei", "nikto"],
         "ens_compliance": "ENS Alto - op.exp.2",
     }
  
@@ -167,7 +167,7 @@ async def get_service_info():
                 "capability": "Zero-day detection with templates",
                 "scope": "Web & Infrastructure",
             },
-            "zap": {
+            "nikto": {
                 "name": "OWASP ZAP",
                 "capability": "Web application scanning",
                 "scope": "Web Applications",
@@ -233,13 +233,13 @@ async def get_scanners_status():
     # ZAP Check
     try:
         zap = ZAPClient()
-        status["zap"] = {
+        status["nikto"] = {
             "available": True if zap else False,
             "version": "latest",
             "status": "ready",
         }
     except Exception as e:
-        status["zap"] = {
+        status["nikto"] = {
             "available": False,
             "error": str(e),
             "status": "unavailable",

@@ -64,8 +64,8 @@ from services.scanner_engine.services.export_results import (
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""
     scan_types: List[str] = Field(
-        default=["openvas", "nuclei", "zap"],
-        description="Scanners to run: openvas, nuclei, zap"
+        default=["nmap", "nuclei", "nikto"],
+        description="Scanners to run: nmap, nuclei, nikto"
     )
     description: Optional[str] = None
 
@@ -142,13 +142,13 @@ async def start_asset_scan(
         asset = await get_asset_from_m1(asset_id)
         asset_ip = asset["ip"]
         asset_name = asset.get("hostname") or f"Asset-{asset_id}"
-
+        asset_domain = asset.get("dominio") or asset_name
         logger.info(f"→ Scan iniciado para asset {asset_id} ({asset_ip})")
 
         task = scan_asset_parallel.delay(
             asset_id=asset_id,
             asset_ip=asset_ip,        # ✅ IP real desde M1
-            asset_name=asset_name,    # ✅ hostname real desde M1
+            asset_name=asset_domain,    # ✅ hostname real desde M1
             scan_types=request.scan_types,
         )
 
@@ -288,7 +288,7 @@ async def health_check() -> HealthResponse:
 @router.post("/batch", response_model=BatchScanResponse)
 async def batch_scan_assets(
     asset_ids: List[int] = Query(...),
-    scan_types: List[str] = Query(default=["openvas", "nuclei", "zap"]),
+    scan_types: List[str] = Query(default=["nmap", "nuclei", "nikto"]),
 ) -> BatchScanResponse:
     """Start batch scan for multiple assets."""
     try:
@@ -301,11 +301,12 @@ async def batch_scan_assets(
                 asset = await get_asset_from_m1(asset_id)
                 asset_ip = asset["ip"]
                 asset_name = asset.get("hostname") or f"Asset-{asset_id}"
+                asset_domain = asset.get("dominio") or asset_name
 
                 task = scan_asset_parallel.delay(
                     asset_id=asset_id,
                     asset_ip=asset_ip,
-                    asset_name=asset_name,
+                    asset_name=asset_domain,
                     scan_types=scan_types,
                 )
             except Exception as e:

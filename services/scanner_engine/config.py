@@ -24,7 +24,7 @@ class ScannerConfig(BaseSettings):
     NUCLEI_MAX_RETRIES: int = int(os.getenv("NUCLEI_MAX_RETRIES", 2))
 
     # ZAP Configuration
-    ZAP_HOST: str = os.getenv("ZAP_HOST", "zap")
+    ZAP_HOST: str = os.getenv("ZAP_HOST", "localhost")  # ZAP replaced by Nikto
     ZAP_PORT: int = int(os.getenv("ZAP_PORT", 8080))
     ZAP_TIMEOUT: int = int(os.getenv("ZAP_TIMEOUT", 1800))
     ZAP_MAX_RETRIES: int = int(os.getenv("ZAP_MAX_RETRIES", 2))
