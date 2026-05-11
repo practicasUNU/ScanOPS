@@ -237,3 +237,10 @@ keys/
 
 *.exe
 vault.exe
+
+# CrowdSec symlinks (ReparsePoints en Windows, apuntan a hub/)
+config/crowdsec/collections/
+config/crowdsec/contexts/
+config/crowdsec/parsers/
+config/crowdsec/postoverflows/
+config/crowdsec/scenarios/
