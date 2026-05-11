@@ -1,0 +1,17 @@
+apiVersion: "v1"
+protocol: "http"
+address: ":8880"
+description: "HTTP Honeypot - Web server falso"
+commands:
+  - regex: ".*"
+    handler: "LLMHandler"
+    headers:
+      - "Content-Type: text/html"
+    statusCode: 200
+plugin:
+  LLMHandler:
+    openAISecretKey: ""
+    openAIModel: ""
+    ollamaModel: "mistral:7b"
+    ollamaAddress: "http://host.docker.internal:11434"
+    useLocalLLM: true

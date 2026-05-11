@@ -1,0 +1,26 @@
+# ScanOPS Custom Rules -- ENS Alto op.exp.4
+# Reglas personalizadas de deteccion para entorno ScanOPS
+
+# Regla 1: Deteccion de escaneo de puertos (Nmap SYN scan)
+alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"SCANOPS Nmap SYN port scan detected"; flags:S; threshold: type threshold, track by_src, count 20, seconds 2; classtype:network-scan; sid:9000001; rev:1;)
+
+# Regla 2: Deteccion de brute force SSH
+alert tcp $EXTERNAL_NET any -> $HOME_NET $SSH_PORTS (msg:"SCANOPS SSH brute force attempt"; flow:to_server; threshold: type threshold, track by_src, count 5, seconds 30; classtype:attempted-admin; sid:9000002; rev:1;)
+
+# Regla 3: Acceso a puertos honeypot 2222
+alert tcp any any -> $HOME_NET 2222 (msg:"SCANOPS Honeypot port 2222 access attempt"; flags:S; classtype:network-scan; sid:9000003; rev:1;)
+
+# Regla 4: Acceso a puertos honeypot 2323
+alert tcp any any -> $HOME_NET 2323 (msg:"SCANOPS Honeypot port 2323 access attempt"; flags:S; classtype:network-scan; sid:9000004; rev:1;)
+
+# Regla 5: Posible exfiltracion de datos (transferencia grande hacia exterior)
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"SCANOPS Potential data exfiltration large transfer"; dsize:>4096; threshold: type threshold, track by_src, count 10, seconds 60; classtype:policy-violation; sid:9000005; rev:1;)
+
+# Regla 6: Reverse shell puerto 4444
+alert tcp $HOME_NET any -> $EXTERNAL_NET 4444 (msg:"SCANOPS Reverse shell outbound port 4444"; flow:to_server,established; classtype:shellcode-detect; sid:9000006; rev:1;)
+
+# Regla 7: Reverse shell puerto 1337
+alert tcp $HOME_NET any -> $EXTERNAL_NET 1337 (msg:"SCANOPS Reverse shell outbound port 1337"; flow:to_server,established; classtype:shellcode-detect; sid:9000007; rev:1;)
+
+# Regla 8: Reverse shell puerto 9001
+alert tcp $HOME_NET any -> $EXTERNAL_NET 9001 (msg:"SCANOPS Reverse shell outbound port 9001"; flow:to_server,established; classtype:shellcode-detect; sid:9000008; rev:1;)

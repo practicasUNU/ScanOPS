@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instalar dependencias mínimas para red
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar requerimientos e instalar (usando tu requirements.txt compartido)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar estructura necesaria
+COPY services/__init__.py /app/services/
+COPY services/siem_engine /app/services/siem_engine
+COPY shared /app/shared
+
+EXPOSE 8006
+
+CMD ["uvicorn", "services.siem_engine.main:app", "--host", "0.0.0.0", "--port", "8006"]

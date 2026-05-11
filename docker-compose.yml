@@ -249,8 +249,161 @@ services:
       - scanops
     restart: unless-stopped
 
+# --- M5: SIEM & Monitoring Foundation (US-6.1) ---
+  
+  # Base de Datos para Graylog
+  mongodb:
+    image: mongo:5.0
+    container_name: scanops-mongodb
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - scanops
+
+  # Motor de búsqueda para Graylog y Wazuh Indexer
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: scanops-opensearch
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "bootstrap.memory_lock=true"
+      - "discovery.type=single-node"
+      - "action.auto_create_index=true"
+      - "plugins.security.disabled=true"
+      - "compatibility.override_main_response_version=true"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      scanops:
+        aliases:
+          - wazuh.indexer
+
+  graylog:
+    image: graylog/graylog:5.2
+    container_name: scanops-graylog
+    depends_on:
+      - mongodb
+      - opensearch
+    ports:
+      - "9000:9000"
+      - "12201:12201/udp"
+    environment:
+      - GRAYLOG_NODE_ID=graylog-node-1
+      - GRAYLOG_PASSWORD_SECRET=scanops_ens_alto_secret_2024
+      - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      - GRAYLOG_HTTP_BIND_ADDRESS=0.0.0.0:9000
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://localhost:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://opensearch:9200
+      - GRAYLOG_ELASTICSEARCH_VERSION=7
+      - GRAYLOG_MONGODB_URI=mongodb://mongodb:27017/graylog
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/api/system/lbstatus"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - scanops
+
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.7.2
+    container_name: scanops-wazuh
+    environment:
+      - INDEXER_URL=http://wazuh.indexer:9200
+      - INDEXER_USER=admin
+      - INDEXER_PASSWORD=admin
+      - FILEBEAT_SSL_VERIFY=false
+      - WAZUH_API_ADMIN_PASSWORD=wazuh
+    ports:
+      - "1514:1514/udp"
+      - "1515:1515"
+      - "55000:55000"
+    volumes:
+      - wazuh_data:/var/ossec/data
+      - scanops_suricata_logs:/var/log/suricata:ro
+      - scanops_cowrie_logs:/var/log/cowrie:ro
+      - scanops_beelzebub_logs:/var/log/beelzebub:ro
+    networks:
+      scanops:
+        aliases:
+          - wazuh.manager
+
+  # M5 - SIEM Engine (FastAPI)
+  m5:
+    build:
+      context: .
+      dockerfile: Dockerfile.m5
+    container_name: scanops-m5
+    ports:
+      - "8006:8006"
+    environment:
+      - DATABASE_URL=postgresql://scanops:scanops@postgres:5432/scanops
+      - WAZUH_API_URL=https://wazuh-manager:55000
+      - WAZUH_USER=wazuh
+      - WAZUH_PASSWORD=wazuh
+      - GRAYLOG_API_URL=http://graylog:9000/api
+      - M1_URL=http://m1:8001
+      - M2_URL=http://m2:8003
+      - M3_URL=http://scanner-engine:8002
+      - SCANOPS_API_KEY=scanops_secret
+      - WAZUH_MANAGER_IP=scanops-wazuh
+      - CROWDSEC_API_URL=http://scanops-crowdsec:8080
+      - CROWDSEC_BOUNCER_KEY=${CROWDSEC_BOUNCER_KEY:-}
+      - INDEXER_URL=http://wazuh.indexer:9200
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - scanops_suricata_logs:/var/log/suricata:ro
+      - scanops_cowrie_logs:/var/log/cowrie:ro
+      - scanops_beelzebub_logs:/var/log/beelzebub:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      wazuh-manager:
+        condition: service_started
+    networks:
+      - scanops
+
+  # US-6.6 — CrowdSec IDS/IPS
+  crowdsec:
+    image: crowdsecurity/crowdsec:latest
+    container_name: scanops-crowdsec
+    environment:
+      - COLLECTIONS=crowdsecurity/linux crowdsecurity/sshd
+      - GID=1000
+    volumes:
+      - ./config/crowdsec:/etc/crowdsec
+      - scanops_crowdsec_data:/var/lib/crowdsec/data
+    networks:
+      - scanops
+    restart: unless-stopped
+
+
+
 volumes:
   pgdata:
   trivy_data:
   zap_data:
   openvas_data:
+  mongodb_data:
+  opensearch_data:
+  wazuh_data:
+  scanops_crowdsec_data:
+  scanops_suricata_logs:
+    name: scanops_suricata_logs
+  scanops_suricata_rules:
+    name: scanops_suricata_rules
+  scanops_cowrie_logs:
+    name: scanops_cowrie_logs
+  scanops_beelzebub_logs:
+    name: scanops_beelzebub_logs
+
+
+
+

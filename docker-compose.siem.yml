@@ -1,0 +1,83 @@
+networks:
+  scanops:
+    external: true
+  scanops_honeypot_net:
+    name: scanops_honeypot_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+# US-6.3 Suricata IDS -- ENS Alto op.exp.4
+# Ejecutar: docker compose -f docker-compose.siem.yml up -d scanops-suricata
+# NOTA: network_mode host es necesario para captura de paquetes real
+
+services:
+  scanops-suricata:
+    image: jasonish/suricata:latest
+    container_name: scanops-suricata
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    network_mode: "host"
+    volumes:
+      - ./config/suricata:/etc/suricata
+      - scanops_suricata_logs:/var/log/suricata
+      - scanops_suricata_rules:/var/lib/suricata/rules
+    # Fallback pcap en loopback: AF_PACKET no disponible en Docker Desktop Windows/WSL2
+    command: -i lo -c /etc/suricata/suricata.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/log/suricata/eve.json || exit 0"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  # US-6.4 Cowrie SSH/Telnet Honeypot -- ENS Alto op.exp.4
+  scanops-cowrie:
+    image: cowrie/cowrie:latest
+    container_name: scanops-cowrie
+    networks:
+      - scanops_honeypot_net
+    ports:
+      - "2222:2222"
+      - "2223:2223"
+    volumes:
+      - ./config/cowrie/cowrie.cfg:/cowrie/etc/cowrie.cfg:ro
+      - scanops_cowrie_logs:/cowrie/var/log/cowrie
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',2222)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # US-6.4 Beelzebub HTTP/MySQL LLM Honeypot -- ENS Alto op.exp.4
+  scanops-beelzebub:
+    image: m4r10/beelzebub:latest
+    container_name: scanops-beelzebub
+    networks:
+      - scanops_honeypot_net
+    ports:
+      - "8880:8880"
+      - "13306:3306"
+    volumes:
+      - ./config/beelzebub:/configurations/services
+      - scanops_beelzebub_logs:/var/log/beelzebub
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_MODEL=mistral:7b
+    restart: unless-stopped
+
+volumes:
+  scanops_suricata_logs:
+    name: scanops_suricata_logs
+  scanops_suricata_rules:
+    name: scanops_suricata_rules
+  scanops_cowrie_logs:
+    name: scanops_cowrie_logs
+  scanops_beelzebub_logs:
+    name: scanops_beelzebub_logs
