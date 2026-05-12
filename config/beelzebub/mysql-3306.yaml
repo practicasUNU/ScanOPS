@@ -1,0 +1,9 @@
+apiVersion: "v1"
+protocol: "tcp"
+address: ":3306"
+description: "MySQL Honeypot - Base de datos falsa (TCP)"
+commands:
+  - regex: ".*"
+    handler: "5.7.44-MySQL Community Server"
+    headers: []
+    statusCode: 200

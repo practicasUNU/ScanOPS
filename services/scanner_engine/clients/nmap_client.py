@@ -66,6 +66,33 @@ DANGEROUS_SERVICES = {
               ""),
 }
 
+NMAP_CVSS_MAP = {
+    "CVE-2021-41773": 9.8,
+    "CVE-2021-42013": 9.8,
+    "CVE-2018-15473": 5.3,
+    "CVE-2023-38408": 9.8,
+    "CVE-2019-9511":  7.5,
+    "CVE-2017-0144":  8.1,
+    "CVE-2019-0708":  9.8,
+    "CVE-1999-0528":  7.5,
+    "CVE-2022-3786":  7.5,
+    "CVE-2022-3602":  7.5,
+    "_CRITICAL": 9.0,
+    "_HIGH":     7.5,
+    "_MEDIUM":   5.0,
+    "_LOW":      3.1,
+    "_INFO":     0.0,
+}
+
+
+def _resolve_cvss(cve_id: str, severity: str) -> float:
+    """Devuelve CVSS: primero busca por CVE, luego fallback por severidad."""
+    if cve_id and cve_id in NMAP_CVSS_MAP:
+        return NMAP_CVSS_MAP[cve_id]
+    fallback_key = f"_{severity.upper()}"
+    return NMAP_CVSS_MAP.get(fallback_key, 0.0)
+
+
 def _check_version_vulnerabilities(product: str, version: str, port_id: str) -> List[Dict]:
     """Detecta versiones vulnerables conocidas y genera findings."""
     findings = []
@@ -74,12 +101,13 @@ def _check_version_vulnerabilities(product: str, version: str, port_id: str) -> 
             for version_prefix, severity, description in vuln_list:
                 if version.startswith(version_prefix):
                     cve_match = re.search(r"CVE-\d{4}-\d+", description)
-                    cve_id = cve_match.group(0) if cve_match else ""
+                    cve_id = cve_match.group(0) if cve_match else None
                     findings.append({
                         "title": f"Vulnerable Version: {product} {version}",
                         "severity": severity,
                         "description": description,
                         "cve_id": cve_id,
+                        "cvss_score": _resolve_cvss(cve_id or "", severity),
                         "evidence": {"host": "", "port": port_id, "product": product, "version": version},
                         "remediation": f"Upgrade {software} to the latest stable version immediately.",
                         "scanner": "Nmap",
@@ -186,7 +214,8 @@ def _classify_script_output(script_id: str, output: str, port_id: str, asset_ip:
         "title": title,
         "severity": severity,
         "description": output[:800],
-        "cve_id": cve_id,
+        "cve_id": cve_id if cve_id else None,
+        "cvss_score": _resolve_cvss(cve_id, severity),
         "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "script": script_id},
         "remediation": remediation,
         "scanner": "Nmap",
@@ -252,7 +281,8 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                             "title": svc_title,
                             "severity": svc_severity,
                             "description": f"{svc_desc} | Detected: {full_version} on {asset_ip}:{port_id}",
-                            "cve_id": svc_cve,
+                            "cve_id": svc_cve if svc_cve else None,
+                            "cvss_score": _resolve_cvss(svc_cve if svc_cve else "", svc_severity),
                             "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": service_name},
                             "remediation": svc_desc,
                             "scanner": "Nmap",
@@ -265,7 +295,8 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                             "title": title,
                             "severity": svc_severity,
                             "description": f"Service {service_name} running {full_version} detected on port {port_id}/{protocol}{os_info}{extra}",
-                            "cve_id": "",
+                            "cve_id": None,
+                            "cvss_score": _resolve_cvss("", svc_severity),
                             "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": service_name, "version": full_version},
                             "remediation": f"Ensure {service_product} is updated to latest stable version and access is restricted to authorized hosts.",
                             "scanner": "Nmap",

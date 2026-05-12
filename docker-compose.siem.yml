@@ -1,0 +1,156 @@
+networks:
+  scanops_scanops:
+    external: true
+  scanops_honeypot_net:
+    name: scanops_honeypot_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+# US-6.3 Suricata IDS -- ENS Alto op.exp.4
+# Ejecutar: docker compose -f docker-compose.siem.yml up -d scanops-suricata
+# NOTA: network_mode host es necesario para captura de paquetes real
+
+services:
+  scanops-suricata:
+    image: jasonish/suricata:latest
+    container_name: scanops-suricata
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    network_mode: "host"
+    volumes:
+      - ./config/suricata:/etc/suricata
+      - scanops_suricata_logs:/var/log/suricata
+      - scanops_suricata_rules:/var/lib/suricata/rules
+    # Fallback pcap en loopback: AF_PACKET no disponible en Docker Desktop Windows/WSL2
+    command: -i lo -c /etc/suricata/suricata.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/log/suricata/eve.json || exit 0"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+# US-6.4 Cowrie SSH/Telnet Honeypot -- ENS Alto op.exp.4
+  scanops-cowrie:
+    image: cowrie/cowrie:latest
+    container_name: scanops-cowrie
+    networks:
+      - scanops_honeypot_net
+    ports:
+      - "2222:2222"
+      - "2223:2223"
+    volumes:
+      - ./config/cowrie/cowrie.cfg:/cowrie/etc/cowrie.cfg:ro
+      - scanops_cowrie_logs:/cowrie/cowrie-git/var/log/cowrie
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',2222)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+# US-6.4 Beelzebub HTTP/MySQL LLM Honeypot -- ENS Alto op.exp.4
+  scanops-beelzebub:
+    image: m4r10/beelzebub:latest
+    container_name: scanops-beelzebub
+    networks:
+      - scanops_honeypot_net
+    ports:
+      - "8880:8880"
+      - "13306:3306"
+    volumes:
+      - ./config/beelzebub:/configurations/services
+      - scanops_beelzebub_logs:/var/log/beelzebub
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_MODEL=mistral:7b
+    restart: unless-stopped
+
+
+# US-6.8 MISP Threat Intelligence Platform -- ENS Alto op.exp.4
+  misp-db:
+    image: mysql:8.0
+    container_name: scanops-misp-db
+    environment:
+      - MYSQL_DATABASE=misp
+      - MYSQL_USER=misp
+      - MYSQL_PASSWORD=misp
+      - MYSQL_ROOT_PASSWORD=misp_root_2024
+    volumes:
+      - scanops_misp_db:/var/lib/mysql
+    networks:
+      scanops_scanops:
+        aliases:
+          - db
+    restart: unless-stopped
+
+  misp-redis:
+    image: redis:7-alpine
+    container_name: scanops-misp-redis
+    networks:
+      scanops_scanops:
+        aliases:
+          - redis
+    restart: unless-stopped
+
+  misp:
+    image: ghcr.io/misp/misp-docker/misp-core:latest
+    container_name: scanops-misp
+    depends_on:
+      - misp-db
+      - misp-redis
+    ports:
+      - "8888:80"
+    environment:
+      - MISP_BASEURL=http://localhost:8888
+      - MISP_ADMIN_EMAIL=admin@scanops.local
+      - MISP_ADMIN_PASSPHRASE=ScanOps2024!
+      - MISP_GPG_ENABLED=false
+      - MYSQL_HOST=db
+      - MYSQL_USER=misp
+      - MYSQL_PASSWORD=misp
+      - MYSQL_DATABASE=misp
+      - REDIS_FQDN=redis
+      - ENABLE_REDIS_EMPTY_PASSWORD=true
+      - MISP_ORG=UNUWARE
+      - MISP_EMAIL=admin@scanops.local
+      - MISP_LIVE=1
+      - WORKERS=1
+    volumes:
+      - scanops_misp_data:/var/www/MISP/app/files
+      - scanops_misp_logs:/var/www/MISP/app/tmp/logs
+      - ./config/misp/nginx-misp80.conf:/etc/nginx/sites-enabled/misp80:ro
+    networks:
+      scanops_scanops:
+        aliases:
+          - misp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/users/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+
+volumes:
+  scanops_suricata_logs:
+    name: scanops_suricata_logs
+  scanops_suricata_rules:
+    name: scanops_suricata_rules
+  scanops_cowrie_logs:
+    name: scanops_cowrie_logs
+  scanops_beelzebub_logs:
+    name: scanops_beelzebub_logs
+  scanops_misp_db:
+    name: scanops_misp_db
+  scanops_misp_data:
+    name: scanops_misp_data
+  scanops_misp_logs:
+    name: scanops_misp_logs

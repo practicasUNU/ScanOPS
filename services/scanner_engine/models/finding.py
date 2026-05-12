@@ -25,6 +25,45 @@ class ScannerType(str, Enum):
     ZAP = "ZAP"
 
 
+STATIC_ENRICHMENT: dict = {
+    "x-content-type-options":    {"cvss": 5.3, "cve": None, "cwe": "CWE-16"},
+    "x-frame-options":           {"cvss": 6.1, "cve": None, "cwe": "CWE-693"},
+    "strict-transport-security": {"cvss": 7.4, "cve": None, "cwe": "CWE-319"},
+    "content-security-policy":   {"cvss": 6.1, "cve": None, "cwe": "CWE-79"},
+    "x-xss-protection":          {"cvss": 4.3, "cve": None, "cwe": "CWE-79"},
+    "referrer-policy":           {"cvss": 3.1, "cve": None, "cwe": "CWE-200"},
+    "permissions-policy":        {"cvss": 3.1, "cve": None, "cwe": "CWE-284"},
+    "cache-control":             {"cvss": 3.1, "cve": None, "cwe": "CWE-524"},
+    "server":                    {"cvss": 5.3, "cve": None, "cwe": "CWE-200"},
+    "x-powered-by":              {"cvss": 5.3, "cve": None, "cwe": "CWE-200"},
+    "missing security header":   {"cvss": 5.3, "cve": None, "cwe": "CWE-16"},
+    "clickjacking":              {"cvss": 6.1, "cve": None, "cwe": "CWE-1021"},
+    "information disclosure":    {"cvss": 5.3, "cve": None, "cwe": "CWE-200"},
+    "ssl":                       {"cvss": 7.4, "cve": None, "cwe": "CWE-326"},
+    "tls":                       {"cvss": 7.4, "cve": None, "cwe": "CWE-326"},
+    "cors":                      {"cvss": 6.5, "cve": None, "cwe": "CWE-942"},
+    "cookie":                    {"cvss": 5.4, "cve": None, "cwe": "CWE-614"},
+}
+
+
+def _enrich_from_static(title: str, cvss_score, cve_id):
+    """
+    Si cvss_score o cve_id son None, busca en STATIC_ENRICHMENT por keyword en el título.
+    No sobrescribe valores ya presentes (ej: CVE real del scanner).
+    """
+    if cvss_score is not None and cve_id is not None:
+        return cvss_score, cve_id
+
+    title_lower = title.lower()
+    for keyword, data in STATIC_ENRICHMENT.items():
+        if keyword in title_lower:
+            return (
+                cvss_score if cvss_score is not None else data["cvss"],
+                cve_id if cve_id is not None else data["cve"],
+            )
+    return cvss_score, cve_id
+
+
 # ENS measures mapping for quick enrichment
 ENS_MAPPING = {
     "SQL Injection CVE-2024-XXXX": ["op.exp.2", "mp.info.3"],
@@ -187,13 +226,15 @@ def normalize_nuclei_findings(nuclei_data: List[Dict], asset_id: int) -> List[Fi
     
     for result in nuclei_data:
         try:
+            title = result.get("name", result.get("template-id", "Unknown"))
+            cvss_final, cve_final = _enrich_from_static(title, None, None)
             finding = Finding(
                 asset_id=asset_id,
-                title=result.get("name", result.get("template-id", "Unknown")),
+                title=title,
                 description=result.get("description", ""),
                 severity=normalize_severity_nuclei(result.get("severity", "info")),
-                cvss_score=None,  # Nuclei doesn't provide CVSS
-                cve_id=None,
+                cvss_score=cvss_final,
+                cve_id=cve_final,
                 evidence=result.get("matched-at", ""),
                 remediation="Manual review required",
                 scanner=ScannerType.NUCLEI,
@@ -242,13 +283,15 @@ def normalize_zap_findings(zap_data: Dict, asset_id: int) -> List[Finding]:
     for alert in alerts:
         try:
             riskcode = str(alert.get("riskcode", "0"))
+            title = alert.get("name", "Unknown")
+            cvss_final, cve_final = _enrich_from_static(title, None, None)
             finding = Finding(
                 asset_id=asset_id,
-                title=alert.get("name", "Unknown"),
+                title=title,
                 description=alert.get("description", ""),
                 severity=risk_map.get(riskcode, SeverityLevel.INFO),
-                cvss_score=None,  # ZAP doesn't provide CVSS
-                cve_id=None,
+                cvss_score=cvss_final,
+                cve_id=cve_final,
                 evidence=alert.get("reference", ""),
                 remediation=alert.get("solution", "Manual review required"),
                 scanner=ScannerType.ZAP,
