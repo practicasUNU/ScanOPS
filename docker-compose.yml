@@ -35,21 +35,21 @@ services:
       timeout: 5s
       retries: 5
 
-  openvas:
-    image: immauss/openvas:latest
-    container_name: scanops-openvas
-    ports:
-      - "9392:9392"
-      - "9390:9390"
-    environment:
-      - USERNAME=admin
-      - PASSWORD=admin
-      - DB_PASSWORD=admin
-    volumes:
-      - openvas_data:/data
-    networks:
-      - scanops
-    restart: unless-stopped
+#  openvas:
+#    image: immauss/openvas:latest
+#    container_name: scanops-openvas
+#    ports:
+#      - "9392:9392"
+#      - "9390:9390"
+#    environment:
+#      - USERNAME=admin
+#      - PASSWORD=admin
+#      - DB_PASSWORD=admin
+#    volumes:
+#      - openvas_data:/data
+#    networks:
+#      - scanops
+#    restart: unless-stopped
 
   # services/asset_manager (M1)
   m1:
@@ -86,8 +86,6 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      OPENVAS_USER: admin
-      OPENVAS_PASS: admin
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       OLLAMA_MODEL: "mistral:7b"
@@ -97,8 +95,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      openvas:
-        condition: service_started
     networks:
       - scanops
 
@@ -134,10 +130,6 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      OPENVAS_HOST: openvas
-      OPENVAS_PORT: 9390
-      OPENVAS_USER: admin
-      OPENVAS_PASS: admin
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       ZAP_API_KEY: ""
@@ -146,7 +138,6 @@ services:
     depends_on:
       - postgres
       - redis
-      - openvas
     networks:
       - scanops
 
@@ -393,7 +384,7 @@ volumes:
   pgdata:
   trivy_data:
   zap_data:
-  openvas_data:
+  #openvas_data:
   mongodb_data:
   opensearch_data:
   wazuh_data:
