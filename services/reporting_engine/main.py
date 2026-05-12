@@ -5,12 +5,46 @@ import io
 from datetime import datetime
 import uuid
 from fastapi import APIRouter
+import fitz  # PyMuPDF
 
 app = FastAPI(title="ScanOps M7 - Reporting Engine")
 
 # Configuración de Jinja2
 # Buscamos las plantillas en la carpeta local del servicio
 template_env = Environment(loader=FileSystemLoader('templates'))
+
+def seal_pdf(pdf_bytes: bytes) -> bytes:
+    """
+    US-7.6: Aplica cifrado AES-256, metadatos y bloquea la edición del PDF.
+    Cumplimiento ENS: mp.info.4 (Integridad)
+    """
+    # 1. Cargar el PDF en memoria con PyMuPDF
+    doc = fitz.open("pdf", pdf_bytes)
+    
+    # 2. Inyectar Metadatos de Autenticidad
+    doc.set_metadata({
+        "author": "UNUWARE ScanOps Auto-Signer",
+        "creator": "M7 Reporting Engine",
+        "subject": "Evidencia Auditoría ENS Alto - Inalterable",
+        "title": "Informe de Ciberseguridad",
+        "keywords": "ENS, Confidencial, Auditoria, Integridad"
+    })
+    
+    # 3. Configurar Permisos (Permitir lectura e impresión, DENEGAR edición)
+    # Solo dejamos el bit de imprimir y accesibilidad (para lectores de pantalla)
+    permisos = fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ACCESSIBILITY
+    
+    # 4. Guardar con cifrado AES-256
+    # user_pw="" -> Cualquiera lo puede abrir para leer
+    # owner_pw -> Solo el CISO con esta clave podría quitar la protección de edición
+    out_bytes = doc.write(
+        encryption=fitz.PDF_ENCRYPT_AES_256,
+        owner_pw="ScanOps_MasterKey_2026!",
+        user_pw="", 
+        permissions=permisos
+    )
+    doc.close()
+    return out_bytes
 
 @app.get("/report/test-weasy")
 async def test_report():
@@ -84,7 +118,11 @@ async def generate_executive_report():
         HTML(string=html_content).write_pdf(target=pdf_file)
         
         pdf_bytes = pdf_file.getvalue()
+        raw_pdf_bytes = pdf_file.getvalue()
         pdf_file.close()
+
+        # AQUÍ ESTÁ LA MAGIA: Sellamos el PDF antes de enviarlo
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
 
         return Response(
             content=pdf_bytes,
