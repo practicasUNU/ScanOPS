@@ -83,6 +83,15 @@ def create_siem_tables() -> None:
         correlated_at TIMESTAMP DEFAULT NOW()
     );
     
+    CREATE TABLE IF NOT EXISTS siem_lucia_notifications (
+        id SERIAL PRIMARY KEY,
+        notification_id VARCHAR(36) UNIQUE,
+        payload JSONB,
+        sent BOOLEAN DEFAULT FALSE,
+        method VARCHAR(50),
+        notified_at TIMESTAMP DEFAULT NOW()
+    );
+    
     """
     conn = get_conn()
     try:
