@@ -46,7 +46,7 @@ services:
       - "2223:2223"
     volumes:
       - ./config/cowrie/cowrie.cfg:/cowrie/etc/cowrie.cfg:ro
-      - scanops_cowrie_logs:/cowrie/var/log/cowrie
+      - scanops_cowrie_logs:/cowrie/cowrie-git/var/log/cowrie
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',2222)); s.close()"]

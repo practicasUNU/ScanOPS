@@ -66,6 +66,23 @@ def create_siem_tables() -> None:
         status VARCHAR(50) DEFAULT 'triggered',
         triggered_at TIMESTAMP DEFAULT NOW()
     );
+    
+    CREATE TABLE IF NOT EXISTS siem_correlations (
+        id SERIAL PRIMARY KEY,
+        correlation_id VARCHAR(36) UNIQUE,
+        threat_level VARCHAR(20),
+        attack_pattern VARCHAR(255),
+        confidence FLOAT,
+        affected_ips JSONB,
+        timeline JSONB,
+        ai_reasoning TEXT,
+        recommended_action TEXT,
+        ens_measures JSONB,
+        events_analyzed INTEGER,
+        ai_used BOOLEAN DEFAULT TRUE,
+        correlated_at TIMESTAMP DEFAULT NOW()
+    );
+    
     """
     conn = get_conn()
     try:

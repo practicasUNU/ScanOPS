@@ -357,6 +357,8 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=mistral:7b
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - scanops_suricata_logs:/var/log/suricata:ro
@@ -369,7 +371,8 @@ services:
         condition: service_started
     networks:
       - scanops
-
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   # US-6.6 — CrowdSec IDS/IPS
   crowdsec:
     image: crowdsecurity/crowdsec:latest
