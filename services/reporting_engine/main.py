@@ -134,6 +134,197 @@ async def generate_executive_report():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando reporte ejecutivo: {str(e)}")
 
+@app.get("/report/soa")
+async def generate_soa_report():
+    """
+    US-7.4: Declaración de Aplicabilidad (SoA) con las medidas ENS.
+    Formato horizontal y sellado criptográfico.
+    """
+    try:
+        # 1. Datos del SoA (Muestra de las medidas más críticas que cubre ScanOps)
+        # En producción, esto se extrae de la base de datos de auditoría cruzada.
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "medidas": [
+                {
+                    "id_ens": "op.exp.4", "dominio": "Protección - Explotación", 
+                    "descripcion": "Detección de intrusión (IDS/IPS).", 
+                    "estado": "CUMPLE", 
+                    "justificacion": "Módulo M5 activo. Sensores Suricata y Honeypots (Cowrie/Beelzebub) desplegados y reportando al SIEM central."
+                },
+                {
+                    "id_ens": "op.exp.5", "dominio": "Protección - Explotación", 
+                    "descripcion": "Vigilancia y monitorización continua.", 
+                    "estado": "CUMPLE", 
+                    "justificacion": "Agentes Wazuh y motor OpenSearch ingiriendo telemetría 24/7."
+                },
+                {
+                    "id_ens": "mp.info.4", "dominio": "Marco Operacional", 
+                    "descripcion": "Integridad y Autenticidad de la información.", 
+                    "estado": "CUMPLE", 
+                    "justificacion": "Motor M7 aplica firmas digitales AES-256 a todas las evidencias generadas."
+                },
+                {
+                    "id_ens": "op.exp.7", "dominio": "Protección - Explotación", 
+                    "descripcion": "Gestión de incidentes y reporte a CCN-CERT.", 
+                    "estado": "CUMPLE", 
+                    "justificacion": "Endpoint de orquestación M5 genera y notifica payloads formato LUCÍA automáticamente."
+                },
+                {
+                    "id_ens": "op.acc.4", "dominio": "Control de Acceso", 
+                    "descripcion": "Autenticación de doble factor (MFA) obligatoria.", 
+                    "estado": "NO CUMPLE", 
+                    "justificacion": "Detectados 3 servidores sin MFA aplicado en SSH. Remediación en curso por Blue Team."
+                },
+                {
+                    "id_ens": "op.pl.1", "dominio": "Planificación", 
+                    "descripcion": "Arquitectura de seguridad segregada.", 
+                    "estado": "CUMPLE", 
+                    "justificacion": "Microservicios aislados en redes Docker dedicadas (scanops_net). Tráfico LAPI segmentado."
+                }
+            ]
+        }
+
+        # 2. Renderizar plantilla SoA
+        template = template_env.get_template('soa.html')
+        html_content = template.render(context)
+
+        # 3. Convertir a PDF (apaisado)
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        # 4. Sellar criptográficamente (Integridad mp.info.4)
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        return Response(
+            content=sealed_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_SoA_ENS_Alto.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando reporte SoA: {str(e)}")
+    
+    
+@app.get("/report/technical")
+async def generate_technical_report():
+    """
+    US-7.2 y US-7.7: Informe Técnico y Plan de Remediación Priorizado.
+    """
+    try:
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "signature_id": f"SIEM-CORR-{uuid.uuid4().hex[:8].upper()}",
+            "vulnerabilidades": [
+                {"ip": "10.202.15.100", "cve": "CVE-2024-21626", "cvss": "8.6", "desc": "Fuga de contenedor runc permitiendo acceso al host subyacente.", "crit": "CRITICAL"},
+                {"ip": "10.202.15.101", "cve": "MISCONF-SSH", "cvss": "N/A", "desc": "Puerto 22 expuesto a la WAN sin restricción de IP.", "crit": "CRITICAL"},
+                {"ip": "10.202.15.105", "cve": "CVE-2023-4863", "cvss": "8.8", "desc": "Desbordamiento de búfer en libwebp (Base de datos).", "crit": "HIGH"},
+                {"ip": "10.202.15.100", "cve": "POLICY-01", "cvss": "N/A", "desc": "Contraseñas locales no cumplen política ENS de longitud (14 chars).", "crit": "MEDIUM"}
+            ],
+            "tareas": [
+                {
+                    "titulo": "Actualizar motor Docker/runc", "crit": "CRITICAL",
+                    "activos": "10.202.15.100",
+                    "accion": "Ejecutar 'apt-get update && apt-get install --only-upgrade docker-ce' para parchear CVE-2024-21626. Reinicio requerido."
+                },
+                {
+                    "titulo": "Restringir acceso SSH en Firewall", "crit": "CRITICAL",
+                    "activos": "10.202.15.101",
+                    "accion": "Modificar reglas de iptables/UFW para dropear tráfico al puerto 22 excepto desde la VPN de administración."
+                },
+                {
+                    "titulo": "Parchear librerías del sistema operativo", "crit": "HIGH",
+                    "activos": "10.202.15.105",
+                    "accion": "Actualizar paquete libwebp. Verificar dependencias de la base de datos PostgreSQL."
+                }
+            ]
+        }
+
+        # Renderizar la plantilla técnica
+        template = template_env.get_template('technical.html')
+        html_content = template.render(context)
+
+        # Generar PDF en memoria
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        # Sellar criptográficamente
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        return Response(
+            content=sealed_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Informe_Tecnico_Remediacion.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando reporte técnico: {str(e)}")    
+    
+    
+    
+@app.get("/report/certificate/{asset_id}")
+async def generate_certificate(asset_id: int):
+    """
+    US-7.5: Certificado de Evidencia ENS por activo individual.
+    """
+    try:
+        # 1. Simulación de lógica de negocio según el ID del activo
+        if asset_id == 1:
+            asset_data = {
+                "name": "Servidor de Base de Datos Principal (PostgreSQL)",
+                "ip": "10.202.15.50",
+                "status": "SECURE",
+                "audit_id": "AUD-DB-001"
+            }
+        else:
+            asset_data = {
+                "name": "Frontend Web de Pruebas (Legacy)",
+                "ip": "10.202.15.99",
+                "status": "VULNERABLE",
+                "audit_id": "AUD-WEB-999"
+            }
+
+        context = {
+            "asset_name": asset_data["name"],
+            "asset_ip": asset_data["ip"],
+            "audit_id": asset_data["audit_id"],
+            "status": asset_data["status"],
+            "fecha": datetime.now().strftime("%d de %B de %Y"),
+            "cert_uuid": str(uuid.uuid4()).upper(),
+        }
+
+        # 2. Renderizado
+        template = template_env.get_template('certificate.html')
+        html_content = template.render(context)
+
+        # 3. PDF + Sellado Criptográfico
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        return Response(
+            content=sealed_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=Certificado_{asset_data['ip']}.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando certificado: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
