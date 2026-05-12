@@ -20,6 +20,8 @@ from .alerting import router as alerting_router
 from .suricata import router as suricata_router
 from .honeypots import router as honeypots_router
 from .correlation import router as correlation_router
+from .misp_integration import router as misp_router
+from .lucia_integration import router as lucia_router 
 
 logger = ScanLogger("siem_engine")
 
@@ -55,6 +57,8 @@ app.include_router(alerting_router)
 app.include_router(suricata_router)
 app.include_router(honeypots_router)
 app.include_router(correlation_router)
+app.include_router(misp_router)
+app.include_router(lucia_router)
 
 
 @app.get("/health")

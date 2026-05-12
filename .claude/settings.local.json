@@ -35,7 +35,25 @@
       "PowerShell(Get-ChildItem -Path \"config\\\\crowdsec\" -Recurse -File | Where-Object { $_.Attributes -notmatch \"ReparsePoint\" } | Measure-Object | Select-Object Count)",
       "Bash(xargs -0 git add)",
       "Bash(docker compose *)",
-      "Bash(docker cp *)"
+      "Bash(docker cp *)",
+      "PowerShell(docker exec scanops-misp ls /etc/nginx/sites-enabled/ 2>&1)",
+      "PowerShell(docker exec scanops-misp ls /etc/nginx/conf.d/ 2>&1)",
+      "PowerShell(docker exec scanops-misp cat /etc/nginx/sites-enabled/misp80 2>&1)",
+      "PowerShell(docker exec scanops-misp cat /etc/nginx/sites-enabled/misp443 2>&1)",
+      "PowerShell(docker exec scanops-misp cat /etc/nginx/includes/misp 2>&1)",
+      "PowerShell(docker exec scanops-misp ls /etc/nginx/includes/ 2>&1)",
+      "PowerShell(if \\(-not \\(Test-Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\config\\\\misp\"\\)\\) { New-Item -ItemType Directory -Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\config\\\\misp\" | Out-Null }; Write-Host \"OK\")",
+      "PowerShell(docker exec scanops-misp curl -s -o /dev/null -w \"%{http_code}\" http://localhost/users/login 2>&1)",
+      "PowerShell(docker exec scanops-misp su -s /bin/bash www-data -c \"cd /var/www/MISP && php bin/cake admin getAuthkey admin@admin.test 2>&1\" 2>&1)",
+      "PowerShell(docker exec scanops-misp find /var/www/MISP -name \"cake\" 2>&1)",
+      "PowerShell(head -5)",
+      "PowerShell(docker exec scanops-misp su -s /bin/bash www-data -c \"/var/www/MISP/app/Console/cake Admin getAuthkey admin@admin.test 2>&1\" 2>&1)",
+      "PowerShell(docker exec scanops-misp su -s /bin/bash www-data -c \"/var/www/MISP/app/Console/cake Admin getAuthkey admin@scanops.local 2>&1\" 2>&1)",
+      "PowerShell(docker exec scanops-misp su -s /bin/bash www-data -c \"/var/www/MISP/app/Console/cake Admin addAuthkey admin@admin.test 2>&1\" 2>&1)",
+      "PowerShell(docker exec scanops-misp-db mysql -u misp -pmisp misp -e \"SELECT id, email, authkey FROM users LIMIT 5;\" 2>&1)",
+      "PowerShell(docker exec scanops-misp-db mysql -u misp -pmisp misp -e \"SELECT id, uuid, authkey_start, authkey_end, user_id FROM auth_keys LIMIT 10;\" 2>&1)",
+      "PowerShell(docker exec scanops-misp su -s /bin/bash www-data -c \"/var/www/MISP/app/Console/cake Admin setSetting Security.advanced_authkeys false 2>&1\" 2>&1)",
+      "PowerShell(docker exec scanops-misp curl -s -H \"Authorization: rGeylMY2yWtC6WAdvGSSlgBhgL9tSrd2pzLZpBG1\" -H \"Accept: application/json\" http://localhost/users/view/me.json 2>&1)"
     ]
   }
 }

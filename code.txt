@@ -913,7 +913,7 @@ if __name__ == "__main__":
     demo_scan()
 FILE:docker-compose.siem.yml
 networks:
-  scanops:
+  scanops_scanops:
     external: true
   scanops_honeypot_net:
     name: scanops_honeypot_net
@@ -949,7 +949,7 @@ services:
       start_period: 60s
       retries: 3
 
-  # US-6.4 Cowrie SSH/Telnet Honeypot -- ENS Alto op.exp.4
+# US-6.4 Cowrie SSH/Telnet Honeypot -- ENS Alto op.exp.4
   scanops-cowrie:
     image: cowrie/cowrie:latest
     container_name: scanops-cowrie
@@ -960,7 +960,7 @@ services:
       - "2223:2223"
     volumes:
       - ./config/cowrie/cowrie.cfg:/cowrie/etc/cowrie.cfg:ro
-      - scanops_cowrie_logs:/cowrie/var/log/cowrie
+      - scanops_cowrie_logs:/cowrie/cowrie-git/var/log/cowrie
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost',2222)); s.close()"]
@@ -969,7 +969,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # US-6.4 Beelzebub HTTP/MySQL LLM Honeypot -- ENS Alto op.exp.4
+# US-6.4 Beelzebub HTTP/MySQL LLM Honeypot -- ENS Alto op.exp.4
   scanops-beelzebub:
     image: m4r10/beelzebub:latest
     container_name: scanops-beelzebub
@@ -986,6 +986,71 @@ services:
       - OLLAMA_MODEL=mistral:7b
     restart: unless-stopped
 
+# US-6.8 MISP Threat Intelligence Platform -- ENS Alto op.exp.4
+  misp-db:
+    image: mysql:8.0
+    container_name: scanops-misp-db
+    environment:
+      - MYSQL_DATABASE=misp
+      - MYSQL_USER=misp
+      - MYSQL_PASSWORD=misp
+      - MYSQL_ROOT_PASSWORD=misp_root_2024
+    volumes:
+      - scanops_misp_db:/var/lib/mysql
+    networks:
+      scanops_scanops:
+        aliases:
+          - db
+    restart: unless-stopped
+
+  misp-redis:
+    image: redis:7-alpine
+    container_name: scanops-misp-redis
+    networks:
+      scanops_scanops:
+        aliases:
+          - redis
+    restart: unless-stopped
+
+  misp:
+    image: ghcr.io/misp/misp-docker/misp-core:latest
+    container_name: scanops-misp
+    depends_on:
+      - misp-db
+      - misp-redis
+    ports:
+      - "8888:80"
+    environment:
+      - MISP_BASEURL=http://127.0.0.1:8888
+      - MISP_ADMIN_EMAIL=admin@scanops.local
+      - MISP_ADMIN_PASSPHRASE=ScanOps2024!
+      - MISP_GPG_ENABLED=false
+      - MYSQL_HOST=db
+      - MYSQL_USER=misp
+      - MYSQL_PASSWORD=misp
+      - MYSQL_DATABASE=misp
+      - REDIS_FQDN=redis
+      - ENABLE_REDIS_EMPTY_PASSWORD=true
+      - MISP_ORG=UNUWARE
+      - MISP_EMAIL=admin@scanops.local
+      - MISP_LIVE=1
+      - WORKERS=1
+    volumes:
+      - scanops_misp_data:/var/www/MISP/app/files
+      - scanops_misp_logs:/var/www/MISP/app/tmp/logs
+      - ./config/misp/nginx-misp80.conf:/etc/nginx/sites-enabled/misp80:ro
+    networks:
+      scanops_scanops:
+        aliases:
+          - misp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/users/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
 volumes:
   scanops_suricata_logs:
     name: scanops_suricata_logs
@@ -995,6 +1060,12 @@ volumes:
     name: scanops_cowrie_logs
   scanops_beelzebub_logs:
     name: scanops_beelzebub_logs
+  scanops_misp_db:
+    name: scanops_misp_db
+  scanops_misp_data:
+    name: scanops_misp_data
+  scanops_misp_logs:
+    name: scanops_misp_logs
 FILE:docker-compose.yml
 networks:
   scanops:
@@ -1033,21 +1104,21 @@ services:
       timeout: 5s
       retries: 5
 
-  openvas:
-    image: immauss/openvas:latest
-    container_name: scanops-openvas
-    ports:
-      - "9392:9392"
-      - "9390:9390"
-    environment:
-      - USERNAME=admin
-      - PASSWORD=admin
-      - DB_PASSWORD=admin
-    volumes:
-      - openvas_data:/data
-    networks:
-      - scanops
-    restart: unless-stopped
+#  openvas:
+#    image: immauss/openvas:latest
+#    container_name: scanops-openvas
+#    ports:
+#      - "9392:9392"
+#      - "9390:9390"
+#    environment:
+#      - USERNAME=admin
+#      - PASSWORD=admin
+#      - DB_PASSWORD=admin
+#    volumes:
+#      - openvas_data:/data
+#    networks:
+#      - scanops
+#    restart: unless-stopped
 
   # services/asset_manager (M1)
   m1:
@@ -1084,8 +1155,6 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      OPENVAS_USER: admin
-      OPENVAS_PASS: [REDACTED]
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       OLLAMA_MODEL: "mistral:7b"
@@ -1095,8 +1164,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      openvas:
-        condition: service_started
     networks:
       - scanops
 
@@ -1132,10 +1199,6 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      OPENVAS_HOST: openvas
-      OPENVAS_PORT: 9390
-      OPENVAS_USER: admin
-      OPENVAS_PASS: [REDACTED]
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       ZAP_API_KEY: [REDACTED]
@@ -1144,7 +1207,6 @@ services:
     depends_on:
       - postgres
       - redis
-      - openvas
     networks:
       - scanops
 
@@ -1233,7 +1295,7 @@ services:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-      OLLAMA_MODEL: qwen3.5:latest
+      OLLAMA_MODEL: mistral:7b
       M3_URL: http://scanner-engine:8002
       M1_URL: http://m1:8001
     depends_on:
@@ -1355,6 +1417,10 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=mistral:7b
+      - MISP_URL=http://scanops-misp:80
+      - MISP_API_KEY=${MISP_API_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - scanops_suricata_logs:/var/log/suricata:ro
@@ -1367,7 +1433,8 @@ services:
         condition: service_started
     networks:
       - scanops
-
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   # US-6.6 — CrowdSec IDS/IPS
   crowdsec:
     image: crowdsecurity/crowdsec:latest
@@ -1386,7 +1453,7 @@ volumes:
   pgdata:
   trivy_data:
   zap_data:
-  openvas_data:
+  #openvas_data:
   mongodb_data:
   opensearch_data:
   wazuh_data:
@@ -4103,6 +4170,17 @@ ERROR:[Errno 22] Invalid argument: 'C:\\Users\\borja\\Documents\\ProyectosUNUWAR
 FILE:config\crowdsec\scenarios\ssh-time-based-bf.yaml
 ERROR:[Errno 22] Invalid argument: 'C:\\Users\\borja\\Documents\\ProyectosUNUWARE\\ScanOPS\\config\\crowdsec\\scenarios\\ssh-time-based-bf.yaml'
 
+FILE:config\misp\nginx-misp80.conf
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    access_log off;
+    log_not_found off;
+    error_log  /dev/stderr error;
+
+    include includes/misp;
+}
 FILE:config\suricata\classification.config
 #
 # config classification:shortname,short description,priority
@@ -5395,7 +5473,14 @@ async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
             clean_json = clean_json.split("```json")[1].split("```")[0].strip()
         elif "```" in clean_json:
             clean_json = clean_json.split("```")[1].strip()
-
+        if clean_json.startswith("'") and clean_json.endswith("'"):
+            clean_json = clean_json[1:-1].strip()
+        if not clean_json.startswith("{") and "{" in clean_json:
+            clean_json = clean_json[clean_json.index("{"):]
+        if not clean_json.endswith("}") and "}" in clean_json:
+            clean_json = clean_json[:clean_json.rindex("}")+1]
+        # Eliminar caracteres de control inválidos en JSON
+        clean_json = clean_json.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
         result = json.loads(clean_json)
 
         # VALIDACIÓN OBLIGATORIA DEL OUTPUT
@@ -5545,6 +5630,12 @@ VULNERABILIDAD A MAPEAR:
             clean_json = clean_json.split("```json")[1].split("```")[0].strip()
         elif "```" in clean_json:
             clean_json = clean_json.split("```")[1].strip()
+        if clean_json.startswith("'") and clean_json.endswith("'"):
+            clean_json = clean_json[1:-1].strip()
+        if not clean_json.startswith("{") and "{" in clean_json:
+            clean_json = clean_json[clean_json.index("{"):]
+        if not clean_json.endswith("}") and "}" in clean_json:
+            clean_json = clean_json[:clean_json.rindex("}")+1]
 
         result = json.loads(clean_json)
 
@@ -5737,6 +5828,12 @@ SCHEMA DE RESPUESTA:
                 clean_json = clean_json.split("```json")[1].split("```")[0].strip()
             elif "```" in clean_json:
                 clean_json = clean_json.split("```")[1].strip()
+            if clean_json.startswith("'") and clean_json.endswith("'"):
+                clean_json = clean_json[1:-1].strip()
+            if not clean_json.startswith("{") and "{" in clean_json:
+                clean_json = clean_json[clean_json.index("{"):]
+            if not clean_json.endswith("}") and "}" in clean_json:
+                clean_json = clean_json[:clean_json.rindex("}")+1]
 
             return json.loads(clean_json)
 
@@ -6563,6 +6660,12 @@ SCHEMA DE RESPUESTA:
                 clean_json = clean_json.split("```json")[1].split("```")[0].strip()
             elif "```" in clean_json:
                 clean_json = clean_json.split("```")[1].strip()
+            if clean_json.startswith("'") and clean_json.endswith("'"):
+                clean_json = clean_json[1:-1].strip()
+            if not clean_json.startswith("{") and "{" in clean_json:
+                clean_json = clean_json[clean_json.index("{"):]
+            if not clean_json.endswith("}") and "}" in clean_json:
+                clean_json = clean_json[:clean_json.rindex("}")+1]
 
             return json.loads(clean_json)
 
@@ -21679,6 +21782,44 @@ NIKTO_ID_MAP = {
     "000001": ("Web Server Version Disclosure", "LOW"),
 }
 
+NIKTO_CVSS_MAP = {
+    "CVE-2017-9798": 7.5,
+    "CVE-2019-0211": 7.8,
+    # Specific header keywords before the generic "missing security header"
+    "strict-transport-security": 7.4,
+    "content-security-policy": 6.1,
+    "x-frame-options": 6.1,
+    "x-content-type-options": 5.3,
+    "referrer-policy": 3.1,
+    "permissions-policy": 3.1,
+    "missing security header": 5.3,
+    "outdated software": 7.5,
+    "dangerous http method": 6.5,
+    "directory indexing": 5.3,
+    "sql injection": 9.8,
+    "cross-site scripting": 6.1,
+    "php information": 5.3,
+    "backup file": 5.3,
+    "web server version": 5.3,
+    "_CRITICAL": 9.0,
+    "_HIGH": 7.5,
+    "_MEDIUM": 5.0,
+    "_LOW": 3.1,
+    "_INFO": 0.0,
+}
+
+def _resolve_nikto_cvss(cve_id: str, title: str, severity: str) -> float:
+    """Resuelve CVSS: primero CVE, luego keyword en título, luego fallback severidad."""
+    if cve_id and cve_id in NIKTO_CVSS_MAP:
+        return NIKTO_CVSS_MAP[cve_id]
+    title_lower = title.lower()
+    for keyword, score in NIKTO_CVSS_MAP.items():
+        if keyword.startswith("_"):
+            continue
+        if keyword in title_lower:
+            return score
+    return NIKTO_CVSS_MAP.get(f"_{severity.upper()}", 0.0)
+
 def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
     """Determina título y severidad a partir del ID y mensaje."""
     if nikto_id in NIKTO_ID_MAP:
@@ -21793,7 +21934,8 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
                             "title": title,
                             "severity": severity,
                             "description": msg,
-                            "cve_id": cve_id,
+                            "cve_id": cve_id if cve_id else None,
+                            "cvss_score": _resolve_nikto_cvss(cve_id, title, severity),
                             "evidence": {
                                 "nikto_id": nikto_id,
                                 "url": url,
@@ -21896,6 +22038,31 @@ DANGEROUS_SERVICES = {
               ""),
 }
 
+NMAP_CVSS_MAP = {
+    "CVE-2021-41773": 9.8,
+    "CVE-2021-42013": 9.8,
+    "CVE-2018-15473": 5.3,
+    "CVE-2023-38408": 9.8,
+    "CVE-2019-9511":  7.5,
+    "CVE-2017-0144":  8.1,
+    "CVE-2019-0708":  9.8,
+    "CVE-1999-0528":  7.5,
+    "CVE-2022-3786":  7.5,
+    "CVE-2022-3602":  7.5,
+    "_CRITICAL": 9.0,
+    "_HIGH":     7.5,
+    "_MEDIUM":   5.0,
+    "_LOW":      3.1,
+    "_INFO":     0.0,
+}
+
+def _resolve_cvss(cve_id: str, severity: str) -> float:
+    """Devuelve CVSS: primero busca por CVE, luego fallback por severidad."""
+    if cve_id and cve_id in NMAP_CVSS_MAP:
+        return NMAP_CVSS_MAP[cve_id]
+    fallback_key = f"_{severity.upper()}"
+    return NMAP_CVSS_MAP.get(fallback_key, 0.0)
+
 def _check_version_vulnerabilities(product: str, version: str, port_id: str) -> List[Dict]:
     """Detecta versiones vulnerables conocidas y genera findings."""
     findings = []
@@ -21904,12 +22071,13 @@ def _check_version_vulnerabilities(product: str, version: str, port_id: str) -> 
             for version_prefix, severity, description in vuln_list:
                 if version.startswith(version_prefix):
                     cve_match = re.search(r"CVE-\d{4}-\d+", description)
-                    cve_id = cve_match.group(0) if cve_match else ""
+                    cve_id = cve_match.group(0) if cve_match else None
                     findings.append({
                         "title": f"Vulnerable Version: {product} {version}",
                         "severity": severity,
                         "description": description,
                         "cve_id": cve_id,
+                        "cvss_score": _resolve_cvss(cve_id or "", severity),
                         "evidence": {"host": "", "port": port_id, "product": product, "version": version},
                         "remediation": f"Upgrade {software} to the latest stable version immediately.",
                         "scanner": "Nmap",
@@ -22016,7 +22184,8 @@ def _classify_script_output(script_id: str, output: str, port_id: str, asset_ip:
         "title": title,
         "severity": severity,
         "description": output[:800],
-        "cve_id": cve_id,
+        "cve_id": cve_id if cve_id else None,
+        "cvss_score": _resolve_cvss(cve_id, severity),
         "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "script": script_id},
         "remediation": remediation,
         "scanner": "Nmap",
@@ -22082,7 +22251,8 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                             "title": svc_title,
                             "severity": svc_severity,
                             "description": f"{svc_desc} | Detected: {full_version} on {asset_ip}:{port_id}",
-                            "cve_id": svc_cve,
+                            "cve_id": svc_cve if svc_cve else None,
+                            "cvss_score": _resolve_cvss(svc_cve if svc_cve else "", svc_severity),
                             "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": service_name},
                             "remediation": svc_desc,
                             "scanner": "Nmap",
@@ -22095,7 +22265,8 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                             "title": title,
                             "severity": svc_severity,
                             "description": f"Service {service_name} running {full_version} detected on port {port_id}/{protocol}{os_info}{extra}",
-                            "cve_id": "",
+                            "cve_id": None,
+                            "cvss_score": _resolve_cvss("", svc_severity),
                             "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": service_name, "version": full_version},
                             "remediation": f"Ensure {service_product} is updated to latest stable version and access is restricted to authorized hosts.",
                             "scanner": "Nmap",
@@ -22924,7 +23095,17 @@ async def get_scan_results(asset_id: int) -> ScanResultsResponse:
     from services.scanner_engine.models.vulnerability import VulnFinding
     db = SessionLocal()
     try:
-        vulns = db.query(VulnFinding).filter(VulnFinding.asset_id == asset_id).all()
+        latest = db.query(VulnFinding.scan_id).filter(
+            VulnFinding.asset_id == asset_id
+        ).order_by(VulnFinding.created_at.desc()).first()
+
+        if not latest:
+            return ScanResultsResponse(asset_id=asset_id, total_findings=0, findings_by_scanner={}, created_at=datetime.utcnow(), completed_at=datetime.utcnow())
+
+        vulns = db.query(VulnFinding).filter(
+            VulnFinding.asset_id == asset_id,
+            VulnFinding.scan_id == latest.scan_id
+        ).all()
         findings_by_scanner = {}
         for v in vulns:
             if v.scanner_name not in findings_by_scanner:
@@ -23076,9 +23257,19 @@ async def get_attack_vector(asset_id: int):
         from services.scanner_engine.models.vulnerability import VulnFinding
         db = SessionLocal()
         try:
-            vulns = db.query(VulnFinding).filter(
+            # Solo el scan_id más reciente
+            latest = db.query(VulnFinding.scan_id).filter(
                 VulnFinding.asset_id == asset_id
-            ).all()
+            ).order_by(VulnFinding.created_at.desc()).first()
+
+            if latest:
+                vulns = db.query(VulnFinding).filter(
+                    VulnFinding.asset_id == asset_id,
+                    VulnFinding.scan_id == latest.scan_id,
+                    VulnFinding.severity.in_(["CRITICAL", "HIGH", "MEDIUM"])
+                ).order_by(VulnFinding.created_at.desc()).limit(10).all()
+            else:
+                vulns = []
         finally:
             db.close()
 
@@ -23087,8 +23278,10 @@ async def get_attack_vector(asset_id: int):
 
         confirmed_vulns = []
         for v in vulns:
+            cvss_str = f", CVSS: {v.cvss_v3_score}" if v.cvss_v3_score else ""
+            cve_str = f", CVE: {v.scanner_reference}" if v.scanner_reference else ""
             confirmed_vulns.append(
-                f"- {v.title} (Severidad: {v.severity}, Scanner: {v.scanner_name})"
+                f"- {v.title} (Severidad: {v.severity}{cvss_str}{cve_str}, Scanner: {v.scanner_name})"
             )
 
         ficha_unica = {
@@ -24153,7 +24346,9 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
                 description=f.get("description", ""),
                 scanner_name=f.get("scanner", "Generic")[:32],
                 evidence=evidence,
-                created_by="system-orchestrator"
+                created_by="system-orchestrator",
+                cvss_v3_score=f.get("cvss_score"),
+                scanner_reference=(f.get("cve_id") or "")[:128],
             )
             db.add(vuln)
             stats["total"] += 1
@@ -24552,6 +24747,40 @@ class TestFindingModels:
         }], asset_id=1)
 
         assert findings[0].cvss_score == 7.4
+
+    def test_nmap_vulnerable_version_has_cvss(self):
+        """Test Apache 2.4.49 gets CVE-2021-41773 and CVSS 9.8."""
+        from services.scanner_engine.clients.nmap_client import _check_version_vulnerabilities
+        findings = _check_version_vulnerabilities("Apache httpd", "2.4.49", "80")
+        assert len(findings) == 1
+        assert findings[0]["cvss_score"] == 9.8
+        assert findings[0]["cve_id"] == "CVE-2021-41773"
+
+    def test_nmap_cve_empty_string_becomes_none(self):
+        """Test Apache version without specific CVE gets cve_id=None and CVSS fallback."""
+        from services.scanner_engine.clients.nmap_client import _check_version_vulnerabilities
+        findings = _check_version_vulnerabilities("Apache httpd", "2.4.41", "80")
+        assert len(findings) == 1
+        assert findings[0]["cve_id"] is None
+        assert findings[0]["cvss_score"] == 5.0  # fallback MEDIUM
+
+    def test_nikto_missing_header_has_cvss(self):
+        """Test x-content-type-options keyword resolves to CVSS 5.3."""
+        from services.scanner_engine.clients.nikto_client import _resolve_nikto_cvss
+        score = _resolve_nikto_cvss("", "Missing Security Header: x-content-type-options", "MEDIUM")
+        assert score == 5.3
+
+    def test_nikto_hsts_has_cvss(self):
+        """Test strict-transport-security keyword resolves to CVSS 7.4."""
+        from services.scanner_engine.clients.nikto_client import _resolve_nikto_cvss
+        score = _resolve_nikto_cvss("", "Missing Security Header: strict-transport-security", "MEDIUM")
+        assert score == 7.4
+
+    def test_nikto_fallback_high(self):
+        """Test title with no keyword match falls back to severity-based CVSS."""
+        from services.scanner_engine.clients.nikto_client import _resolve_nikto_cvss
+        score = _resolve_nikto_cvss("", "Outdated Software Version Detected", "HIGH")
+        assert score == 7.5
 
 # ============================================================================
 # TEST CONFIG (config.py)
@@ -25660,6 +25889,313 @@ async def _process_wazuh_alerts() -> None:
         await _check_honeypot_attacks()
     except Exception as e:
         logger.debug(f"[loop] Honeypot check skip: {e}")
+FILE:services\siem_engine\correlation.py
+"""
+US-6.5 — Correlación IA eventos SIEM
+ENS: op.exp.4 | Pts: 8
+"""
+import json
+import uuid
+import os
+import asyncio
+from datetime import datetime, timedelta
+from typing import Optional, List
+from fastapi import APIRouter
+from pydantic import BaseModel
+import httpx
+from shared.scan_logger import ScanLogger
+from .db import get_conn
+
+logger = ScanLogger("siem_engine.correlation")
+router = APIRouter(tags=["US-6.5 Correlación IA"])
+
+OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
+INDEXER_URL = os.getenv("INDEXER_URL", "http://wazuh.indexer:9200")
+COWRIE_LOG = "/var/log/cowrie/cowrie.json"
+SURICATA_LOG = "/var/log/suricata/eve.json"
+
+CORRELATION_PROMPT = """Eres un analista de ciberseguridad experto en ENS Alto (Esquema Nacional de Seguridad, España).
+Analiza los siguientes eventos de seguridad y detecta patrones de ataque.
+
+EVENTOS (ordenados cronológicamente):
+{events_json}
+
+INSTRUCCIONES:
+1. Identifica si hay un patrón de ataque coordinado (reconocimiento, brute force, movimiento lateral, exfiltración)
+2. Determina si los eventos son de un solo atacante o múltiples
+3. Evalúa el nivel de amenaza real considerando el contexto ENS Alto
+4. Sugiere la acción inmediata más importante
+
+Responde ÚNICAMENTE con este JSON, sin texto adicional, sin markdown:
+{{
+  "threat_level": "LOW|MEDIUM|HIGH|CRITICAL",
+  "attack_pattern": "nombre corto del patrón",
+  "confidence": 0.0,
+  "affected_ips": ["ip1"],
+  "ai_reasoning": "explicación en 2-3 frases",
+  "recommended_action": "acción concreta inmediata",
+  "ens_measures": ["op.exp.4", "op.exp.5"]
+}}"""
+
+class CorrelationRequest(BaseModel):
+    window_minutes: int = 60
+    min_severity: str = "LOW"
+    asset_id: Optional[int] = None
+
+def _collect_wazuh_events(window_minutes: int) -> list:
+    events = []
+    since = (datetime.utcnow() - timedelta(minutes=window_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        import httpx as _httpx
+        r = _httpx.post(
+            f"{INDEXER_URL}/wazuh-alerts-*/_search",
+            json={"size": 50, "query": {"bool": {"filter": [
+                {"range": {"@timestamp": {"gte": since}}}
+            ]}}},
+            timeout=10
+        )
+        for hit in r.json().get("hits", {}).get("hits", []):
+            src = hit.get("_source", {})
+            events.append({
+                "source": "wazuh",
+                "timestamp": src.get("@timestamp", ""),
+                "src_ip": src.get("data", {}).get("srcip", src.get("agent", {}).get("ip", "")),
+                "event_type": src.get("rule", {}).get("description", "wazuh_alert"),
+                "severity": str(src.get("rule", {}).get("level", 0)),
+                "description": src.get("rule", {}).get("description", ""),
+            })
+    except Exception as e:
+        logger.debug(f"Wazuh collection error: {e}")
+    return events
+
+def _collect_cowrie_events(window_minutes: int) -> list:
+    events = []
+    if not os.path.exists(COWRIE_LOG):
+        return events
+    since = datetime.utcnow() - timedelta(minutes=window_minutes)
+    try:
+        with open(COWRIE_LOG) as f:
+            for line in f.readlines()[-200:]:
+                try:
+                    d = json.loads(line)
+                    ts_str = d.get("timestamp", "")
+                    if not ts_str:
+                        continue
+                    ts = datetime.fromisoformat(ts_str[:19])
+                    if ts < since:
+                        continue
+                    eventid = d.get("eventid", "")
+                    if not any(x in eventid for x in ["login", "command", "connect", "session"]):
+                        continue
+                    events.append({
+                        "source": "cowrie",
+                        "timestamp": ts_str,
+                        "src_ip": d.get("src_ip", ""),
+                        "event_type": eventid,
+                        "severity": "HIGH" if "login.failed" in eventid else "MEDIUM",
+                        "description": d.get("input", d.get("username", eventid)),
+                    })
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.debug(f"Cowrie collection error: {e}")
+    return events
+
+def _collect_suricata_events(window_minutes: int) -> list:
+    events = []
+    if not os.path.exists(SURICATA_LOG):
+        return events
+    since = datetime.utcnow() - timedelta(minutes=window_minutes)
+    try:
+        with open(SURICATA_LOG) as f:
+            for line in f.readlines()[-100:]:
+                try:
+                    d = json.loads(line)
+                    if d.get("event_type") != "alert":
+                        continue
+                    ts = datetime.fromisoformat(d.get("timestamp", "")[:19])
+                    if ts < since:
+                        continue
+                    events.append({
+                        "source": "suricata",
+                        "timestamp": d.get("timestamp", ""),
+                        "src_ip": d.get("src_ip", ""),
+                        "event_type": d.get("alert", {}).get("signature", "suricata_alert"),
+                        "severity": str(d.get("alert", {}).get("severity", "MEDIUM")),
+                        "description": d.get("alert", {}).get("category", ""),
+                    })
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.debug(f"Suricata collection error: {e}")
+    return events
+
+def _rule_based_fallback(events: list) -> dict:
+    from collections import Counter
+    ips = [e.get("src_ip", "") for e in events if e.get("src_ip")]
+    ip_counts = Counter(ips)
+    sources = set(e.get("source") for e in events)
+    top_ip = ip_counts.most_common(1)[0][0] if ip_counts else ""
+    top_count = ip_counts.most_common(1)[0][1] if ip_counts else 0
+
+    if len(sources) > 1 and top_count > 3:
+        threat_level, pattern = "CRITICAL", "Multi-vector Attack"
+    elif top_count >= 5:
+        threat_level, pattern = "HIGH", "Brute Force"
+    elif top_count >= 2:
+        threat_level, pattern = "MEDIUM", "Reconnaissance"
+    else:
+        threat_level, pattern = "LOW", "Isolated Event"
+
+    return {
+        "threat_level": threat_level,
+        "attack_pattern": pattern,
+        "confidence": 0.6,
+        "affected_ips": list(ip_counts.keys())[:5],
+        "ai_reasoning": f"Análisis basado en reglas: {top_count} eventos de {top_ip}. Fuentes: {', '.join(sources)}.",
+        "recommended_action": "Revisar logs manualmente y considerar bloqueo de IP origen.",
+        "ens_measures": ["op.exp.4", "op.exp.5"],
+    }
+
+async def _correlate_with_ai(events: list) -> dict:
+    if not events:
+        return _rule_based_fallback(events)
+
+    events_summary = [
+        {"source": e["source"], "timestamp": e["timestamp"],
+         "src_ip": e["src_ip"], "event_type": e["event_type"],
+         "description": str(e["description"])[:100]}
+        for e in events[:50]
+    ]
+    prompt = CORRELATION_PROMPT.format(events_json=json.dumps(events_summary, indent=2, ensure_ascii=False))
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            )
+            if resp.status_code == 200:
+                raw = resp.json().get("response", "")
+                raw = raw.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                result = json.loads(raw)
+                result["ai_used"] = True
+                return result
+    except Exception as e:
+        logger.warning(f"Ollama error, usando fallback: {e}")
+
+    result = _rule_based_fallback(events)
+    result["ai_used"] = False
+    return result
+
+def _persist_correlation(correlation_id: str, result: dict, events: list) -> None:
+    conn = get_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO siem_correlations
+                    (correlation_id, threat_level, attack_pattern, confidence,
+                     affected_ips, timeline, ai_reasoning, recommended_action,
+                     ens_measures, events_analyzed, ai_used)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (correlation_id) DO NOTHING
+                """, (
+                    correlation_id,
+                    result.get("threat_level", "LOW"),
+                    result.get("attack_pattern", "Unknown"),
+                    result.get("confidence", 0.5),
+                    json.dumps(result.get("affected_ips", [])),
+                    json.dumps(events[:20]),
+                    result.get("ai_reasoning", ""),
+                    result.get("recommended_action", ""),
+                    json.dumps(result.get("ens_measures", [])),
+                    len(events),
+                    result.get("ai_used", False),
+                ))
+    finally:
+        conn.close()
+
+@router.post("/siem/correlate")
+async def correlate(req: CorrelationRequest):
+    all_events = []
+    all_events += _collect_wazuh_events(req.window_minutes)
+    all_events += _collect_cowrie_events(req.window_minutes)
+    all_events += _collect_suricata_events(req.window_minutes)
+    all_events.sort(key=lambda x: x.get("timestamp", ""))
+
+    correlation_id = str(uuid.uuid4())
+    result = await _correlate_with_ai(all_events)
+    result["correlation_id"] = correlation_id
+    result["timestamp"] = datetime.utcnow().isoformat()
+    result["events_analyzed"] = len(all_events)
+
+    _persist_correlation(correlation_id, result, all_events)
+    logger.info(f"[US-6.5] Correlación {correlation_id}: {result.get('threat_level')} — {result.get('attack_pattern')}")
+    return result
+
+@router.get("/siem/correlations")
+async def list_correlations(limit: int = 20, threat_level: Optional[str] = None):
+    conn = get_conn()
+    try:
+        from psycopg2.extras import RealDictCursor
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if threat_level:
+                cur.execute("""
+                    SELECT correlation_id, threat_level, attack_pattern, confidence,
+                           affected_ips, ai_reasoning, recommended_action, events_analyzed,
+                           ai_used, correlated_at
+                    FROM siem_correlations WHERE threat_level = %s
+                    ORDER BY correlated_at DESC LIMIT %s
+                """, (threat_level, limit))
+            else:
+                cur.execute("""
+                    SELECT correlation_id, threat_level, attack_pattern, confidence,
+                           affected_ips, ai_reasoning, recommended_action, events_analyzed,
+                           ai_used, correlated_at
+                    FROM siem_correlations ORDER BY correlated_at DESC LIMIT %s
+                """, (limit,))
+            rows = [dict(r) for r in cur.fetchall()]
+            for r in rows:
+                if r.get("correlated_at"):
+                    r["correlated_at"] = r["correlated_at"].isoformat()
+                if isinstance(r.get("affected_ips"), str):
+                    r["affected_ips"] = json.loads(r["affected_ips"])
+        return {"total": len(rows), "correlations": rows}
+    finally:
+        conn.close()
+
+@router.get("/siem/correlations/{correlation_id}")
+async def get_correlation(correlation_id: str):
+    conn = get_conn()
+    try:
+        from psycopg2.extras import RealDictCursor
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM siem_correlations WHERE correlation_id = %s", (correlation_id,))
+            row = cur.fetchone()
+            if not row:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Correlación no encontrada")
+            r = dict(row)
+            if r.get("correlated_at"):
+                r["correlated_at"] = r["correlated_at"].isoformat()
+            return r
+    finally:
+        conn.close()
+
+async def auto_correlate():
+    """Llamada desde el loop de fondo cada 5 minutos."""
+    try:
+        req = CorrelationRequest(window_minutes=10)
+        await correlate(req)
+        logger.info("[US-6.5] Auto-correlación completada")
+    except Exception as e:
+        logger.warning(f"[US-6.5] Auto-correlación fallida: {e}")
 FILE:services\siem_engine\db.py
 """DB helpers for M5 SIEM Engine — psycopg2 directo, patrón M4."""
 import os
@@ -25726,6 +26262,23 @@ def create_siem_tables() -> None:
         status VARCHAR(50) DEFAULT 'triggered',
         triggered_at TIMESTAMP DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS siem_correlations (
+        id SERIAL PRIMARY KEY,
+        correlation_id VARCHAR(36) UNIQUE,
+        threat_level VARCHAR(20),
+        attack_pattern VARCHAR(255),
+        confidence FLOAT,
+        affected_ips JSONB,
+        timeline JSONB,
+        ai_reasoning TEXT,
+        recommended_action TEXT,
+        ens_measures JSONB,
+        events_analyzed INTEGER,
+        ai_used BOOLEAN DEFAULT TRUE,
+        correlated_at TIMESTAMP DEFAULT NOW()
+    );
+
     """
     conn = get_conn()
     try:
@@ -26104,6 +26657,8 @@ from .emergency import router as emergency_router
 from .alerting import router as alerting_router
 from .suricata import router as suricata_router
 from .honeypots import router as honeypots_router
+from .correlation import router as correlation_router
+from .misp_integration import router as misp_router
 
 logger = ScanLogger("siem_engine")
 
@@ -26136,6 +26691,8 @@ app.include_router(emergency_router)
 app.include_router(alerting_router)
 app.include_router(suricata_router)
 app.include_router(honeypots_router)
+app.include_router(correlation_router)
+app.include_router(misp_router)
 
 @app.get("/health")
 async def health():
@@ -26204,6 +26761,222 @@ async def get_siem_status():
         raise HTTPException(
             status_code=500, detail=f"SIEM Offline (Probablemente arrancando): {e}"
         )
+FILE:services\siem_engine\misp_client.py
+"""
+US-6.8 — Cliente MISP reutilizable
+"""
+import os
+import httpx
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("siem_engine.misp")
+
+MISP_URL = os.getenv("MISP_URL", "http://scanops-misp:80")
+MISP_API_KEY = os.getenv("MISP_API_KEY", "")
+
+def misp_headers():
+    return {
+        "Authorization": MISP_API_KEY,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+def is_configured() -> bool:
+    return bool(MISP_API_KEY)
+
+async def misp_get(path: str) -> dict:
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(f"{MISP_URL}{path}", headers=misp_headers())
+        r.raise_for_status()
+        return r.json()
+
+async def misp_post(path: str, body: dict) -> dict:
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.post(f"{MISP_URL}{path}", headers=misp_headers(), json=body)
+        r.raise_for_status()
+        return r.json()
+FILE:services\siem_engine\misp_integration.py
+"""
+US-6.8 — Integración MISP: publicación y consumo de IoCs
+ENS: op.exp.4 | Pts: 5
+"""
+import os
+import json
+from datetime import datetime, timedelta
+from typing import Optional
+from fastapi import APIRouter
+from shared.scan_logger import ScanLogger
+from .misp_client import misp_get, misp_post, is_configured, MISP_URL
+
+logger = ScanLogger("siem_engine.misp_integration")
+router = APIRouter(tags=["US-6.8 MISP"])
+
+COWRIE_LOG = "/var/log/cowrie/cowrie.json"
+
+def _read_cowrie_ips(hours: int = 24) -> list:
+    ips = set()
+    if not os.path.exists(COWRIE_LOG):
+        return []
+    since = datetime.utcnow() - timedelta(hours=hours)
+    try:
+        with open(COWRIE_LOG) as f:
+            for line in f.readlines():
+                try:
+                    d = json.loads(line)
+                    ts_str = d.get("timestamp", "")
+                    if not ts_str:
+                        continue
+                    ts = datetime.fromisoformat(ts_str[:19])
+                    if ts < since:
+                        continue
+                    ip = d.get("src_ip", "")
+                    if ip and not ip.startswith("127.") and not ip.startswith("172."):
+                        ips.add(ip)
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.debug(f"Cowrie read error: {e}")
+    return list(ips)
+
+@router.get("/siem/misp/status")
+async def misp_status():
+    if not is_configured():
+        return {
+            "connected": False,
+            "reason": "api_key_not_configured",
+            "misp_url": MISP_URL,
+            "ens_compliance": {"op_exp_4": True},
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    try:
+        data = await misp_get("/users/view/me.json")
+        user = data.get("User", {})
+        return {
+            "connected": True,
+            "misp_url": MISP_URL,
+            "user": user.get("email", ""),
+            "org": user.get("org_id", ""),
+            "role": user.get("role_id", ""),
+            "ens_compliance": {"op_exp_4": True},
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as e:
+        return {
+            "connected": False,
+            "reason": str(e)[:100],
+            "misp_url": MISP_URL,
+            "ens_compliance": {"op_exp_4": True},
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+@router.post("/siem/misp/publish-iocs")
+async def publish_iocs():
+    if not is_configured():
+        return {"published": 0, "reason": "api_key_not_configured", "iocs": []}
+
+    ips = _read_cowrie_ips(hours=24)
+    if not ips:
+        return {"published": 0, "reason": "no_new_iocs", "iocs": []}
+
+    published = []
+    for ip in ips[:20]:
+        try:
+            event = {
+                "Event": {
+                    "info": f"ScanOps Honeypot Detection - SSH Attack from {ip}",
+                    "threat_level_id": "2",
+                    "analysis": "0",
+                    "distribution": "0",
+                    "Attribute": [
+                        {
+                            "type": "ip-src",
+                            "value": ip,
+                            "category": "Network activity",
+                            "to_ids": True,
+                        }
+                    ],
+                }
+            }
+            await misp_post("/events/add", event)
+            published.append(ip)
+        except Exception as e:
+            logger.warning(f"Error publicando IoC {ip}: {e}")
+
+    logger.info(f"[US-6.8] Publicados {len(published)} IoCs en MISP")
+    return {
+        "published": len(published),
+        "iocs": published,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+@router.get("/siem/misp/iocs")
+async def get_iocs():
+    if not is_configured():
+        return {"total": 0, "iocs": [], "reason": "api_key_not_configured"}
+    try:
+        data = await misp_post("/attributes/restSearch", {
+            "returnFormat": "json",
+            "limit": 100,
+            "type": "ip-src",
+        })
+        attrs = data.get("response", {}).get("Attribute", [])
+        iocs = [
+            {
+                "ip": a.get("value"),
+                "event_id": a.get("event_id"),
+                "timestamp": a.get("timestamp"),
+            }
+            for a in attrs if a.get("value")
+        ]
+        return {"total": len(iocs), "iocs": iocs}
+    except Exception as e:
+        return {"total": 0, "iocs": [], "error": str(e)[:100]}
+
+@router.post("/siem/misp/sync-to-crowdsec")
+async def sync_to_crowdsec():
+    iocs_resp = await get_iocs()
+    iocs = iocs_resp.get("iocs", [])
+    blocked = []
+    for ioc in iocs[:50]:
+        ip = ioc.get("ip", "")
+        if not ip:
+            continue
+        try:
+            import ipaddress
+            addr = ipaddress.ip_address(ip)
+            if addr.is_private:
+                continue
+            from .blocking import _crowdsec_block
+            ok, method = await _crowdsec_block(ip, "misp_ioc", "48h")
+            if ok:
+                blocked.append(ip)
+        except Exception as e:
+            logger.debug(f"Skip {ip}: {e}")
+    return {
+        "synced": len(blocked),
+        "blocked_ips": blocked,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+@router.get("/siem/misp/events")
+async def list_misp_events():
+    if not is_configured():
+        return {"total": 0, "events": [], "reason": "api_key_not_configured"}
+    try:
+        data = await misp_get("/events/index")
+        events = [
+            {
+                "id": e.get("id"),
+                "info": e.get("info"),
+                "date": e.get("date"),
+                "threat_level_id": e.get("threat_level_id"),
+                "org": e.get("Org", {}).get("name", ""),
+            }
+            for e in (data if isinstance(data, list) else [])
+        ]
+        return {"total": len(events), "events": events}
+    except Exception as e:
+        return {"total": 0, "events": [], "error": str(e)[:100]}
 FILE:services\siem_engine\suricata.py
 """
 US-6.3 -- Suricata IDS integration
