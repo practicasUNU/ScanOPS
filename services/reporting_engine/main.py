@@ -1,4 +1,3 @@
-from fastapi import FastAPI, Response, HTTPException
 from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
 import io
@@ -8,10 +7,14 @@ from fastapi import APIRouter
 import fitz  # PyMuPDF
 import zipfile
 import asyncio
-
+import os
+from fastapi import FastAPI, Response, HTTPException
+from fastapi.responses import FileResponse
 
 
 app = FastAPI(title="ScanOps M7 - Reporting Engine")
+HISTORY_DIR = "history"
+os.makedirs(HISTORY_DIR, exist_ok=True)
 
 # Configuración de Jinja2
 # Buscamos las plantillas en la carpeta local del servicio
@@ -396,6 +399,13 @@ async def generate_full_audit_zip():
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             for filename, pdf_bytes in resultados:
                 zip_file.writestr(filename, pdf_bytes)
+                
+        # ---> NUEVO CÓDIGO (US-7.9): Guardar copia en disco <---
+        timestamp_name = f"ScanOps_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        file_path = os.path.join(HISTORY_DIR, timestamp_name)
+        with open(file_path, "wb") as f:
+            f.write(zip_buffer.getvalue())
+        # --------------------------------------------------------
 
         # 4. Retornar el ZIP compilado
         return Response(
@@ -409,6 +419,30 @@ async def generate_full_audit_zip():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en generación asíncrona: {str(e)}")
 
+
+@app.get("/report/history")
+async def list_historical_reports():
+    """
+    US-7.9: Lista todos los informes de auditoría guardados en el sistema.
+    """
+    try:
+        archivos = os.listdir(HISTORY_DIR)
+        # Filtramos para mostrar solo los ZIPs y los ordenamos
+        archivos_zip = sorted([f for f in archivos if f.endswith('.zip')], reverse=True)
+        return {"total_historicos": len(archivos_zip), "archivos": archivos_zip}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo el histórico: {str(e)}")
+
+@app.get("/report/history/{filename}")
+async def download_historical_report(filename: str):
+    """
+    US-7.9: Descarga un informe histórico específico.
+    """
+    file_path = os.path.join(HISTORY_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="El informe solicitado no existe.")
+    
+    return FileResponse(path=file_path, filename=filename, media_type="application/zip")
 
 if __name__ == "__main__":
     import uvicorn
