@@ -380,6 +380,18 @@ services:
       - scanops
     restart: unless-stopped
 
+# --- M7: Reporting Engine (US-7.1) ---
+  m7:
+    build: ./services/reporting_engine
+    container_name: scanops-m7
+    ports:
+      - "8008:8000"
+    volumes:
+      - ./services/reporting_engine:/app
+    environment:
+      - SERVICE_NAME=M7-Reporting
+
+
 
 
 volumes:
