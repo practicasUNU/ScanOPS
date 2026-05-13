@@ -45,13 +45,55 @@ async def lifespan(app: FastAPI):
  
 # ─── FastAPI Instance ──────────────────────────
 app = FastAPI(
-    title="ScanOPS Asset Manager (M1)",
-    description="Inventario de activos — ENS Alto [op.exp.1] | CRUD + Discovery + Sync",
+    title="ScanOPS · M1 — Gestor de Activos",
+    description="""
+## ¿Qué hace este módulo?
+**M1 es el registro central de activos de la organización.**
+Antes de escanear cualquier servidor o dispositivo, debe estar registrado aquí.
+El resto de módulos (M2, M3, M8) consultan M1 para obtener la IP y los metadatos del activo.
+
+---
+## Flujo de uso típico
+1. **Registrar el activo** → `POST /api/v1/assets`
+2. **Consultar el activo** → `GET /api/v1/assets/{id}`
+3. **Ver ficha completa** → `GET /api/v1/assets/{id}/ficha` *(usada por M4 para explotar)*
+
+---
+## Cumplimiento ENS Alto
+- `op.exp.1` — Inventario de activos
+- `op.exp.5` — Registro de auditoría de cambios
+- `mp.info.3` — Credenciales cifradas en HashiCorp Vault (nunca en base de datos)
+
+---
+## Autenticación
+Todos los endpoints requieren cabecera:
+`Authorization: Bearer scanops_secret`
+""",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json",
-    lifespan=lifespan,
+    openapi_tags=[
+        {
+            "name": "Activos",
+            "description": "Alta, consulta, modificación y baja de activos. Un activo es cualquier servidor, endpoint o dispositivo de red que se quiera analizar."
+        },
+        {
+            "name": "Credenciales",
+            "description": "Almacenamiento seguro de credenciales SSH/WinRM en HashiCorp Vault. Las contraseñas nunca se guardan en la base de datos."
+        },
+        {
+            "name": "Auditoría",
+            "description": "Registro inmutable de todas las acciones realizadas sobre activos. Requerido por ENS Alto op.exp.5."
+        },
+        {
+            "name": "Discovery",
+            "description": "Descubrimiento automático de dispositivos en red (Nmap). Detecta Shadow IT — dispositivos no registrados."
+        },
+        {
+            "name": "Sistema",
+            "description": "Health check y estado del servicio."
+        }
+    ]
 )
  
 # ─── CORS Middleware ──────────────────────────

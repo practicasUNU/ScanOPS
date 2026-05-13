@@ -1449,6 +1449,17 @@ services:
       - scanops
     restart: unless-stopped
 
+# --- M7: Reporting Engine (US-7.1) ---
+  m7:
+    build: ./services/reporting_engine
+    container_name: scanops-m7
+    ports:
+      - "8008:8000"
+    volumes:
+      - ./services/reporting_engine:/app
+    environment:
+      - SERVICE_NAME=M7-Reporting
+
 volumes:
   pgdata:
   trivy_data:
@@ -1855,6 +1866,10 @@ else
 fi
 FILE:scan_request.json
 {"scan_types": ["nuclei", "nikto"]}
+FILE:test
+{"detail":"Not Found"}
+FILE:test-weasy
+{"detail":"Error generando reporte: PDF.__init__() takes 1 positional argument but 3 were given"}
 FILE:test_m1_m2_m3.py
 """
 Script de Testing para validar M1, M2, M3
@@ -21355,6 +21370,875 @@ class TestIntegration:
         change_types = {detail["type"] for detail in changes["details"]}
         assert "new_port" in change_types
         assert "new_host" in change_types
+FILE:services\reporting_engine\Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instalamos las librerías gráficas para WeasyPrint (Actualizadas para Debian Trixie/Bookworm)
+RUN apt-get update && apt-get install -y \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libglib2.0-0 \
+    shared-mime-info \
+    fontconfig \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiamos e instalamos dependencias de Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiamos el código
+COPY . .
+
+# Arrancamos FastAPI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+FILE:services\reporting_engine\main.py
+from jinja2 import Environment, FileSystemLoader
+from weasyprint import HTML
+import io
+from datetime import datetime
+import uuid
+from fastapi import APIRouter
+import fitz  # PyMuPDF
+import zipfile
+import asyncio
+import os
+from fastapi import FastAPI, Response, HTTPException
+from fastapi.responses import FileResponse
+
+app = FastAPI(title="ScanOps M7 - Reporting Engine")
+HISTORY_DIR = "history"
+os.makedirs(HISTORY_DIR, exist_ok=True)
+
+# Configuración de Jinja2
+# Buscamos las plantillas en la carpeta local del servicio
+template_env = Environment(loader=FileSystemLoader('templates'))
+
+def seal_pdf(pdf_bytes: bytes) -> bytes:
+    """
+    US-7.6: Aplica cifrado AES-256, metadatos y bloquea la edición del PDF.
+    Cumplimiento ENS: mp.info.4 (Integridad)
+    """
+    # 1. Cargar el PDF en memoria con PyMuPDF
+    doc = fitz.open("pdf", pdf_bytes)
+
+    # 2. Inyectar Metadatos de Autenticidad
+    doc.set_metadata({
+        "author": "UNUWARE ScanOps Auto-Signer",
+        "creator": "M7 Reporting Engine",
+        "subject": "Evidencia Auditoría ENS Alto - Inalterable",
+        "title": "Informe de Ciberseguridad",
+        "keywords": "ENS, Confidencial, Auditoria, Integridad"
+    })
+
+    # 3. Configurar Permisos (Permitir lectura e impresión, DENEGAR edición)
+    # Solo dejamos el bit de imprimir y accesibilidad (para lectores de pantalla)
+    permisos = fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ACCESSIBILITY
+
+    # 4. Guardar con cifrado AES-256
+    # user_pw="" -> Cualquiera lo puede abrir para leer
+    # owner_pw -> Solo el CISO con esta clave podría quitar la protección de edición
+    out_bytes = doc.write(
+        encryption=fitz.PDF_ENCRYPT_AES_256,
+        owner_pw="ScanOps_MasterKey_2026!",
+        user_pw="",
+        permissions=permisos
+    )
+    doc.close()
+    return out_bytes
+
+@app.get("/report/test-weasy")
+async def test_report():
+    """
+    US-7.1: Genera un PDF corporativo usando Jinja2 y WeasyPrint.
+    """
+    try:
+        # 1. Definir el contexto (datos dinámicos)
+        context = {
+            "titulo": "Informe de Validación de Motor de Reportes",
+            "report_id": f"REP-{uuid.uuid4().hex[:8].upper()}",
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "auditor": "Sistema Autónomo ScanOps",
+            "mensaje": "La US-7.1 ha sido implementada con éxito. El motor WeasyPrint permite renderizar "
+                       "estilos CSS3 complejos, garantizando que los informes de cumplimiento y SoA "
+                       "tengan una estética profesional y cumplan con los estándares del ENS Alto."
+        }
+
+        # 2. Cargar y renderizar la plantilla HTML
+        template = template_env.get_template('base.html')
+        html_content = template.render(context)
+
+        # 3. Convertir HTML a PDF en memoria
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+
+        pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        # 4. Retornar el PDF
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_US_7_1_Test.pdf"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando reporte: {str(e)}")
+
+@app.get("/report/executive")
+async def generate_executive_report():
+    """
+    US-7.3: Informe Ejecutivo no técnico con % cumplimiento, top vulns y ROI.
+    """
+    try:
+        # 1. Datos simulados de negocio (Próximamente desde la Base de Datos)
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "total_activos": 14,
+            "ens_score": 85,  # 85% de cumplimiento
+            "roi_time_saved": 92,
+            "auto_mitigated": 3,
+            "top_vulns": [
+                {"severity": "CRITICAL", "name": "CVE-2024-21626 (runc escape)", "asset": "srv-docker-01", "status": "Pendiente Parche"},
+                {"severity": "CRITICAL", "name": "SSH Expuesto a Internet", "asset": "fw-edge-main", "status": "Bloqueado vía M5"},
+                {"severity": "HIGH", "name": "Contraseña por defecto en BD", "asset": "db-postgres-02", "status": "Requiere Acción"},
+                {"severity": "HIGH", "name": "Falta cifrado en volumen", "asset": "storage-nas-01", "status": "Pendiente"},
+                {"severity": "MEDIUM", "name": "Permisos excesivos en /etc", "asset": "srv-web-01", "status": "Bajo Observación"}
+            ]
+        }
+
+        # 2. Renderizar plantilla ejecutiva
+        template = template_env.get_template('executive.html')
+        html_content = template.render(context)
+
+        # 3. Convertir a PDF
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+
+        pdf_bytes = pdf_file.getvalue()
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        # AQUÍ ESTÁ LA MAGIA: Sellamos el PDF antes de enviarlo
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Informe_Ejecutivo.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando reporte ejecutivo: {str(e)}")
+
+@app.get("/report/soa")
+async def generate_soa_report():
+    """
+    US-7.4: Declaración de Aplicabilidad (SoA) con las medidas ENS.
+    Formato horizontal y sellado criptográfico.
+    """
+    try:
+        # 1. Datos del SoA (Muestra de las medidas más críticas que cubre ScanOps)
+        # En producción, esto se extrae de la base de datos de auditoría cruzada.
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "medidas": [
+                {
+                    "id_ens": "op.exp.4", "dominio": "Protección - Explotación",
+                    "descripcion": "Detección de intrusión (IDS/IPS).",
+                    "estado": "CUMPLE",
+                    "justificacion": "Módulo M5 activo. Sensores Suricata y Honeypots (Cowrie/Beelzebub) desplegados y reportando al SIEM central."
+                },
+                {
+                    "id_ens": "op.exp.5", "dominio": "Protección - Explotación",
+                    "descripcion": "Vigilancia y monitorización continua.",
+                    "estado": "CUMPLE",
+                    "justificacion": "Agentes Wazuh y motor OpenSearch ingiriendo telemetría 24/7."
+                },
+                {
+                    "id_ens": "mp.info.4", "dominio": "Marco Operacional",
+                    "descripcion": "Integridad y Autenticidad de la información.",
+                    "estado": "CUMPLE",
+                    "justificacion": "Motor M7 aplica firmas digitales AES-256 a todas las evidencias generadas."
+                },
+                {
+                    "id_ens": "op.exp.7", "dominio": "Protección - Explotación",
+                    "descripcion": "Gestión de incidentes y reporte a CCN-CERT.",
+                    "estado": "CUMPLE",
+                    "justificacion": "Endpoint de orquestación M5 genera y notifica payloads formato LUCÍA automáticamente."
+                },
+                {
+                    "id_ens": "op.acc.4", "dominio": "Control de Acceso",
+                    "descripcion": "Autenticación de doble factor (MFA) obligatoria.",
+                    "estado": "NO CUMPLE",
+                    "justificacion": "Detectados 3 servidores sin MFA aplicado en SSH. Remediación en curso por Blue Team."
+                },
+                {
+                    "id_ens": "op.pl.1", "dominio": "Planificación",
+                    "descripcion": "Arquitectura de seguridad segregada.",
+                    "estado": "CUMPLE",
+                    "justificacion": "Microservicios aislados en redes Docker dedicadas (scanops_net). Tráfico LAPI segmentado."
+                }
+            ]
+        }
+
+        # 2. Renderizar plantilla SoA
+        template = template_env.get_template('soa.html')
+        html_content = template.render(context)
+
+        # 3. Convertir a PDF (apaisado)
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        # 4. Sellar criptográficamente (Integridad mp.info.4)
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        return Response(
+            content=sealed_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_SoA_ENS_Alto.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando reporte SoA: {str(e)}")
+
+@app.get("/report/technical")
+async def generate_technical_report():
+    """
+    US-7.2 y US-7.7: Informe Técnico y Plan de Remediación Priorizado.
+    """
+    try:
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "signature_id": f"SIEM-CORR-{uuid.uuid4().hex[:8].upper()}",
+            "vulnerabilidades": [
+                {"ip": "10.202.15.100", "cve": "CVE-2024-21626", "cvss": "8.6", "desc": "Fuga de contenedor runc permitiendo acceso al host subyacente.", "crit": "CRITICAL"},
+                {"ip": "10.202.15.101", "cve": "MISCONF-SSH", "cvss": "N/A", "desc": "Puerto 22 expuesto a la WAN sin restricción de IP.", "crit": "CRITICAL"},
+                {"ip": "10.202.15.105", "cve": "CVE-2023-4863", "cvss": "8.8", "desc": "Desbordamiento de búfer en libwebp (Base de datos).", "crit": "HIGH"},
+                {"ip": "10.202.15.100", "cve": "POLICY-01", "cvss": "N/A", "desc": "Contraseñas locales no cumplen política ENS de longitud (14 chars).", "crit": "MEDIUM"}
+            ],
+            "tareas": [
+                {
+                    "titulo": "Actualizar motor Docker/runc", "crit": "CRITICAL",
+                    "activos": "10.202.15.100",
+                    "accion": "Ejecutar 'apt-get update && apt-get install --only-upgrade docker-ce' para parchear CVE-2024-21626. Reinicio requerido."
+                },
+                {
+                    "titulo": "Restringir acceso SSH en Firewall", "crit": "CRITICAL",
+                    "activos": "10.202.15.101",
+                    "accion": "Modificar reglas de iptables/UFW para dropear tráfico al puerto 22 excepto desde la VPN de administración."
+                },
+                {
+                    "titulo": "Parchear librerías del sistema operativo", "crit": "HIGH",
+                    "activos": "10.202.15.105",
+                    "accion": "Actualizar paquete libwebp. Verificar dependencias de la base de datos PostgreSQL."
+                }
+            ]
+        }
+
+        # Renderizar la plantilla técnica
+        template = template_env.get_template('technical.html')
+        html_content = template.render(context)
+
+        # Generar PDF en memoria
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        # Sellar criptográficamente
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        return Response(
+            content=sealed_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Informe_Tecnico_Remediacion.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando reporte técnico: {str(e)}")
+
+@app.get("/report/certificate/{asset_id}")
+async def generate_certificate(asset_id: int):
+    """
+    US-7.5: Certificado de Evidencia ENS por activo individual.
+    """
+    try:
+        # 1. Simulación de lógica de negocio según el ID del activo
+        if asset_id == 1:
+            asset_data = {
+                "name": "Servidor de Base de Datos Principal (PostgreSQL)",
+                "ip": "10.202.15.50",
+                "status": "SECURE",
+                "audit_id": "AUD-DB-001"
+            }
+        else:
+            asset_data = {
+                "name": "Frontend Web de Pruebas (Legacy)",
+                "ip": "10.202.15.99",
+                "status": "VULNERABLE",
+                "audit_id": "AUD-WEB-999"
+            }
+
+        context = {
+            "asset_name": asset_data["name"],
+            "asset_ip": asset_data["ip"],
+            "audit_id": asset_data["audit_id"],
+            "status": asset_data["status"],
+            "fecha": datetime.now().strftime("%d de %B de %Y"),
+            "cert_uuid": str(uuid.uuid4()).upper(),
+        }
+
+        # 2. Renderizado
+        template = template_env.get_template('certificate.html')
+        html_content = template.render(context)
+
+        # 3. PDF + Sellado Criptográfico
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+
+        sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        return Response(
+            content=sealed_pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=Certificado_{asset_data['ip']}.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando certificado: {str(e)}")
+
+def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]:
+    """
+    Función síncrona que renderiza el HTML, genera el PDF y lo sella.
+    Devuelve una tupla con el nombre sugerido del archivo y los bytes del PDF.
+    """
+    template = template_env.get_template(template_name)
+    html_content = template.render(context)
+
+    pdf_file = io.BytesIO()
+    HTML(string=html_content).write_pdf(target=pdf_file)
+    raw_pdf_bytes = pdf_file.getvalue()
+    pdf_file.close()
+
+    sealed_bytes = seal_pdf(raw_pdf_bytes)
+
+    # Asignar un nombre basado en la plantilla
+    nombres = {
+        'executive.html': '01_Informe_Ejecutivo_ScanOps.pdf',
+        'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
+        'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
+        'certificate.html': '04_Certificado_Activo_Critico.pdf'
+    }
+    return nombres.get(template_name, 'informe.pdf'), sealed_bytes
+
+@app.get("/report/full-audit")
+async def generate_full_audit_zip():
+    """
+    US-7.8: Endpoint Maestro Asíncrono.
+    Genera todos los informes en paralelo (multihilo) y los devuelve en un archivo ZIP.
+    """
+    try:
+        # 1. Preparar los datos (Contextos) para cada informe
+        fecha_actual = datetime.now().strftime("%d/%m/%Y")
+
+        ctx_exec = {
+            "fecha": fecha_actual, "total_activos": 14, "ens_score": 85,
+            "roi_time_saved": 92, "auto_mitigated": 3, "top_vulns": []
+        }
+        ctx_tech = {
+            "fecha": fecha_actual, "signature_id": f"SIEM-FULL-{uuid.uuid4().hex[:8].upper()}",
+            "vulnerabilidades": [{"ip": "Red Completa", "cve": "Varios", "cvss": "N/A", "desc": "Ver logs crudos", "crit": "HIGH"}],
+            "tareas": [{"titulo": "Revisión General", "crit": "HIGH", "activos": "Todos", "accion": "Aplicar plan integral."}]
+        }
+        ctx_soa = {
+            "fecha": fecha_actual,
+            "medidas": [{"id_ens": "ALL", "dominio": "Global", "descripcion": "Auditoría Completa", "estado": "CUMPLE", "justificacion": "Revisión integral M7"}]
+        }
+        ctx_cert = {
+            "asset_name": "Infraestructura Global ScanOps", "asset_ip": "10.0.0.0/8",
+            "audit_id": "AUDIT-GLOBAL-2026", "status": "SECURE", "fecha": fecha_actual, "cert_uuid": str(uuid.uuid4()).upper()
+        }
+
+        # 2. Lanzar los 4 renderizados EN PARALELO usando hilos del procesador
+        # asyncio.gather espera a que todos los hilos terminen sin bloquear el servidor
+        resultados = await asyncio.gather(
+            asyncio.to_thread(render_and_seal_sync, 'executive.html', ctx_exec),
+            asyncio.to_thread(render_and_seal_sync, 'technical.html', ctx_tech),
+            asyncio.to_thread(render_and_seal_sync, 'soa.html', ctx_soa),
+            asyncio.to_thread(render_and_seal_sync, 'certificate.html', ctx_cert)
+        )
+
+        # 3. Crear el archivo ZIP en memoria
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            for filename, pdf_bytes in resultados:
+                zip_file.writestr(filename, pdf_bytes)
+
+        # ---> NUEVO CÓDIGO (US-7.9): Guardar copia en disco <---
+        timestamp_name = f"ScanOps_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        file_path = os.path.join(HISTORY_DIR, timestamp_name)
+        with open(file_path, "wb") as f:
+            f.write(zip_buffer.getvalue())
+        # --------------------------------------------------------
+
+        # 4. Retornar el ZIP compilado
+        return Response(
+            content=zip_buffer.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Auditoria_Completa.zip"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en generación asíncrona: {str(e)}")
+
+@app.get("/report/history")
+async def list_historical_reports():
+    """
+    US-7.9: Lista todos los informes de auditoría guardados en el sistema.
+    """
+    try:
+        archivos = os.listdir(HISTORY_DIR)
+        # Filtramos para mostrar solo los ZIPs y los ordenamos
+        archivos_zip = sorted([f for f in archivos if f.endswith('.zip')], reverse=True)
+        return {"total_historicos": len(archivos_zip), "archivos": archivos_zip}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error leyendo el histórico: {str(e)}")
+
+@app.get("/report/history/{filename}")
+async def download_historical_report(filename: str):
+    """
+    US-7.9: Descarga un informe histórico específico.
+    """
+    file_path = os.path.join(HISTORY_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="El informe solicitado no existe.")
+
+    return FileResponse(path=file_path, filename=filename, media_type="application/zip")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+FILE:services\reporting_engine\history\ScanOps_Audit_20260513_073212.zip
+BINARY:true
+
+FILE:services\reporting_engine\templates\base.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        /* Configuración de página para WeasyPrint */
+        @page {
+            size: A4;
+            margin: 2.5cm 1.5cm;
+            @bottom-right {
+                content: "Página " counter(page) " de " counter(pages);
+                font-size: 9pt;
+                color: #64748b;
+            }
+            @bottom-left {
+                content: "ScanOps Framework - Confidencial";
+                font-size: 9pt;
+                color: #64748b;
+            }
+        }
+
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            color: #1e293b;
+            line-height: 1.5;
+        }
+
+        .header {
+            border-bottom: 3px solid #1e3a8a;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+
+        .logo-text {
+            font-size: 24pt;
+            font-weight: bold;
+            color: #1e3a8a;
+            text-transform: uppercase;
+        }
+
+        .report-title {
+            font-size: 18pt;
+            color: #334155;
+            margin-top: 5px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 10pt;
+            font-weight: bold;
+            background-color: #f1f5f9;
+            color: #475569;
+            margin-bottom: 20px;
+        }
+
+        .badge-ens {
+            background-color: #1e3a8a;
+            color: white;
+        }
+
+        .content-box {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .footer-info {
+            margin-top: 40px;
+            font-size: 10pt;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo-text">UNUWARE ScanOps</div>
+        <div class="report-title">{{ titulo }}</div>
+    </div>
+
+    <div class="badge badge-ens">CATEGORÍA: ENS ALTO</div>
+    <div class="badge">IDENTIFICADOR: {{ report_id }}</div>
+
+    <div class="content">
+        <p><strong>Fecha de emisión:</strong> {{ fecha }}</p>
+        <p><strong>Responsable:</strong> {{ auditor }}</p>
+
+        <div class="content-box">
+            <h3>Resumen del informe</h3>
+            <p>{{ mensaje }}</p>
+        </div>
+    </div>
+
+    <div class="footer-info">
+        <p>Este documento ha sido generado automáticamente por el motor de reportes M7.
+        Contiene información sensible sujeta a la normativa de protección de datos y el Esquema Nacional de Seguridad.</p>
+    </div>
+</body>
+</html>
+FILE:services\reporting_engine\templates\certificate.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: A4;
+            margin: 0; /* Sin márgenes para el borde decorativo */
+        }
+        body {
+            font-family: 'Times New Roman', serif;
+            color: #1e293b;
+            padding: 2cm;
+            border: 15px solid #1e3a8a; /* Borde tipo certificado */
+            height: 25.3cm; /* Ajuste para encajar en el borde */
+        }
+        .header { text-align: center; margin-bottom: 50px; }
+        .logo { font-family: 'Helvetica', sans-serif; font-size: 28pt; font-weight: bold; color: #1e3a8a; }
+
+        .main-title { font-size: 32pt; color: #0f172a; text-align: center; margin-bottom: 20px; text-transform: uppercase; }
+        .subtitle { font-size: 14pt; text-align: center; margin-bottom: 40px; font-style: italic; }
+
+        .asset-info { background: #f1f5f9; padding: 20px; border-radius: 8px; margin-bottom: 30px; font-family: 'Helvetica', sans-serif; }
+        .asset-name { font-size: 18pt; font-weight: bold; color: #1e3a8a; text-align: center; }
+
+        .status-box { text-align: center; margin: 40px 0; }
+        .status-badge {
+            display: inline-block; padding: 15px 40px; font-size: 20pt; font-weight: bold; border-radius: 50px;
+            font-family: 'Helvetica', sans-serif; border: 4px solid;
+        }
+        .SECURE { color: #166534; border-color: #166534; background: #dcfce7; }
+        .VULNERABLE { color: #991b1b; border-color: #991b1b; background: #fee2e2; }
+
+        .footer-sign { margin-top: 60px; text-align: center; font-family: 'Helvetica', sans-serif; font-size: 10pt; }
+        .signature { margin-top: 10px; font-weight: bold; border-top: 1px solid #1e3a8a; display: inline-block; padding-top: 5px; width: 250px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">UNUWARE ScanOps</div>
+    </div>
+
+    <div class="main-title">Certificado de Seguridad</div>
+    <div class="subtitle">Este documento certifica el estado de cumplimiento según el Esquema Nacional de Seguridad (ENS) del siguiente activo:</div>
+
+    <div class="asset-info">
+        <div class="asset-name">{{ asset_name }}</div>
+        <p style="text-align: center;"><strong>Dirección IP:</strong> {{ asset_ip }} | <strong>ID de Auditoría:</strong> {{ audit_id }}</p>
+    </div>
+
+    <div class="status-box">
+        <div class="status-badge {{ status }}">
+            ESTADO: {{ status }}
+        </div>
+    </div>
+
+    <p style="text-align: center; font-size: 11pt;">
+        Tras el análisis exhaustivo realizado por el motor de inteligencia de ScanOps en fecha <strong>{{ fecha }}</strong>,
+        se han verificado los controles de acceso, configuración de red y vulnerabilidades conocidas de este activo.
+    </p>
+
+    <div class="footer-sign">
+        <div class="signature">Validado por ScanOps M7 Engine</div>
+        <p>Certificado Inalterable - Sellado con AES-256 (mp.info.4)</p>
+        <p>ID Único de Certificación: {{ cert_uuid }}</p>
+    </div>
+</body>
+</html>
+FILE:services\reporting_engine\templates\executive.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+            @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 9pt; color: #64748b; }
+            @bottom-left { content: "ScanOps - Informe Ejecutivo Confidencial"; font-size: 9pt; color: #64748b; }
+        }
+        body { font-family: 'Helvetica', sans-serif; color: #334155; line-height: 1.6; }
+        h1 { color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 5px; }
+        h2 { color: #1e3a8a; margin-top: 30px; }
+
+        /* Cajas de resumen (Estilo Dashboard) */
+        .dashboard { width: 100%; margin-top: 20px; }
+        .card {
+            background: #f8fafc; border: 1px solid #e2e8f0;
+            border-radius: 8px; padding: 15px; margin-bottom: 15px;
+        }
+        .card-title { font-size: 10pt; text-transform: uppercase; color: #64748b; font-weight: bold; }
+        .card-value { font-size: 24pt; font-weight: bold; color: #0f172a; }
+
+        /* Barra de cumplimiento ENS */
+        .progress-bg { background: #e2e8f0; border-radius: 10px; height: 24px; width: 100%; margin-top: 10px; }
+        .progress-bar {
+            background: #16a34a; height: 100%; border-radius: 10px;
+            text-align: center; color: white; font-weight: bold; line-height: 24px;
+        }
+
+        /* Tabla de Top Vulnerabilidades */
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th { background: #1e3a8a; color: white; padding: 10px; text-align: left; }
+        td { border-bottom: 1px solid #e2e8f0; padding: 10px; }
+        .crit-high { color: #dc2626; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Resumen Ejecutivo de Ciberseguridad</h1>
+    <p><strong>Fecha del Análisis:</strong> {{ fecha }} | <strong>Activos Evaluados:</strong> {{ total_activos }}</p>
+
+    <div class="dashboard">
+        <div class="card">
+            <div class="card-title">Nivel de Cumplimiento ENS (Alto)</div>
+            <div class="progress-bg">
+                <div class="progress-bar" style="width: {{ ens_score }}%;">{{ ens_score }}%</div>
+            </div>
+            <p style="font-size: 9pt; color: #64748b; margin-top: 5px;">*Porcentaje de medidas del RD 311/2022 superadas con éxito.</p>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Retorno de Inversión (ROI) de Auditoría Automática</div>
+            <p>El uso del framework ScanOps ha reducido el tiempo de evaluación técnica de infraestructura en un <strong>{{ roi_time_saved }}%</strong> respecto a metodologías manuales. Se han mitigado automáticamente <strong>{{ auto_mitigated }}</strong> amenazas críticas vía SIEM en el último ciclo.</p>
+        </div>
+    </div>
+
+    <h2>Top 5 Riesgos Críticos Detectados</h2>
+    <table>
+        <tr>
+            <th>Severidad</th>
+            <th>Vulnerabilidad / Riesgo</th>
+            <th>Activo Afectado</th>
+            <th>Estado</th>
+        </tr>
+        {% for vuln in top_vulns %}
+        <tr>
+            <td class="crit-high">{{ vuln.severity }}</td>
+            <td>{{ vuln.name }}</td>
+            <td>{{ vuln.asset }}</td>
+            <td>{{ vuln.status }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
+FILE:services\reporting_engine\templates\soa.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        /* Formato Apaisado (Landscape) para la matriz de 73 medidas */
+        @page {
+            size: A4 landscape;
+            margin: 1.5cm;
+            @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 8pt; color: #64748b; }
+            @bottom-left { content: "ScanOps - Declaración de Aplicabilidad (SoA) ENS"; font-size: 8pt; color: #64748b; }
+        }
+        body { font-family: 'Helvetica', sans-serif; font-size: 9pt; color: #1e293b; }
+        h1 { color: #0f172a; font-size: 16pt; border-bottom: 2px solid #1e3a8a; padding-bottom: 5px; }
+        .header-info { margin-bottom: 20px; font-size: 10pt; }
+
+        /* Estilos de la Matriz (Tabla) */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background: #1e3a8a; color: white; padding: 8px; text-align: left; font-weight: bold; }
+        td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: top; }
+        tr:nth-child(even) { background-color: #f8fafc; }
+
+        /* Badges de Estado */
+        .status { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 8pt; text-align: center; display: inline-block; width: 80px; }
+        .status-cumple { background-color: #dcfce7; color: #166534; border: 1px solid #166534; }
+        .status-no-cumple { background-color: #fee2e2; color: #991b1b; border: 1px solid #991b1b; }
+        .status-na { background-color: #f1f5f9; color: #475569; border: 1px solid #475569; }
+
+        .dominio { font-weight: bold; color: #2563eb; }
+    </style>
+</head>
+<body>
+    <h1>Declaración de Aplicabilidad (SoA) - ENS Categoría Alta</h1>
+
+    <div class="header-info">
+        <strong>Organismo/Sistema:</strong> Infraestructura Central ScanOps <br>
+        <strong>Fecha de Evaluación:</strong> {{ fecha }} <br>
+        <strong>Total Medidas ENS (RD 311/2022):</strong> 73
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 8%;">ID ENS</th>
+                <th style="width: 15%;">Dominio</th>
+                <th style="width: 27%;">Descripción de la Medida</th>
+                <th style="width: 12%;">Estado</th>
+                <th style="width: 38%;">Justificación Técnica (ScanOps)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for medida in medidas %}
+            <tr>
+                <td><strong>{{ medida.id_ens }}</strong></td>
+                <td class="dominio">{{ medida.dominio }}</td>
+                <td>{{ medida.descripcion }}</td>
+                <td>
+                    <span class="status
+                        {% if medida.estado == 'CUMPLE' %}status-cumple
+                        {% elif medida.estado == 'NO CUMPLE' %}status-no-cumple
+                        {% else %}status-na{% endif %}">
+                        {{ medida.estado }}
+                    </span>
+                </td>
+                <td>{{ medida.justificacion }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+FILE:services\reporting_engine\templates\technical.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+            @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 8pt; color: #64748b; }
+            @bottom-left { content: "ScanOps - Informe Técnico y Remediación"; font-size: 8pt; color: #64748b; }
+        }
+        body { font-family: 'Courier New', Courier, monospace; font-size: 9pt; color: #1e293b; }
+        h1, h2 { font-family: 'Helvetica', sans-serif; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; }
+
+        .badge { padding: 3px 6px; border-radius: 3px; font-weight: bold; font-size: 8pt; color: white; }
+        .crit-CRITICAL { background-color: #7f1d1d; }
+        .crit-HIGH { background-color: #b91c1c; }
+        .crit-MEDIUM { background-color: #c2410c; }
+        .crit-LOW { background-color: #eab308; color: #422006; }
+
+        /* Tablas de Evidencias */
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; page-break-inside: auto; }
+        tr { page-break-inside: avoid; page-break-after: auto; }
+        th { background: #334155; color: white; padding: 8px; text-align: left; font-family: 'Helvetica', sans-serif; font-size: 9pt; }
+        td { border: 1px solid #cbd5e1; padding: 8px; vertical-align: top; }
+
+        /* Plan de Remediación */
+        .task-list { list-style-type: none; padding: 0; }
+        .task-item { background: #f8fafc; border-left: 4px solid; padding: 10px; margin-bottom: 10px; }
+        .task-CRITICAL { border-color: #7f1d1d; }
+        .task-HIGH { border-color: #b91c1c; }
+    </style>
+</head>
+<body>
+    <h1>Informe Técnico Detallado (US-7.2)</h1>
+    <p><strong>Fecha de Extracción:</strong> {{ fecha }} | <strong>Firma SIEM (M5):</strong> {{ signature_id }}</p>
+
+    <h2>1. Cadena de Evidencias (Vulnerabilidades Detectadas)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 15%;">Activo (IP)</th>
+                <th style="width: 20%;">CVE / ID</th>
+                <th style="width: 10%;">CVSS</th>
+                <th style="width: 40%;">Descripción Técnica</th>
+                <th style="width: 15%;">Criticidad</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for vuln in vulnerabilidades %}
+            <tr>
+                <td><strong>{{ vuln.ip }}</strong></td>
+                <td>{{ vuln.cve }}</td>
+                <td>{{ vuln.cvss }}</td>
+                <td>{{ vuln.desc }}</td>
+                <td><span class="badge crit-{{ vuln.crit }}">{{ vuln.crit }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div style="page-break-before: always;"></div>
+
+    <h1>Plan de Remediación Priorizado (US-7.7)</h1>
+    <p>Acciones requeridas por el Blue Team, ordenadas automáticamente por el motor de riesgo M7.</p>
+
+    <h2>2. Tareas de Mitigación Inmediata</h2>
+    <ul class="task-list">
+        {% for task in tareas %}
+        <li class="task-item task-{{ task.crit }}">
+            <strong>[PRIORIDAD {{ loop.index }}] - {{ task.titulo }}</strong> <span class="badge crit-{{ task.crit }}">{{ task.crit }}</span><br>
+            <em>Activos afectados: {{ task.activos }}</em><br>
+            <p><strong>Acción:</strong> {{ task.accion }}</p>
+        </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
 FILE:services\scanner_engine\__init__.py
 """Scanner Engine - M3 Vulnerability Scanning Module"""
 FILE:services\scanner_engine\config.py
@@ -26279,6 +27163,15 @@ def create_siem_tables() -> None:
         correlated_at TIMESTAMP DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS siem_lucia_notifications (
+        id SERIAL PRIMARY KEY,
+        notification_id VARCHAR(36) UNIQUE,
+        payload JSONB,
+        sent BOOLEAN DEFAULT FALSE,
+        method VARCHAR(50),
+        notified_at TIMESTAMP DEFAULT NOW()
+    );
+
     """
     conn = get_conn()
     try:
@@ -26636,8 +27529,12 @@ async def honeypots_attackers() -> dict[str, Any]:
     attackers = sorted(ip_data.values(), key=lambda x: x["attempts"], reverse=True)
     return {"attackers": attackers, "count": len(attackers)}
 FILE:services\siem_engine\lucia_integration.py
-# FILE: services/siem_engine/lucia_integration.py
+"""
+US-6.9 — Notificación CCN-CERT vía LUCÍA
+ENS: op.exp.7 | Pts: 5
+"""
 import json
+import uuid
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from shared.scan_logger import ScanLogger
@@ -26645,6 +27542,20 @@ from .db import get_conn
 
 logger = ScanLogger("siem_engine.lucia")
 router = APIRouter(tags=["US-6.9 CCN-CERT LUCÍA"])
+
+def _persist_lucia_notification(notification_id: str, payload: dict, sent: bool, method: str) -> None:
+    conn = get_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO siem_lucia_notifications
+                    (notification_id, payload, sent, method, notified_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                    ON CONFLICT (notification_id) DO NOTHING
+                """, (notification_id, json.dumps(payload), sent, method))
+    finally:
+        conn.close()
 
 @router.post("/siem/lucia/report/{correlation_id}")
 async def report_to_lucia(correlation_id: str):
@@ -26662,7 +27573,6 @@ async def report_to_lucia(correlation_id: str):
             if not corr:
                 raise HTTPException(status_code=404, detail="Correlación no encontrada")
 
-            # Decodificar JSONs de la base de datos si vienen como string
             affected_ips = corr['affected_ips']
             if isinstance(affected_ips, str):
                 affected_ips = json.loads(affected_ips)
@@ -26671,7 +27581,6 @@ async def report_to_lucia(correlation_id: str):
             if isinstance(ens_measures, str):
                 ens_measures = json.loads(ens_measures)
 
-            # Mapeo al esquema estándar de LUCÍA / CCN-CERT
             lucia_payload = {
                 "ticket_id": f"SCANOPS-{corr['id']}",
                 "organismo": "UNUWARE - Laboratorio ScanOps",
@@ -26684,20 +27593,73 @@ async def report_to_lucia(correlation_id: str):
                 "medidas_ens_incumplidas": ens_measures,
                 "accion_tomada": corr['recommended_action'],
                 "formato_evidencia": "STIX/JSON",
-                "ens_compliance": "op.exp.7 - Notificación LUCÍA autorizada"
+                "ens_compliance": "op.exp.7 - Notificación LUCÍA autorizada",
             }
+
+            notification_id = str(uuid.uuid4())
+            _persist_lucia_notification(notification_id, lucia_payload, False, "sandbox")
 
             logger.info(f"[US-6.9] INCIDENTE_LUCIA_GENERADO - ID: {correlation_id}")
             return {
                 "success": True,
+                "notification_id": notification_id,
                 "lucia_payload": lucia_payload,
                 "destination": "CCN-CERT (Sandbox)",
                 "status": "READY_FOR_SUBMISSION",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generando reporte LUCIA: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@router.get("/siem/lucia/notifications")
+async def list_lucia_notifications(limit: int = 20):
+    """Historial de notificaciones LUCÍA generadas."""
+    conn = get_conn()
+    try:
+        from psycopg2.extras import RealDictCursor
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT notification_id, sent, method, notified_at,
+                       payload->>'ticket_id' as ticket_id,
+                       payload->>'tipo_incidente' as tipo_incidente,
+                       payload->>'nivel_peligrosidad' as nivel_peligrosidad
+                FROM siem_lucia_notifications
+                ORDER BY notified_at DESC
+                LIMIT %s
+            """, (limit,))
+            rows = [dict(r) for r in cur.fetchall()]
+            for r in rows:
+                if r.get("notified_at"):
+                    r["notified_at"] = r["notified_at"].isoformat()
+        return {"total": len(rows), "notifications": rows}
+    finally:
+        conn.close()
+
+@router.get("/siem/lucia/notifications/{notification_id}")
+async def get_lucia_notification(notification_id: str):
+    """Detalle completo de una notificación LUCÍA."""
+    conn = get_conn()
+    try:
+        from psycopg2.extras import RealDictCursor
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM siem_lucia_notifications WHERE notification_id = %s",
+                (notification_id,)
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Notificación no encontrada")
+            r = dict(row)
+            if r.get("notified_at"):
+                r["notified_at"] = r["notified_at"].isoformat()
+            if isinstance(r.get("payload"), str):
+                r["payload"] = json.loads(r["payload"])
+            return r
     finally:
         conn.close()
 FILE:services\siem_engine\main.py

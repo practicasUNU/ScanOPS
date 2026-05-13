@@ -4,21 +4,15 @@ Asset API Router — US-1.2 / US-1.5 / US-1.7
 CRUD endpoints + Ficha Única + Audit logs.
 """
 
-
 from services.asset_manager.services.external_sync import sync_from_external
-
 from services.asset_manager.tasks.discovery import run_network_discovery
 from celery.result import AsyncResult
-
 from shared.vault_client import vault_client
 from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-
 from shared.database import get_db
 from shared.auth import get_current_user
-
 from services.asset_manager.models.asset import Asset, CriticidadEnum, TipoActivoEnum, AssetStatusEnum
 from datetime import datetime
 from services.asset_manager.schemas import (
@@ -31,7 +25,6 @@ from services.asset_manager.schemas import (
     AuditLogListResponse,
 )
 from services.asset_manager.services import asset_service
-
 from pydantic import BaseModel
 
 class CredentialUpdateRequest(BaseModel):
@@ -42,12 +35,13 @@ class CredentialUpdateRequest(BaseModel):
 class DiscoveryRequest(BaseModel):
     network_ranges: list[str]
 
-router = APIRouter(prefix="/assets", tags=["Asset Manager (M1)"])
+# AQUI CAMBIAMOS EL TAG PRINCIPAL A "Activos"
+router = APIRouter(prefix="/assets", tags=["Activos"])
 
 
 # ─── CRUD ─────────────────────────────────────────────────
 
-@router.post("", response_model=AssetResponse, status_code=201)
+@router.post("", response_model=AssetResponse, status_code=201, summary="Registrar nuevo activo", description="Da de alta un servidor, endpoint o dispositivo. Asigna criticidad ENS y responsable. El ID devuelto se usa en todos los demás módulos.")
 async def create_asset(
     data: AssetCreate,
     request: Request,
@@ -65,7 +59,7 @@ async def create_asset(
     return asset
 
 
-@router.get("", response_model=AssetListResponse)
+@router.get("", response_model=AssetListResponse, summary="Listar activos", description="Devuelve todos los activos registrados. Admite filtros por tipo (SERVER, ENDPOINT, RED) y criticidad (BAJA, MEDIA, ALTA, CRITICA).")
 async def list_assets(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -86,7 +80,7 @@ async def list_assets(
     return AssetListResponse(total=total, page=page, page_size=page_size, items=items)
 
 
-@router.get("/{asset_id}", response_model=AssetResponse)
+@router.get("/{asset_id}", response_model=AssetResponse, summary="Ver detalle de un activo", description="Devuelve todos los campos del activo: IP, hostname, responsable, criticidad y estado actual.")
 async def get_asset(
     asset_id: int,
     db: Session = Depends(get_db),
@@ -99,7 +93,7 @@ async def get_asset(
     return asset
 
 
-@router.put("/{asset_id}", response_model=AssetResponse)
+@router.put("/{asset_id}", response_model=AssetResponse, summary="Actualizar activo", description="Modifica los metadatos del activo. Cada cambio queda registrado en el log de auditoría.")
 async def update_asset(
     asset_id: int,
     data: AssetUpdate,
@@ -121,7 +115,7 @@ async def update_asset(
     return asset
 
 
-@router.delete("/{asset_id}", response_model=AssetResponse)
+@router.delete("/{asset_id}", response_model=AssetResponse, summary="Dar de baja un activo", description="Baja lógica: el activo no se elimina de la base de datos, cambia su estado a INACTIVO. Queda trazabilidad completa.")
 async def delete_asset(
     asset_id: int,
     request: Request,
@@ -143,7 +137,7 @@ async def delete_asset(
 
 
 # ─── Ficha Única (US-1.7) ────────────────────────────────
-@router.get("/{asset_id}/ficha", response_model=AssetFicha)
+@router.get("/{asset_id}/ficha", response_model=AssetFicha, summary="Ficha Única del activo", description="Documento consolidado con toda la información del activo: metadatos, credenciales (referencia Vault), historial de escaneos y hallazgos. Es la entrada principal de M4 (Explotación).")
 async def get_asset_ficha(asset_id: int, db: Session = Depends(get_db)):
     from services.recon_engine.models.recon import ReconFinding
     from services.scanner_engine.models.vulnerability import VulnFinding
@@ -165,9 +159,9 @@ async def get_asset_ficha(asset_id: int, db: Session = Depends(get_db)):
         vulnerabilidades = None
     
     return AssetFicha(id=asset.id, ip=asset.ip, hostname=asset.hostname, criticidad=asset.criticidad, tipo=asset.tipo, status=asset.status, responsable=asset.responsable, tags_ens=asset.tags_ens or [], superficie=superficie, vulnerabilidades=vulnerabilidades, ficha_generated_at=datetime.utcnow(), ficha_version="1.0")
-# ─── Audit Log (US-1.5) ──────────────────────────────────
 
-@router.get("/{asset_id}/audit", response_model=AuditLogListResponse)
+# ─── Audit Log (US-1.5) ──────────────────────────────────
+@router.get("/{asset_id}/audit", response_model=AuditLogListResponse, tags=["Auditoría"], summary="Historial de cambios del activo", description="Lista todos los eventos CREATE, UPDATE, DELETE realizados sobre el activo, con usuario y timestamp.")
 async def get_asset_audit_log(
     asset_id: int,
     limit: int = Query(100, ge=1, le=500),
@@ -175,7 +169,6 @@ async def get_asset_audit_log(
     current_user: dict = Depends(get_current_user),
 ):
     """Get audit history for an asset — who did what and when."""
-    # Verify asset exists (even if deleted)
     asset = asset_service.get_asset(db, asset_id, include_deleted=True)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -186,7 +179,7 @@ async def get_asset_audit_log(
 
 # ─── Gestión de Credenciales (US-1.3) ──────────────────────
 
-@router.post("/{asset_id}/credentials")
+@router.post("/{asset_id}/credentials", tags=["Credenciales"], summary="Guardar credenciales del activo", description="Cifra y almacena en HashiCorp Vault las credenciales SSH o WinRM. Solo se guarda la ruta Vault en la base de datos (mp.info.3).")
 async def update_asset_credentials(
     asset_id: int,
     creds: CredentialUpdateRequest,
@@ -219,7 +212,7 @@ async def update_asset_credentials(
     }
 
 
-@router.get("/{asset_id}/credentials/check")
+@router.get("/{asset_id}/credentials/check", tags=["Credenciales"], summary="Verificar si existen credenciales", description="Consulta segura para saber si el activo tiene credenciales en Vault sin revelarlas.")
 async def check_credentials_exist(
     asset_id: int,
     db: Session = Depends(get_db),
@@ -238,7 +231,7 @@ async def check_credentials_exist(
     
 # ─── Discovery (US-1.4) ────────────────────────────────────
 
-@router.post("/discovery")
+@router.post("/discovery", tags=["Discovery"], summary="Lanzar descubrimiento en red", description="Inicia un escaneo Nmap para encontrar equipos no registrados (Shadow IT).")
 async def trigger_discovery(
     data: DiscoveryRequest,
     current_user: dict = Depends(get_current_user),
@@ -251,7 +244,7 @@ async def trigger_discovery(
     return {"status": "started", "tasks": tasks}
 
 
-@router.get("/discovery/{task_id}")
+@router.get("/discovery/{task_id}", tags=["Discovery"], summary="Consultar estado del descubrimiento", description="Revisa si la tarea asíncrona de Nmap ya ha terminado.")
 async def get_discovery_status(
     task_id: str,
     current_user: dict = Depends(get_current_user),
@@ -267,7 +260,7 @@ async def get_discovery_status(
     
 # ─── Sync Externa (US-1.6) ─────────────────────────────────
 
-@router.post("/sync/external")
+@router.post("/sync/external", tags=["Discovery"], summary="Sincronizar con CMDB Externa", description="Conecta con plataformas como Snipe-IT para importar el listado oficial de activos de la empresa.")
 async def trigger_external_sync(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
@@ -276,10 +269,10 @@ async def trigger_external_sync(
     result = await sync_from_external(db)
     return result    
 
-# ─── Gestión de Credenciales (US-1.3) ──────────────────────
+# ─── Gestión de Credenciales (Duplicado) ──────────────────────
 
-@router.post("/{asset_id}/credentials")
-async def update_asset_credentials(
+@router.post("/{asset_id}/credentials_alt", tags=["Credenciales"], summary="Actualizar credenciales de un activo", description="Cifra y almacena credenciales en Vault (ruta alternativa).")
+async def update_asset_credentials_alt(
     asset_id: int,
     creds: AssetCreate,  # Reutilizamos el campo password que ya existe
     db: Session = Depends(get_db),
@@ -312,8 +305,8 @@ async def update_asset_credentials(
     }
 
 
-@router.get("/{asset_id}/credentials/check")
-async def check_credentials_exist(
+@router.get("/{asset_id}/credentials/check_alt", tags=["Credenciales"], summary="Verificar credenciales (ruta alternativa)")
+async def check_credentials_exist_alt(
     asset_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
