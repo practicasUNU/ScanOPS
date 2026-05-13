@@ -6,6 +6,10 @@ from datetime import datetime
 import uuid
 from fastapi import APIRouter
 import fitz  # PyMuPDF
+import zipfile
+import asyncio
+
+
 
 app = FastAPI(title="ScanOps M7 - Reporting Engine")
 
@@ -323,6 +327,87 @@ async def generate_certificate(asset_id: int):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando certificado: {str(e)}")
+    
+    
+def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]:
+    """
+    Función síncrona que renderiza el HTML, genera el PDF y lo sella.
+    Devuelve una tupla con el nombre sugerido del archivo y los bytes del PDF.
+    """
+    template = template_env.get_template(template_name)
+    html_content = template.render(context)
+    
+    pdf_file = io.BytesIO()
+    HTML(string=html_content).write_pdf(target=pdf_file)
+    raw_pdf_bytes = pdf_file.getvalue()
+    pdf_file.close()
+    
+    sealed_bytes = seal_pdf(raw_pdf_bytes)
+    
+    # Asignar un nombre basado en la plantilla
+    nombres = {
+        'executive.html': '01_Informe_Ejecutivo_ScanOps.pdf',
+        'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
+        'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
+        'certificate.html': '04_Certificado_Activo_Critico.pdf'
+    }
+    return nombres.get(template_name, 'informe.pdf'), sealed_bytes
+
+
+@app.get("/report/full-audit")
+async def generate_full_audit_zip():
+    """
+    US-7.8: Endpoint Maestro Asíncrono.
+    Genera todos los informes en paralelo (multihilo) y los devuelve en un archivo ZIP.
+    """
+    try:
+        # 1. Preparar los datos (Contextos) para cada informe
+        fecha_actual = datetime.now().strftime("%d/%m/%Y")
+        
+        ctx_exec = {
+            "fecha": fecha_actual, "total_activos": 14, "ens_score": 85, 
+            "roi_time_saved": 92, "auto_mitigated": 3, "top_vulns": []
+        }
+        ctx_tech = {
+            "fecha": fecha_actual, "signature_id": f"SIEM-FULL-{uuid.uuid4().hex[:8].upper()}",
+            "vulnerabilidades": [{"ip": "Red Completa", "cve": "Varios", "cvss": "N/A", "desc": "Ver logs crudos", "crit": "HIGH"}],
+            "tareas": [{"titulo": "Revisión General", "crit": "HIGH", "activos": "Todos", "accion": "Aplicar plan integral."}]
+        }
+        ctx_soa = {
+            "fecha": fecha_actual, 
+            "medidas": [{"id_ens": "ALL", "dominio": "Global", "descripcion": "Auditoría Completa", "estado": "CUMPLE", "justificacion": "Revisión integral M7"}]
+        }
+        ctx_cert = {
+            "asset_name": "Infraestructura Global ScanOps", "asset_ip": "10.0.0.0/8",
+            "audit_id": "AUDIT-GLOBAL-2026", "status": "SECURE", "fecha": fecha_actual, "cert_uuid": str(uuid.uuid4()).upper()
+        }
+
+        # 2. Lanzar los 4 renderizados EN PARALELO usando hilos del procesador
+        # asyncio.gather espera a que todos los hilos terminen sin bloquear el servidor
+        resultados = await asyncio.gather(
+            asyncio.to_thread(render_and_seal_sync, 'executive.html', ctx_exec),
+            asyncio.to_thread(render_and_seal_sync, 'technical.html', ctx_tech),
+            asyncio.to_thread(render_and_seal_sync, 'soa.html', ctx_soa),
+            asyncio.to_thread(render_and_seal_sync, 'certificate.html', ctx_cert)
+        )
+
+        # 3. Crear el archivo ZIP en memoria
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+            for filename, pdf_bytes in resultados:
+                zip_file.writestr(filename, pdf_bytes)
+
+        # 4. Retornar el ZIP compilado
+        return Response(
+            content=zip_buffer.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Auditoria_Completa.zip"
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en generación asíncrona: {str(e)}")
 
 
 if __name__ == "__main__":
