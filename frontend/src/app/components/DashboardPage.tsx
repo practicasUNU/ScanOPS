@@ -4,7 +4,9 @@ import { ENSComplianceWidget } from './ENSComplianceWidget';
 import { Activity, AlertTriangle, CheckCircle2, CalendarClock, Play, Pause, Zap, Power, Shield } from 'lucide-react';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { getCycleState } from '../utils/cycleState';
+import { getCycleState, mapApiCycleToUI } from '../utils/cycleState';
+import { useCycleStatus } from '../../hooks/useCycleStatus';
+import { useCycleActions } from '../../hooks/useCycleActions';
 
 const logEntries = [
   { time: '14:32:18', level: 'INFO', msg: 'Starting exploitation phase M8...' },
@@ -17,67 +19,94 @@ const logEntries = [
   { time: '14:32:31', level: 'INFO', msg: 'Running post-exploitation enumeration scripts' },
 ];
 
-type ModuleStatus = 'completed' | 'in-progress' | 'pending';
-
-interface PipelineBlock {
-  timeLabel: string;
-  phaseLabel: string;
-  modules: { id: string; label?: string; isHuman?: boolean; status: ModuleStatus }[];
-  blockIndex: 0 | 1 | 2;
+interface PipelineModule {
+  id: string;
+  label?: string;
+  isHuman?: boolean;
+  status: string;
 }
 
-const pipelineBlocks: PipelineBlock[] = [
-  {
-    timeLabel: 'LUNES 02:00',
-    phaseLabel: 'Fase 1 — Inventario',
-    blockIndex: 0,
-    modules: [
-      { id: 'M1', status: 'completed' },
-      { id: 'M2', status: 'completed' },
-    ],
-  },
-  {
-    timeLabel: 'MAR/MIÉ 00:00',
-    phaseLabel: 'Fase 2 + Fase 3',
-    blockIndex: 1,
-    modules: [
-      { id: 'M3', status: 'completed' },
-      { id: 'M8-IA', status: 'in-progress' },
-      { id: '👤', label: 'Revisión', isHuman: true, status: 'pending' },
-    ],
-  },
-  {
-    timeLabel: 'SAB/DOM 01:00',
-    phaseLabel: 'Fase 4 + 5',
-    blockIndex: 2,
-    modules: [
-      { id: 'M4', status: 'pending' },
-      { id: 'M7', status: 'pending' },
-    ],
-  },
-];
-
 export function DashboardPage() {
-  // PAUSA: responsable puede reanudar · KILL SWITCH: requiere reactivación manual
-  const [isPausedManually, setIsPausedManually] = useState(false);
   const [showKillSwitchModal, setShowKillSwitchModal] = useState(false);
-  const [killSwitchActive, setKillSwitchActive] = useState(false);
   const [killSwitchTotp, setKillSwitchTotp] = useState('');
 
-  const cycle = getCycleState();
+  const { data: cycleData, loading: cycleLoading, error: cycleError, refetch } = useCycleStatus(30000);
+  const cycleActions = useCycleActions();
+  const cycle = cycleData ? mapApiCycleToUI(cycleData) : getCycleState();
 
-  const handleConfirmKillSwitch = () => {
-    setKillSwitchActive(true);
+  const isPausedManually = cycleData?.paused ?? false;
+  const killSwitchActive = cycleData?.kill_switch_active ?? false;
+
+  const handleConfirmKillSwitch = async () => {
+    try {
+      await cycleActions.activateKillSwitch(killSwitchTotp);
+      refetch();
+    } catch {
+      return;
+    }
     setShowKillSwitchModal(false);
     setKillSwitchTotp('');
   };
+
+  const pipelineBlocks: { timeLabel: string; phaseLabel: string; blockIndex: 0 | 1 | 2; modules: PipelineModule[] }[] = [
+    {
+      timeLabel: 'LUNES 02:00',
+      phaseLabel: 'Fase 1 — Inventario',
+      blockIndex: 0,
+      modules: cycle.phases
+        ?.filter(p => p.phase_number === 1)
+        .flatMap(p => p.modules)
+        .map(m => ({ id: m.id, status: m.status })) ?? [
+          { id: 'M1', status: 'pending' },
+          { id: 'M2', status: 'pending' },
+        ],
+    },
+    {
+      timeLabel: 'MAR/MIÉ 00:00',
+      phaseLabel: 'Fase 2 + Fase 3',
+      blockIndex: 1,
+      modules: cycle.phases
+        ?.filter(p => p.phase_number === 2 || p.phase_number === 3)
+        .flatMap(p => p.modules)
+        .map(m => ({
+          id: m.id,
+          label: m.status === 'blocked' ? 'Revisión' : undefined,
+          isHuman: m.status === 'blocked',
+          status: m.status,
+        })) ?? [
+          { id: 'M3', status: 'pending' },
+          { id: 'M8', status: 'pending' },
+          { id: '👤', label: 'Revisión', isHuman: true, status: 'pending' },
+        ],
+    },
+    {
+      timeLabel: 'SAB/DOM 01:00',
+      phaseLabel: 'Fase 4 + Fase 5',
+      blockIndex: 2,
+      modules: cycle.phases
+        ?.filter(p => p.phase_number === 4 || p.phase_number === 5)
+        .flatMap(p => p.modules)
+        .map(m => ({ id: m.id, status: m.status })) ?? [
+          { id: 'M4', status: 'pending' },
+          { id: 'M7', status: 'pending' },
+        ],
+    },
+  ];
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar role="System Manager" />
+        <TopBar role="System Manager" cycleLabel={cycle.label} dotColor={cycle.dotColor} />
+
+        {/* Connection error banner */}
+        {cycleError && (
+          <div className="flex items-center gap-2 px-6 py-2 bg-[#f59e0b]/10 border-b border-[#f59e0b]/30 text-xs text-[#f59e0b] font-mono">
+            <span>⚠ Orchestrator no disponible — mostrando datos locales · {cycleError}</span>
+            <button onClick={refetch} className="ml-auto underline">Reintentar</button>
+          </div>
+        )}
 
         {/* Kill Switch persistent banner */}
         {killSwitchActive && (
@@ -87,7 +116,9 @@ export function DashboardPage() {
               Kill Switch activo · Ciclo detenido · Reactivación manual requerida
             </span>
             <button
-              onClick={() => setKillSwitchActive(false)}
+              onClick={async () => {
+                try { await cycleActions.deactivateKillSwitch(); refetch(); } catch {}
+              }}
               className="px-4 py-1.5 text-xs text-[#ff3b3b] border border-[#ff3b3b]/40 rounded-lg hover:bg-[#ff3b3b]/10 transition-colors font-semibold"
             >
               Reactivar ciclo
@@ -104,7 +135,9 @@ export function DashboardPage() {
             </span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsPausedManually(false)}
+                onClick={async () => {
+                  try { await cycleActions.pauseCycle(); refetch(); } catch {}
+                }}
                 className="px-4 py-1.5 text-xs bg-[#f59e0b] text-[#0f1117] rounded-lg hover:bg-[#d97706] transition-colors font-semibold"
               >
                 Reanudar ahora
@@ -113,6 +146,13 @@ export function DashboardPage() {
                 Ver motivo
               </button>
             </div>
+          </div>
+        )}
+
+        {/* First-load skeleton */}
+        {cycleLoading && !cycleData && (
+          <div className="flex items-center justify-center h-32 text-[#9ca3af] text-sm font-mono">
+            Conectando con orchestrator...
           </div>
         )}
 
@@ -187,11 +227,13 @@ export function DashboardPage() {
                           <span
                             key={mod.id}
                             className={`px-2.5 py-1 rounded text-xs font-mono font-semibold border transition-all ${
-                              mod.isHuman
+                              mod.isHuman || mod.status === 'blocked'
                                 ? 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30'
+                                : mod.status === 'offline'
+                                ? 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30'
                                 : mod.status === 'completed'
                                 ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20'
-                                : mod.status === 'in-progress'
+                                : mod.status === 'in_progress' || mod.status === 'in-progress'
                                 ? 'bg-[#00d4ff]/10 text-[#00d4ff] border-[#00d4ff]/30 animate-pulse'
                                 : 'bg-[#374151] text-[#6b7280] border-[#4b5563]'
                             }`}
@@ -244,7 +286,9 @@ export function DashboardPage() {
             </button>
 
             <button
-              onClick={() => setIsPausedManually(!isPausedManually)}
+              onClick={async () => {
+                try { await cycleActions.pauseCycle(); refetch(); } catch {}
+              }}
               className={`px-6 py-2.5 font-semibold rounded-lg transition-colors flex items-center gap-2 ${
                 isPausedManually
                   ? 'bg-[#f59e0b] text-[#0f1117] hover:bg-[#d97706]'

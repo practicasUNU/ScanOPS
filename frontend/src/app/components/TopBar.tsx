@@ -1,28 +1,44 @@
 import { Bell, Shield } from 'lucide-react';
 import { getCycleState } from '../utils/cycleState';
+import type { DotColor } from '../utils/cycleState';
 
-export function TopBar({ role = 'System Manager' }: { role?: string }) {
-  const cycle = getCycleState();
+interface TopBarProps {
+  role?: string;
+  cycleLabel?: string;
+  dotColor?: DotColor;
+}
+
+export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBarProps) {
+  const localCycle = getCycleState();
+  const label = cycleLabel ?? localCycle.label;
+  const color = dotColor ?? localCycle.dotColor;
+  const dot = color === 'green' ? '●' : color === 'amber' ? '⏸' : color === 'red' ? '🔴' : '◌';
 
   const dotColorClass =
-    cycle.dotColor === 'green'
+    color === 'green'
       ? 'text-[#22c55e]'
-      : cycle.dotColor === 'amber'
+      : color === 'amber'
       ? 'text-[#f59e0b]'
+      : color === 'red'
+      ? 'text-[#ff3b3b]'
       : 'text-[#6b7280]';
 
   const pillBorderClass =
-    cycle.dotColor === 'green'
+    color === 'green'
       ? 'border-[#22c55e]/20 bg-[#22c55e]/5'
-      : cycle.dotColor === 'amber'
+      : color === 'amber'
       ? 'border-[#f59e0b]/20 bg-[#f59e0b]/5'
+      : color === 'red'
+      ? 'border-[#ff3b3b]/20 bg-[#ff3b3b]/5'
       : 'border-[#4b5563]/30 bg-[#374151]/10';
 
   const pillTextClass =
-    cycle.dotColor === 'green'
+    color === 'green'
       ? 'text-[#22c55e]'
-      : cycle.dotColor === 'amber'
+      : color === 'amber'
       ? 'text-[#f59e0b]'
+      : color === 'red'
+      ? 'text-[#ff3b3b]'
       : 'text-[#6b7280]';
 
   return (
@@ -33,10 +49,10 @@ export function TopBar({ role = 'System Manager' }: { role?: string }) {
 
       {/* Centered cycle status pill */}
       <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-full font-mono text-xs ${pillBorderClass} ${pillTextClass}`}>
-        <span className={`text-sm leading-none ${dotColorClass} ${cycle.dotColor === 'green' ? 'animate-pulse' : ''}`}>
-          {cycle.dot}
+        <span className={`text-sm leading-none ${dotColorClass} ${color === 'green' ? 'animate-pulse' : ''}`}>
+          {dot}
         </span>
-        <span>{cycle.label}</span>
+        <span>{label}</span>
       </div>
 
       <div className="flex items-center gap-4">

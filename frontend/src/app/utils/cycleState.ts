@@ -1,13 +1,15 @@
-export type DotColor = 'green' | 'amber' | 'gray';
+export type DotColor = 'green' | 'amber' | 'gray' | 'red';
 
 export interface CycleState {
   label: string;
   phase: string;
   dotColor: DotColor;
-  dot: '●' | '⏸' | '◌';
+  dot: string;
   activeBlock: 0 | 1 | 2 | -1;
   timeRemaining: string;
   weekLabel: string;
+  phases?: import('../../hooks/useCycleStatus').PhaseInfo[];
+  rawPhase?: number;
 }
 
 function getISOWeek(date: Date): number {
@@ -109,4 +111,63 @@ export function getCycleState(): CycleState {
         weekLabel,
       };
   }
+}
+
+import type { CycleStatus } from '../../hooks/useCycleStatus';
+
+export function mapApiCycleToUI(apiCycle: CycleStatus): CycleState {
+  const phaseNames: Record<number, string> = {
+    0: 'En espera',
+    1: 'Fase 1 — Inventario',
+    2: 'Fase 2 — Análisis',
+    3: 'Fase 3 — Revisión',
+    4: 'Fase 4 — Explotación',
+    5: 'Fase 5 — Reporting',
+  };
+
+  const dotColor: DotColor = apiCycle.kill_switch_active
+    ? 'red'
+    : apiCycle.paused
+    ? 'amber'
+    : apiCycle.requires_human_approval
+    ? 'amber'
+    : apiCycle.cycle_active
+    ? 'green'
+    : 'gray';
+
+  const timeRemaining = apiCycle.next_phase_at
+    ? (() => {
+        const diff = new Date(apiCycle.next_phase_at!).getTime() - Date.now();
+        if (diff <= 0) return 'Iniciando...';
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        return `Faltan ${h}h ${m}m`;
+      })()
+    : '';
+
+  const activeBlock = (
+    apiCycle.current_phase === 0
+      ? -1
+      : apiCycle.current_phase === 1
+      ? 0
+      : apiCycle.current_phase <= 3
+      ? 1
+      : 2
+  ) as 0 | 1 | 2 | -1;
+
+  return {
+    label: apiCycle.kill_switch_active
+      ? 'Kill Switch activo — Ciclo detenido'
+      : apiCycle.paused
+      ? 'Ciclo pausado manualmente'
+      : `${apiCycle.current_phase_name} en curso`,
+    phase: phaseNames[apiCycle.current_phase] ?? apiCycle.current_phase_name,
+    dotColor,
+    dot: dotColor === 'green' ? '●' : dotColor === 'amber' ? '⏸' : dotColor === 'red' ? '🔴' : '◌',
+    activeBlock,
+    timeRemaining,
+    weekLabel: `Semana ${apiCycle.week_number} · ${apiCycle.year}`,
+    rawPhase: apiCycle.current_phase,
+    phases: apiCycle.phases,
+  };
 }
