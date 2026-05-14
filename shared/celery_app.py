@@ -21,25 +21,31 @@ app.conf.update(
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
-    timezone='Europe/Madrid', # Ajustado a tu zona
+    timezone='Europe/Madrid', 
     enable_utc=True,
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=10,
     task_acks_late=True,
-    task_time_limit=300,        # hard kill a los 5 min — evita workers zombi
-    task_soft_time_limit=270,   # SIGUSR1 a los 4.5 min para cleanup graceful
+    task_time_limit=300,        
+    task_soft_time_limit=270,   
+    
+    # 👇 AÑADE ESTAS DOS LÍNEAS 👇
+    task_track_started=True,    # Obliga a Celery a cambiar el estado a 'STARTED'
+    result_extended=True,       # Guarda metadatos extra para que FastAPI no se líe
+    # 👆 ---------------------- 👆
+
     # ESTO CUMPLE LA US-2.7 (Programación automática)
     beat_schedule={
         'recon-lunes-madrugada': {
             'task': 'services.recon_engine.tasks.scan_tasks.run_recon_complete',
-            'schedule': 604800.0, # Una vez a la semana (o usa crontab)
+            'schedule': 604800.0, 
         },
     },
     # US-3.4: Definición de colas para paralelismo
     task_queues = {
         'discovery': {'routing_key': 'discovery'},
         'vulnerabilities': {'routing_key': 'vulnerabilities'},
-        'heavy_scans': {'routing_key': 'heavy_scans'}, # Para OpenVAS
+        'heavy_scans': {'routing_key': 'heavy_scans'}, 
     },
     # Mapeo de tareas a colas
     task_routes = {

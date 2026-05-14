@@ -1,16 +1,17 @@
 """FastAPI endpoints for vulnerability scanning."""
 
 from datetime import datetime
-from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Depends, Response
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from shared.database import get_db
 import io
 import logging
 import httpx
 import os
+from enum import Enum  # Añade esto junto a los otros imports
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +62,18 @@ from services.scanner_engine.services.export_results import (
 # PYDANTIC MODELS
 # ============================================================================
 
+
+class ScannerTypeEnum(str, Enum):
+    nmap = "nmap"
+    nuclei = "nuclei"
+    nikto = "nikto"
+
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""
-    scan_types: List[str] = Field(
-        default=["nmap", "nuclei", "nikto"],
-        description="Scanners to run: nmap, nuclei, nikto"
+    # Al poner el Enum aquí, FastAPI genera el dropdown en Swagger
+    scan_types: List[ScannerTypeEnum] = Field(
+        default=[ScannerTypeEnum.nmap, ScannerTypeEnum.nuclei, ScannerTypeEnum.nikto],
+        description="Selecciona los escáneres que deseas lanzar contra el activo"
     )
     description: Optional[str] = None
 

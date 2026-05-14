@@ -1,1 +1,0 @@
-"""ZAP mock — replaced by Nikto."""

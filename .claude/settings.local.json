@@ -53,7 +53,13 @@
       "PowerShell(docker exec scanops-misp-db mysql -u misp -pmisp misp -e \"SELECT id, email, authkey FROM users LIMIT 5;\" 2>&1)",
       "PowerShell(docker exec scanops-misp-db mysql -u misp -pmisp misp -e \"SELECT id, uuid, authkey_start, authkey_end, user_id FROM auth_keys LIMIT 10;\" 2>&1)",
       "PowerShell(docker exec scanops-misp su -s /bin/bash www-data -c \"/var/www/MISP/app/Console/cake Admin setSetting Security.advanced_authkeys false 2>&1\" 2>&1)",
-      "PowerShell(docker exec scanops-misp curl -s -H \"Authorization: rGeylMY2yWtC6WAdvGSSlgBhgL9tSrd2pzLZpBG1\" -H \"Accept: application/json\" http://localhost/users/view/me.json 2>&1)"
+      "PowerShell(docker exec scanops-misp curl -s -H \"Authorization: rGeylMY2yWtC6WAdvGSSlgBhgL9tSrd2pzLZpBG1\" -H \"Accept: application/json\" http://localhost/users/view/me.json 2>&1)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\services\\\\exploit_engine\" -Recurse -Force)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\borja\\\\Documents\\\\ProyectosUNUWARE\\\\ScanOPS\\\\services\\\\exploit_engine\" -File -Filter \"*.py\")",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(python -c ' *)",
+      "Bash(python)",
+      "Bash(python -m pytest tests/test_approval_service.py -v)"
     ]
   }
 }
