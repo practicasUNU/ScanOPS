@@ -12591,8 +12591,8 @@ import pyotp
 import qrcode
 import io
 import base64
-import bcrypt  # Importado para hashing seguro de PIN [cite: 328]
-from datetime import datetime, timedelta, timezone  # Usar timezone.utc [cite: 294]
+import bcrypt
+from datetime import datetime, timedelta, timezone
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
@@ -12651,9 +12651,7 @@ class ApprovalService:
         """
         now_utc = datetime.now(timezone.utc)
         expires_at = now_utc + timedelta(hours=APPROVAL_TIMEOUT_HOURS)
-
-        # Hashear el PIN antes de guardarlo en la base de datos
-        hashed_pin = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
+        pin_hash = bcrypt.hashpw(pin.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
         query = """
             INSERT INTO m4_approvals (cve_id, target_ip, status, totp_secret, pin, requester, created_at, expires_at)
@@ -12662,68 +12660,68 @@ class ApprovalService:
         """
         conn = self._get_connection()
         try:
-            with conn.cursor() as cur:
-                # Guardamos hashed_pin, no el pin en claro
-                cur.execute(query, (cve, ip, secret, hashed_pin, user, now_utc, expires_at))
-                approval_id = cur.fetchone()[0]
-                conn.commit()
-                logger.info(f"Solicitud creada: ID {approval_id} (PIN protegido con bcrypt)")
-                return approval_id
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(query, (cve, ip, secret, pin_hash, user, now_utc, expires_at))
+                    approval_id = cur.fetchone()[0]
+                    logger.info(f"Solicitud creada: ID {approval_id} (PIN protegido con bcrypt)")
+                    return approval_id
         except Exception as e:
-            conn.rollback()
             logger.error(f"Error al crear solicitud: {e}")
             raise e
         finally:
             conn.close()
 
     def approve_exploitation(self, approval_id, totp_code, pin):
-        """
-        Valida TOTP y PIN con bloqueo de fila para evitar race conditions.
-        Solución Mejora 1: SELECT ... FOR UPDATE.
+        """Valida TOTP y PIN para cambiar el estado a APPROVED.
+        Usa SELECT ... FOR UPDATE para bloquear la fila durante toda
+        la transacción y evitar aprobaciones simultáneas (ENS op.acc.5).
         """
         conn = self._get_connection()
         try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # BLOQUEO DE FILA: Evita que dos procesos aprueben lo mismo simultáneamente
-                cur.execute("""
-                    SELECT * FROM m4_approvals
-                    WHERE id = %s AND status = 'PENDING'
-                    FOR UPDATE
-                """, (approval_id,))
-                request = cur.fetchone()
+            with conn:  # transacción única — commit automático al salir sin excepción
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
 
-                if not request:
-                    return False, "Solicitud no encontrada o ya procesada"
+                    # Bloqueo de fila: ninguna otra transacción puede leer
+                    # ni modificar este registro hasta que hagamos commit.
+                    cur.execute(
+                        "SELECT * FROM m4_approvals WHERE id = %s FOR UPDATE",
+                        (approval_id,)
+                    )
+                    request = cur.fetchone()
 
-                # Comparación de tiempo consistente en UTC
-                now_utc = datetime.now(timezone.utc)
-                db_expires_at = request['expires_at'].replace(tzinfo=timezone.utc)
+                    if not request:
+                        return False, "Solicitud no encontrada"
 
-                if now_utc > db_expires_at:
-                    cur.execute("UPDATE m4_approvals SET status = 'EXPIRED' WHERE id = %s", (approval_id,))
-                    conn.commit()
-                    return False, f"La solicitud ha expirado ({APPROVAL_TIMEOUT_HOURS}h)"
+                    # Re-verificar status DENTRO del lock — otro proceso pudo
+                    # haberlo cambiado a APPROVED/EXPIRED antes de que
+                    # obtuviéramos el lock.
+                    if request['status'] != 'PENDING':
+                        return False, f"La solicitud ya está en estado {request['status']}"
 
-                # Verificación segura del PIN con bcrypt
-                if not bcrypt.checkpw(pin.encode(), request['pin'].encode()):
-                    logger.warning(f"Intento de aprobación con PIN incorrecto para ID {approval_id}")
-                    return False, "PIN incorrecto"
+                    if datetime.now() > request['expires_at']:
+                        cur.execute(
+                            "UPDATE m4_approvals SET status = 'EXPIRED' WHERE id = %s",
+                            (approval_id,)
+                        )
+                        return False, f"La solicitud ha expirado ({APPROVAL_TIMEOUT_HOURS}h)"
 
-                # Validación de segundo factor TOTP
-                if not self.validate_totp(request['totp_secret'], totp_code):
-                    logger.warning(f"Intento de aprobación con TOTP incorrecto para ID {approval_id}")
-                    return False, "Código TOTP inválido"
+                    if not bcrypt.checkpw(pin.encode('utf-8'), request['pin'].encode('utf-8')):
+                        logger.warning(f"Intento de aprobación con PIN incorrecto para ID {approval_id}")
+                        return False, "PIN incorrecto"
 
-                # Éxito: Marcar como aprobado
-                cur.execute(
-                    "UPDATE m4_approvals SET status = 'APPROVED', approved_at = %s WHERE id = %s",
-                    (now_utc, approval_id)
-                )
-                conn.commit()
-                logger.info(f"Explotación APROBADA para solicitud {approval_id}")
-                return True, "Aprobado"
+                    if not self.validate_totp(request['totp_secret'], totp_code):
+                        logger.warning(f"Intento de aprobación con TOTP incorrecto para ID {approval_id}")
+                        return False, "Código TOTP inválido"
+
+                    cur.execute(
+                        "UPDATE m4_approvals SET status = 'APPROVED', approved_at = %s WHERE id = %s",
+                        (datetime.now(), approval_id)
+                    )
+                    logger.info(f"[ENS_EVIDENCE] Explotación APROBADA para solicitud {approval_id}")
+                    return True, "Aprobado"
+
         except Exception as e:
-            conn.rollback()
             logger.error(f"Error al aprobar explotación: {e}")
             raise e
         finally:
@@ -14233,7 +14231,7 @@ class M4Orchestrator:
     2. Inicia monitor de producción (US-5.9)
     3. FASE 1: Password Cracking con Hydra (US-5.2)
     4. FASE 1.5: Movimiento Lateral con NetExec (US-5.2)
-    5. FASE 2: Exploits Metasploit (US-5.5)
+    5. FASE 2: Exploits SQLMap (US-5.5)
     6. Para monitor al terminar
     7. Si kill_switch se activa (manual o automático): aborta TODO
     """
@@ -14312,9 +14310,8 @@ class M4Orchestrator:
             approval_id = approval['id']
             cve = approval['cve_id']
 
-            # 3. VALIDAR ACTIVO Y OBTENER DATOS REALES (Mejora 2)
+            # 3. VALIDAR ACTIVO Y OBTENER DATOS REALES
             try:
-                # Obtenemos el asset_name directamente de la BD para evitar logs incorrectos
                 target_ip, asset_db_id, asset_name = self._resolve_and_validate_target(approval)
             except ValueError as ve:
                 logger.error(str(ve))
@@ -14322,12 +14319,15 @@ class M4Orchestrator:
                 exploits_failed += 1
                 continue
 
+            # target_url definido aquí — disponible para todas las fases
+            target_url = f"http://{target_ip}"
+
             logger.info("-" * 80)
             logger.info(f"Procesando aprobación {approval_id}: {cve} en {asset_name} ({target_ip})")
 
             # CHECK KILL SWITCH ANTES DE CADA APROBACIÓN
             if kill_switch_svc.is_active():
-                logger.warning(f"🛑 KILL SWITCH activado")
+                logger.warning("🛑 KILL SWITCH activado")
                 return {
                     'success': False,
                     'hydra_cracks': hydra_cracks,
@@ -14347,7 +14347,9 @@ class M4Orchestrator:
             monitor.start(approval_id)
 
             try:
-                # --- FASE 1: HYDRA ---
+                # ═══════════════════════════════════════════════════════════
+                # FASE 1: HYDRA
+                # ═══════════════════════════════════════════════════════════
                 logger.info("🔐 FASE 1: Password Cracking con Hydra")
                 vulnerable_ports = self._get_vulnerable_ports(target_ip)
 
@@ -14355,63 +14357,175 @@ class M4Orchestrator:
                     self._log_phase("HYDRA", asset_name, target_ip, "START")
                     if not M4_DRY_RUN:
                         hydra_result = self.hydra_executor.crack_vulnerable_services(
-                            target_ip=target_ip, vulnerable_ports=vulnerable_ports,
-                            approval_id=approval_id, executor_email=approval.get('requester'),
+                            target_ip=target_ip,
+                            vulnerable_ports=vulnerable_ports,
+                            approval_id=approval_id,
+                            executor_email=approval.get('requester'),
                             ip_origin='127.0.0.1'
                         )
                     else:
-                        # Consistencia Dry-run: log y resultado simulado
                         logger.info(f"[DRY_RUN] Saltando crackeo real para {target_ip}")
                         hydra_result = {'success': True, 'credentials_found': 0, 'dry_run': True}
 
                     if hydra_result.get('success'):
                         hydra_cracks += hydra_result.get('credentials_found', 0)
-                        self._log_phase("HYDRA", asset_name, target_ip, "OK")
+                        self._log_phase("HYDRA", asset_name, target_ip, "OK",
+                                        f"creds={hydra_result.get('credentials_found', 0)}")
+                else:
+                    logger.warning(f"⚠️ No hay puertos vulnerables para cracking en {target_ip}")
 
-                # --- FASE 1.5: NETEXEC (Mejora 3 - Consistencia) ---
+                # CHECK KILL SWITCH DESPUÉS DE HYDRA
+                if kill_switch_svc.is_active():
+                    logger.warning("🛑 KILL SWITCH activado durante Hydra")
+                    return {
+                        'success': False,
+                        'hydra_cracks': hydra_cracks,
+                        'netexec_laterals': netexec_laterals,
+                        'exploits_executed': exploits_executed,
+                        'exploits_failed': exploits_failed,
+                        'aborted': True,
+                        'reason': 'Kill switch activated during hydra cracking'
+                    }
+
+                # ═══════════════════════════════════════════════════════════
+                # FASE 1.5: NETEXEC
+                # ═══════════════════════════════════════════════════════════
                 logger.info("🎯 FASE 1.5: NetExec Lateral Movement")
+
                 if M4_DRY_RUN:
                     logger.info(f"[DRY_RUN] Fase NetExec simulada para {asset_name}")
                 else:
-                    # Lógica NetExec real (abreviada para brevedad, igual a tu original)
                     self._log_phase("NETEXEC", asset_name, target_ip, "START")
-                    # ... ejecutar nxc.check_smb/ssh/rdp ...
+                    creds_to_test = self._get_discovered_credentials(approval_id)
+                    if not creds_to_test:
+                        creds_to_test = [{"username": p["username"], "password": "password123"}
+                                         for p in vulnerable_ports]
 
-                # --- FASE 2: SQLMAP ---
+                    for cred in creds_to_test:
+                        for port_info in vulnerable_ports:
+                            if kill_switch_svc.is_active():
+                                logger.warning("🛑 KILL SWITCH activado durante NetExec")
+                                break
+
+                            protocol = port_info['service']
+                            if protocol not in ['smb', 'ssh', 'rdp']:
+                                continue
+
+                            res = {}
+                            if protocol == 'smb':
+                                res = self.netexec.check_smb(target_ip, cred['username'], cred.get('password', ''))
+                            elif protocol == 'ssh':
+                                res = self.netexec.check_ssh(target_ip, cred['username'], cred.get('password', ''))
+                            elif protocol == 'rdp':
+                                res = self.netexec.check_rdp(target_ip, cred['username'], cred.get('password', ''))
+
+                            if res.get('lateral_movement_possible'):
+                                logger.info(f"🔥 MOVIMIENTO LATERAL POSIBLE: {protocol} en {target_ip} ({cred['username']})")
+                                netexec_laterals += 1
+                                self._persist_netexec_result(approval_id, target_ip, protocol, cred['username'], res)
+
+                # CHECK KILL SWITCH DESPUÉS DE NETEXEC
+                if kill_switch_svc.is_active():
+                    logger.warning("🛑 KILL SWITCH activado después de NetExec")
+                    return {
+                        'success': False,
+                        'hydra_cracks': hydra_cracks,
+                        'netexec_laterals': netexec_laterals,
+                        'exploits_executed': exploits_executed,
+                        'exploits_failed': exploits_failed,
+                        'aborted': True,
+                        'reason': 'Kill switch activated during lateral movement phase'
+                    }
+
+                # ═══════════════════════════════════════════════════════════
+                # FASE 2: SQLMAP
+                # ═══════════════════════════════════════════════════════════
                 logger.info("💉 FASE 2: SQLMap Exploitation")
+                self._log_phase("SQLMAP", asset_name, target_ip, "START")
+
                 if not M4_DRY_RUN:
                     sqlmap_result = self.sqlmap.scan(
-                        target_url=f"http://{target_ip}", approval_id=approval_id,
-                        executor_email=approval.get('requester'), ip_origin='127.0.0.1'
+                        target_url=target_url,
+                        approval_id=approval_id,
+                        executor_email=approval.get('requester'),
+                        ip_origin='127.0.0.1'
                     )
                 else:
-                    # Mejora 3: Evidencia de auditoría ENS incluso en Dry Run
                     sqlmap_result = {
-                        'success': True, 'vulnerable': False, 'injections_found': 0,
-                        'dry_run': True, 'output': '[DRY_RUN] Simulación de escaneo SQLMap exitosa',
-                        'started_at': datetime.now(), 'ended_at': datetime.now(), 'duration': 0
+                        'success': True,
+                        'vulnerable': False,
+                        'injections_found': 0,
+                        'dry_run': True,
+                        'output': '[DRY_RUN] Simulación de escaneo SQLMap exitosa',
+                        'started_at': datetime.now(),
+                        'ended_at': datetime.now(),
+                        'duration': 0,
+                        'error': None
                     }
                     self._save_sqlmap_result(
-                        approval_id=approval_id, target_url=f"http://{target_ip}",
-                        result=sqlmap_result, executor_email=approval.get('requester'),
+                        approval_id=approval_id,
+                        target_url=target_url,
+                        result=sqlmap_result,
+                        executor_email=approval.get('requester'),
                         ip_origin='127.0.0.1'
                     )
 
-                # --- ACTUALIZACIÓN DE ESTADO FINAL (Mejora 3) ---
-                # Evitamos poner 'EXECUTED' si fue un simulacro para no engañar al auditor
-                final_status = 'DRY_RUN_COMPLETED' if M4_DRY_RUN else 'EXECUTED'
+                self._log_phase("SQLMAP", asset_name, target_ip, "DONE",
+                                f"vulnerable={sqlmap_result.get('vulnerable')}")
+
+                # ACTUALIZACIÓN DE ESTADO FINAL — diferenciado para dry-run (ENS auditoría)
                 if sqlmap_result['success']:
+                    if sqlmap_result.get('vulnerable'):
+                        logger.info(f"✅ SQLMap encontró inyecciones en {target_url}")
+                        logger.info(f"   Inyecciones: {sqlmap_result['injections_found']}")
+                    else:
+                        logger.info(f"⚠️ SQLMap no encontró inyecciones en {target_url}")
+                    final_status = 'DRY_RUN_EXECUTED' if M4_DRY_RUN else 'EXECUTED'
                     self._update_approval_status(approval_id, final_status)
                     exploits_executed += 1
                 else:
-                    self._update_approval_status(approval_id, 'FAILED')
+                    logger.error(f"❌ SQLMap falló: {sqlmap_result.get('error')}")
+                    final_status = 'DRY_RUN_FAILED' if M4_DRY_RUN else 'FAILED'
+                    self._update_approval_status(approval_id, final_status)
                     exploits_failed += 1
 
+                # Persistir en BD solo si no es dry-run (ya se guardó arriba en dry-run)
+                if not M4_DRY_RUN:
+                    self._save_sqlmap_result(
+                        approval_id=approval_id,
+                        target_url=target_url,
+                        result=sqlmap_result,
+                        executor_email=approval.get('requester'),
+                        ip_origin='127.0.0.1'
+                    )
+
+                # CHECK KILL SWITCH DESPUÉS DE SQLMAP
+                if kill_switch_svc.is_active():
+                    logger.warning("🛑 KILL SWITCH activado durante SQLMap")
+                    return {
+                        'success': False,
+                        'hydra_cracks': hydra_cracks,
+                        'netexec_laterals': netexec_laterals,
+                        'exploits_executed': exploits_executed,
+                        'exploits_failed': exploits_failed,
+                        'aborted': True,
+                        'reason': 'Kill switch activated during exploitation'
+                    }
+
             finally:
+                logger.info("🛑 Parando monitor de producción...")
                 monitor.stop()
 
+        logger.info("=" * 80)
+        logger.info(f"📊 RESUMEN:")
+        logger.info(f"  - Credenciales crackeadas: {hydra_cracks}")
+        logger.info(f"  - Movimientos laterales posibles: {netexec_laterals}")
+        logger.info(f"  - Exploits ejecutados: {exploits_executed}")
+        logger.info(f"  - Exploits fallidos: {exploits_failed}")
+        logger.info("=" * 80)
+
         return {
-            'success': exploits_executed > 0 or exploits_failed == 0,
+            'success': exploits_executed > 0 or netexec_laterals > 0 or exploits_failed == 0,
             'hydra_cracks': hydra_cracks,
             'netexec_laterals': netexec_laterals,
             'exploits_executed': exploits_executed,
@@ -14432,46 +14546,36 @@ class M4Orchestrator:
         conn = self._get_connection()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # 1. Buscamos todos los activos con esa IP (sin LIMIT 1 para detectar duplicados)
-            # Nota: Usamos 'ACTIVO' que es el valor real en el modelo M1
                 cur.execute(
                     "SELECT id, ip, hostname, responsable FROM assets WHERE ip = %s AND status = 'ACTIVO'",
                     (approval['target_ip'],)
                 )
-            assets = cur.fetchall()
+                assets = cur.fetchall()
 
-            # 2. Validación: Existencia del activo [cite: 927]
             if not assets:
                 raise ValueError(
                     f"[M4_SAFETY] La IP {approval['target_ip']} no está registrada o activa en M1. "
                     "El exploit NO se ejecutará por seguridad."
                 )
 
-            # 3. Validación: Detección de duplicados (Mejora Crítica)
             if len(assets) > 1:
                 raise ValueError(
-                    f"[M4_SAFETY] Ambigüedad detectada: {len(assets)} activos comparten la IP {approval['target_ip']}. "
-                    "Abortando ejecución para evitar daños colaterales."
+                    f"[M4_SAFETY] Ambigüedad detectada: {len(assets)} activos comparten la IP "
+                    f"{approval['target_ip']}. Abortando para evitar daños colaterales."
                 )
 
             asset = assets[0]
 
-            # 4. Validación: Ownership / Permisos (Mejora de Seguridad)
-            # Verifica que el solicitante del exploit sea el responsable registrado del activo
             if approval.get('requester') != asset['responsable']:
                 logger.warning(
-                    f"[M4_SECURITY_ALERT] El usuario {approval.get('requester')} intentó explotar un "
-                    f"activo del que no es responsable ({asset['responsable']})."
+                    f"[M4_SECURITY_ALERT] El usuario {approval.get('requester')} intentó explotar "
+                    f"un activo del que no es responsable ({asset['responsable']})."
                 )
-                # Opcional: Puedes lanzar ValueError aquí si quieres bloquearlo estrictamente
-                # raise ValueError(f"[M4_SAFETY] El solicitante no tiene permisos sobre este activo.")
 
             logger.info(
                 f"[M4_TARGET_VALIDATED] asset_id={asset['id']} hostname={asset['hostname']} "
                 f"ip={asset['ip']} → Autorizado por {asset['responsable']}"
             )
-
-            # Retornamos el hostname real de la BD para que el orquestador lo use en los logs [cite: 929]
             return asset['ip'], asset['id'], asset['hostname']
         finally:
             conn.close()
@@ -14516,7 +14620,6 @@ class M4Orchestrator:
         try:
             conn = self._get_connection()
 
-            # Intentamos usar la tabla real de M3: vuln_findings + assets
             query = """
                 SELECT DISTINCT
                     f.affected_port as port,
@@ -14544,7 +14647,6 @@ class M4Orchestrator:
 
         except Exception as e:
             logger.warning(f"⚠️ Error obteniendo puertos de vuln_findings, usando defaults: {e}")
-            # Fallback a puertos comunes si falla la query
             return [
                 {'port': 22, 'service': 'ssh', 'username': 'root'},
                 {'port': 445, 'service': 'smb', 'username': 'Administrator'}
@@ -14556,64 +14658,27 @@ class M4Orchestrator:
     def _get_msf_defaults_for_cve(self, cve: str, vuln_row: dict) -> dict:
         """
         Returns the best MSF module/payload/port based on CVE id or service context.
-        Used when vuln_findings does not have msf_module populated (Nuclei findings).
         """
         cve_upper = cve.upper() if cve else ''
         service = (vuln_row.get('affected_service') or '').lower()
         port = vuln_row.get('affected_port')
 
-        # HTTP/HTTPS findings → auxiliary scanner (no payload needed)
         if service in ('http', 'https') or port in (80, 443, 8080, 8443):
-            return {
-                'msf_module': 'auxiliary/scanner/http/http_version',
-                'payload': '',
-                'port': port or 80,
-                'platform': 'linux'
-            }
+            return {'msf_module': 'auxiliary/scanner/http/http_version', 'payload': '', 'port': port or 80, 'platform': 'linux'}
 
-        # PHPInfo exposed (common Nuclei finding)
         if 'phpinfo' in cve_upper or 'phpinfo' in (vuln_row.get('vulnerability_id') or '').lower():
-            return {
-                'msf_module': 'auxiliary/scanner/http/phpinfo',
-                'payload': '',
-                'port': port or 80,
-                'platform': 'linux'
-            }
+            return {'msf_module': 'auxiliary/scanner/http/phpinfo', 'payload': '', 'port': port or 80, 'platform': 'linux'}
 
-        # SSH findings
         if service == 'ssh' or port == 22:
-            return {
-                'msf_module': 'auxiliary/scanner/ssh/ssh_version',
-                'payload': '',
-                'port': port or 22,
-                'platform': 'linux'
-            }
+            return {'msf_module': 'auxiliary/scanner/ssh/ssh_version', 'payload': '', 'port': port or 22, 'platform': 'linux'}
 
-        # SMB findings (Windows)
         if service == 'smb' or port == 445:
-            return {
-                'msf_module': 'exploit/windows/smb/ms17_010_eternalblue',
-                'payload': 'windows/x64/meterpreter/reverse_tcp',
-                'port': port or 445,
-                'platform': 'windows'
-            }
+            return {'msf_module': 'exploit/windows/smb/ms17_010_eternalblue', 'payload': 'windows/x64/meterpreter/reverse_tcp', 'port': port or 445, 'platform': 'windows'}
 
-        # SSL/TLS findings
         if 'ssl' in cve_upper or 'tls' in cve_upper or port in (443, 8443):
-            return {
-                'msf_module': 'auxiliary/scanner/ssl/openssl_heartbleed',
-                'payload': '',
-                'port': port or 443,
-                'platform': 'linux'
-            }
+            return {'msf_module': 'auxiliary/scanner/ssl/openssl_heartbleed', 'payload': '', 'port': port or 443, 'platform': 'linux'}
 
-        # Generic fallback — auxiliary scanner, not exploit
-        return {
-            'msf_module': 'auxiliary/scanner/portscan/tcp',
-            'payload': '',
-            'port': port or 80,
-            'platform': 'linux'
-        }
+        return {'msf_module': 'auxiliary/scanner/portscan/tcp', 'payload': '', 'port': port or 80, 'platform': 'linux'}
 
     def _get_vulnerability_info(self, cve: str) -> Optional[Dict]:
         """Obtiene información de vulnerabilidad"""
@@ -14621,7 +14686,6 @@ class M4Orchestrator:
         try:
             conn = self._get_connection()
 
-            # Tabla real de M3: vuln_findings
             query = """
                 SELECT * FROM vuln_findings
                 WHERE vulnerability_id = %s
@@ -14641,8 +14705,6 @@ class M4Orchestrator:
                     'platform': vuln.get('asset_os') or defaults['platform']
                 }
 
-            # Si no existe en la tabla, devolvemos defaults basados en el CVE o genéricos
-            # permitiendo que la fase 2 continúe
             return self._get_msf_defaults_for_cve(cve, {})
 
         except Exception as e:
@@ -14772,6 +14834,7 @@ if __name__ == "__main__":
     print(f"\nResultado: {result}")
 FILE:services\exploit_engine\main.py
 from fastapi import FastAPI, HTTPException, Depends
+from shared.auth import get_current_user
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -14780,7 +14843,6 @@ from services.exploit_engine.api.approval_api import router as approval_router
 from services.exploit_engine.api.cancel_api import router as cancel_router
 from services.exploit_engine.api.patch_api import router as patch_router
 from services.exploit_engine.config import DB_CONFIG
-from shared.auth import get_current_user # Importar auth compartido
 
 def get_db_connection():
     """Establece conexión con la base de datos PostgreSQL."""
@@ -14827,11 +14889,10 @@ async def execute_m4(
 @app.get("/exploits/status/{approval_id}")
 async def get_exploit_status(
     approval_id: int,
-    current_user: dict = Depends(get_current_user) # SOLUCIÓN MEJORA 3: Autenticación obligatoria
+    current_user: dict = Depends(get_current_user)
 ):
-    """
-    Devuelve estado de la aprobación y resultado del exploit.
-    Protegido con JWT para cumplimiento de ENS Alto.
+    """Devuelve estado de la aprobación y resultado del exploit.
+    Requiere autenticación JWT. ENS op.acc.5.
     """
     conn = get_db_connection()
     try:
@@ -14840,7 +14901,9 @@ async def get_exploit_status(
                 SELECT
                     a.id, a.cve_id, a.target_ip, a.status, a.requester,
                     a.created_at, a.expires_at, a.approved_at,
-                    e.result_type, e.output_summary, e.executed_at
+                    e.msf_module, e.payload, e.success,
+                    e.output, e.started_at, e.ended_at,
+                    e.duration_seconds, e.created_at as executed_at
                 FROM m4_approvals a
                 LEFT JOIN exploit_results e ON e.approval_id = a.id
                 WHERE a.id = %s
@@ -16852,7 +16915,8 @@ CREATE TABLE IF NOT EXISTS m4_approvals (
     requester VARCHAR(100),
     status VARCHAR(20) DEFAULT 'PENDING',
     totp_secret VARCHAR(32),
-    pin VARCHAR(4),
+    pin VARCHAR(60),
+    COMMENT ON COLUMN m4_approvals.pin IS 'Hash bcrypt del PIN (4 dígitos). Nunca en texto plano. ENS mp.info.3';
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP,
@@ -17081,12 +17145,14 @@ CREATE TABLE IF NOT EXISTS production_impact_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 FILE:services\exploit_engine\tests\test_approval_service.py
+from passlib.hash import bcrypt
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta
 import pyotp
 import sys
 import os
+import bcrypt
 
 # Asegurar importaciones
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17143,7 +17209,7 @@ def test_approve_exploitation_success(mock_conn_factory, approval_svc):
         'target_ip': '192.168.1.10',
         'status': 'PENDING',
         'totp_secret': secret,
-        'pin': '1234',
+        'pin': bcrypt.hashpw('1234'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
         'expires_at': datetime.now() + timedelta(hours=24)
     }
     mock_conn_factory.return_value = mock_conn
@@ -17162,7 +17228,7 @@ def test_approve_exploitation_invalid_pin(mock_conn_factory, approval_svc):
     mock_cur.fetchone.return_value = {
         'id': 1,
         'status': 'PENDING',
-        'pin': '1234',
+        'pin': bcrypt.hashpw('1234'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
         'expires_at': datetime.now() + timedelta(hours=24)
     }
     mock_conn_factory.return_value = mock_conn
@@ -17228,14 +17294,15 @@ def test_resolve_and_validate_target_ok(mock_conn_factory):
 
     mock_conn = MagicMock()
     mock_cur = mock_conn.cursor.return_value.__enter__.return_value
-    mock_cur.fetchone.return_value = {'id': 7, 'ip': '10.202.15.100', 'name': 'ubuntu-pruebas'}
+    mock_cur.fetchall.return_value = [{'id': 7, 'ip': '10.202.15.100', 'hostname': 'ubuntu-pruebas', 'responsable': 'admin@scanops.local'}]
     mock_conn_factory.return_value = mock_conn
 
-    approval = {'target_ip': '10.202.15.100'}
-    ip, asset_id = orch._resolve_and_validate_target(approval)
+    approval = {'target_ip': '10.202.15.100', 'requester': 'admin@scanops.local'}
+    ip, asset_id, asset_name = orch._resolve_and_validate_target(approval)
 
     assert ip == '10.202.15.100'
     assert asset_id == 7
+    assert asset_name == 'ubuntu-pruebas'
 
 @pytest.mark.skipif(not _has_orchestrator, reason="m4_orchestrator not importable")
 @patch('m4_orchestrator.M4Orchestrator._get_connection')
@@ -17245,10 +17312,10 @@ def test_resolve_and_validate_target_not_found(mock_conn_factory):
 
     mock_conn = MagicMock()
     mock_cur = mock_conn.cursor.return_value.__enter__.return_value
-    mock_cur.fetchone.return_value = None
+    mock_cur.fetchall.return_value = []
     mock_conn_factory.return_value = mock_conn
 
-    approval = {'target_ip': '1.2.3.4'}
+    approval = {'target_ip': '1.2.3.4', 'requester': 'admin@scanops.local'}
     with pytest.raises(ValueError) as exc:
         orch._resolve_and_validate_target(approval)
     assert '[M4_SAFETY]' in str(exc.value)
@@ -17262,10 +17329,14 @@ def test_resolve_and_validate_target_ip_mismatch(mock_conn_factory):
 
     mock_conn = MagicMock()
     mock_cur = mock_conn.cursor.return_value.__enter__.return_value
-    mock_cur.fetchone.return_value = {'id': 3, 'ip': '10.0.0.99', 'name': 'other'}
+    # Dos activos con la misma IP — debe lanzar ValueError por ambigüedad
+    mock_cur.fetchall.return_value = [
+        {'id': 1, 'ip': '10.202.15.100', 'hostname': 'host-a', 'responsable': 'admin@scanops.local'},
+        {'id': 2, 'ip': '10.202.15.100', 'hostname': 'host-b', 'responsable': 'admin@scanops.local'},
+    ]
     mock_conn_factory.return_value = mock_conn
 
-    approval = {'target_ip': '10.202.15.100'}
+    approval = {'target_ip': '10.202.15.100', 'requester': 'admin@scanops.local'}
     with pytest.raises(ValueError) as exc:
         orch._resolve_and_validate_target(approval)
     assert '[M4_SAFETY]' in str(exc.value)
@@ -17290,6 +17361,24 @@ def test_dry_run_no_real_tools(monkeypatch):
     # We verify the module-level flag is respected.
     assert m4mod.M4_DRY_RUN is True
     assert len(hydra_called) == 0  # never invoked in dry_run path
+
+@patch('approval_service.ApprovalService._get_connection')
+def test_create_approval_request_pin_is_hashed(mock_conn_factory, approval_svc):
+    """Verifica que el PIN se guarda como hash bcrypt, nunca en texto plano."""
+    mock_conn = MagicMock()
+    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+    mock_cur.fetchone.return_value = [1]
+    mock_conn_factory.return_value = mock_conn
+
+    approval_svc.create_approval_request('CVE-2021-44228', '192.168.1.10', 'admin', 'SECRET', '1234')
+
+    # Extraer el PIN que se pasó al INSERT
+    call_args = mock_cur.execute.call_args_list[0][0][1]
+    pin_stored = call_args[3]  # posición del pin en (cve, ip, secret, pin_hash, user, ...)
+
+    # Debe ser un hash bcrypt válido, no el PIN en claro
+    assert pin_stored != '1234'
+    assert bcrypt.checkpw('1234'.encode('utf-8'), pin_stored.encode('utf-8'))
 FILE:services\exploit_engine\tests\test_cancel_integration.py
 import pytest
 from unittest.mock import MagicMock, patch, ANY
@@ -17856,6 +17945,86 @@ def test_orchestrator_includes_netexec_phase(mock_hydra, mock_monitor, mock_msf,
     assert 'netexec_laterals' in result
     assert result['netexec_laterals'] > 0
     assert mock_nxc.check_smb.called or mock_nxc.check_ssh.called
+FILE:services\exploit_engine\tests\test_main.py
+import pytest
+from unittest.mock import MagicMock, patch
+import sys
+import os
+
+# Raíz del proyecto al path primero
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Mockear módulos problemáticos ANTES de importar app
+sys.modules['msgpack'] = MagicMock()
+sys.modules['services.exploit_engine.exploit_executor'] = MagicMock()
+sys.modules['services.exploit_engine.api.cancel_api'] = MagicMock(router=MagicMock())
+sys.modules['services.exploit_engine.api.patch_api'] = MagicMock(router=MagicMock())
+sys.modules['services.exploit_engine.api.approval_api'] = MagicMock(router=MagicMock())
+
+from fastapi.testclient import TestClient
+from main import app
+from shared.auth import get_current_user
+
+client = TestClient(app)
+FAKE_USER = {"email": "admin@scanops.local", "role": "SECURITY_ADMIN"}
+
+def override_auth():
+    return FAKE_USER
+
+def no_auth():
+    from fastapi import HTTPException
+    raise HTTPException(status_code=401, detail="No autenticado")
+
+def test_exploit_status_requires_auth():
+    """Sin token debe devolver 401."""
+    app.dependency_overrides[get_current_user] = no_auth
+    response = client.get("/exploits/status/1")
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
+
+@patch("main.get_db_connection")
+def test_exploit_status_with_auth_not_found(mock_db):
+    """Con token válido y approval inexistente debe devolver 404."""
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_cur.fetchone.return_value = None
+    mock_db.return_value = mock_conn
+
+    app.dependency_overrides[get_current_user] = override_auth
+    response = client.get("/exploits/status/999")
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+
+@patch("main.get_db_connection")
+def test_exploit_status_with_auth_ok(mock_db):
+    """Con token válido y approval existente debe devolver 200 con datos."""
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cur)
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    mock_cur.fetchone.return_value = {
+        "id": 1,
+        "cve_id": "CVE-2021-44228",
+        "target_ip": "10.202.15.100",
+        "status": "APPROVED",
+        "requester": "admin@scanops.local",
+        "created_at": None,
+        "expires_at": None,
+        "approved_at": None,
+        "result_type": None,
+        "output_summary": None,
+        "executed_at": None,
+    }
+    mock_db.return_value = mock_conn
+
+    app.dependency_overrides[get_current_user] = override_auth
+    response = client.get("/exploits/status/1")
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["data"]["cve_id"] == "CVE-2021-44228"
 FILE:services\exploit_engine\tests\test_msf_fallback.py
 import pytest
 from unittest.mock import patch, MagicMock
