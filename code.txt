@@ -1663,6 +1663,9 @@ volumes:
   pgdata:
   trivy_data:
   zap_data:
+FILE:frontend_src.zip
+BINARY:true
+
 FILE:install_dependencies.bat
 @echo off
 setlocal enabledelayedexpansion
@@ -4689,8 +4692,8 @@ FILE:frontend\package.json
     "@radix-ui/react-slot": "1.1.2",
     "@radix-ui/react-switch": "1.1.3",
     "@radix-ui/react-tabs": "1.1.3",
-    "@radix-ui/react-toggle-group": "1.1.2",
     "@radix-ui/react-toggle": "1.1.2",
+    "@radix-ui/react-toggle-group": "1.1.2",
     "@radix-ui/react-tooltip": "1.1.8",
     "canvas-confetti": "1.9.4",
     "class-variance-authority": "0.7.1",
@@ -4719,8 +4722,11 @@ FILE:frontend\package.json
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
+    "typescript": "^6.0.3",
     "vite": "6.3.5"
   },
   "peerDependencies": {
@@ -4742,7 +4748,7 @@ FILE:frontend\package.json
   }
 }
 FILE:frontend\pnpm-lock.yaml
-TRUNCATED:true SIZE:162170
+TRUNCATED:true SIZE:172397
 lockfileVersion: '9.0'
 
 settings:
@@ -4770,82 +4776,82 @@ importers:
         version: 2.11.8
       '@radix-ui/react-accordion':
         specifier: 1.2.3
-        version: 1.2.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.2.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-alert-dialog':
         specifier: 1.1.6
-        version: 1.1.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-aspect-ratio':
         specifier: 1.1.2
-        version: 1.1.2(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-avatar':
         specifier: 1.1.3
-        version: 1.1.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-checkbox':
         specifier: 1.1.4
-        version: 1.1.4(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.4(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-collapsible':
         specifier: 1.1.3
-        version: 1.1.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-context-menu':
         specifier: 2.2.6
-        version: 2.2.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.2.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-dialog':
         specifier: 1.1.6
-        version: 1.1.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-dropdown-menu':
         specifier: 2.1.6
-        version: 2.1.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.1.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-hover-card':
         specifier: 1.1.6
-        version: 1.1.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-label':
         specifier: 2.1.2
-        version: 2.1.2(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-menubar':
         specifier: 1.1.6
-        version: 1.1.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-navigation-menu':
         specifier: 1.2.5
-        version: 1.2.5(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.2.5(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-popover':
         specifier: 1.1.6
-        version: 1.1.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-progress':
         specifier: 1.1.2
-        version: 1.1.2(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-radio-group':
         specifier: 1.2.3
-        version: 1.2.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.2.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-scroll-area':
         specifier: 1.2.3
-        version: 1.2.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.2.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-select':
         specifier: 2.1.6
-        version: 2.1.6(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 2.1.6(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-separator':
         specifier: 1.1.2
-        version: 1.1.2(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-slider':
         specifier: 1.2.3
-        version: 1.2.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.2.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-slot':
         specifier: 1.1.2
         version: 1.1.2(@types/react@19.2.14)(react@18.3.1)
       '@radix-ui/react-switch':
         specifier: 1.1.3
-        version: 1.1.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-tabs':
         specifier: 1.1.3
-        version: 1.1.3(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-toggle':
         specifier: 1.1.2
-        version: 1.1.2(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-toggle-group':
         specifier: 1.1.2
-        version: 1.1.2(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-tooltip':
         specifier: 1.1.8
-        version: 1.1.8(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       canvas-confetti:
         specifier: 1.9.4
         version: 1.9.4
@@ -4857,7 +4863,7 @@ importers:
         version: 2.1.1
       cmdk:
         specifier: 1.1.1
-        version: 1.1.1(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       date-fns:
         specifier: 3.6.0
         version: 3.6.0
@@ -4923,17 +4929,26 @@ importers:
         version: 1.3.8
       vaul:
         specifier: 1.1.2
-        version: 1.1.2(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@tailwindcss/vite':
         specifier: 4.1.12
         version: 4.1.12(vite@6.3.5(jiti@2.7.0)(lightningcss@1.30.1))
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: 4.7.0
         version: 4.7.0(vite@6.3.5(jiti@2.7.0)(lightningcss@1.30.1))
       tailwindcss:
         specifier: 4.1.12
         version: 4.1.12
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
       vite:
         specifier: 6.3.5
         version: 6.3.5(jiti@2.7.0)(lightningcss@1.30.1)
@@ -5977,46 +5992,7 @@ packages:
 
   '@radix-ui/react-use-rect@1.1.0':
     resolution: {integrity: sha512-0Fmkebhr6PiseyZlYAOtLS+nb7jLmpqTrJyv61Pe68MKYW6OWdRE2kI70TaYY27u7H0lajqM3hSMMLFq18Z7nQ==}
-    peerDependencies:
-      '@types/react': '*'
-      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@radix-ui/react-use-size@1.1.0':
-    resolution: {integrity: sha512-XW3/vWuIXHa+2Uwcc2ABSfcCledmXhhQPlGbfcRXbiUQI5Icjcg19BGCZVKKInYbvUCut/ufbbLLPFC5cbb1hw==}
-    peerDependencies:
-      '@types/react': '*'
-      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@radix-ui/react-visually-hidden@1.1.2':
-    resolution: {integrity: sha512-1SzA4ns2M1aRlvxErqhLHsBHoS5eI5UUcI2awAMgGUp4LoaoWOKYmvqDY2s/tltuPkh3Yk77YF/r3IRj+Amx4Q==}
-    peerDependencies:
-      '@types/react': '*'
-      '@types/react-dom': '*'
-      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
-      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      '@types/react-dom':
-        optional: true
-
-  '@radix-ui/rect@1.1.0':
-    resolution: {integrity: sha512-A9+lCBZoaMJlVKcRBz2YByCG+Cp2t6nAnMnNba+XiWxnj6r4JUFqfsgwocMBZU9LPtdxC6wB56ySYpc7LQIoJg==}
-
-  '@react-dnd/asap@5.0.2':
-    resolution: {integrity: sha512-WLyfoHvxhs0V9U+GTsGilGgf2QsPl6ZZ44fnv0/b8T3nQyvzxidxsg/ZltbWssbsRDlYW8UKSQMTGotuTotZ6A==}
-
-  '@react-dnd/invariant@4.0.2':
-    resolution: {integrity: sha512-xKCTqAK/FFauOM9Ta2pswIyT3D8AQlfrYdOi/toTPEhqCuAs1v5tcJ3Y08Izh1cJ5Jchwy9SeAXmMg6zrKs2iw==}
-
-  '@react-dnd/shallowequal@4.0.2':
-    resolution: {in
+    peerDependencie
 FILE:frontend\pnpm-workspace.yaml
 packages:
   - '.'
@@ -6039,6 +6015,27 @@ FILE:frontend\postcss.config.mjs
  * Otherwise, you can leave this file empty.
  */
 export default {}
+FILE:frontend\tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}
 FILE:frontend\vite.config.ts
 import { defineConfig } from 'vite'
 import path from 'path'
@@ -6423,7 +6420,9 @@ import { ENSComplianceWidget } from './ENSComplianceWidget';
 import { Activity, AlertTriangle, CheckCircle2, CalendarClock, Play, Pause, Zap, Power, Shield } from 'lucide-react';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { getCycleState } from '../utils/cycleState';
+import { getCycleState, mapApiCycleToUI } from '../utils/cycleState';
+import { useCycleStatus } from '../../hooks/useCycleStatus';
+import { useCycleActions } from '../../hooks/useCycleActions';
 
 const logEntries = [
   { time: '14:32:18', level: 'INFO', msg: 'Starting exploitation phase M8...' },
@@ -6436,67 +6435,111 @@ const logEntries = [
   { time: '14:32:31', level: 'INFO', msg: 'Running post-exploitation enumeration scripts' },
 ];
 
-type ModuleStatus = 'completed' | 'in-progress' | 'pending';
-
-interface PipelineBlock {
-  timeLabel: string;
-  phaseLabel: string;
-  modules: { id: string; label?: string; isHuman?: boolean; status: ModuleStatus }[];
-  blockIndex: 0 | 1 | 2;
+interface PipelineModule {
+  id: string;
+  label?: string;
+  isHuman?: boolean;
+  status: string;
 }
 
-const pipelineBlocks: PipelineBlock[] = [
-  {
-    timeLabel: 'LUNES 02:00',
-    phaseLabel: 'Fase 1 — Inventario',
-    blockIndex: 0,
-    modules: [
-      { id: 'M1', status: 'completed' },
-      { id: 'M2', status: 'completed' },
-    ],
-  },
-  {
-    timeLabel: 'MAR/MIÉ 00:00',
-    phaseLabel: 'Fase 2 + Fase 3',
-    blockIndex: 1,
-    modules: [
-      { id: 'M3', status: 'completed' },
-      { id: 'M8-IA', status: 'in-progress' },
-      { id: '👤', label: 'Revisión', isHuman: true, status: 'pending' },
-    ],
-  },
-  {
-    timeLabel: 'SAB/DOM 01:00',
-    phaseLabel: 'Fase 4 + 5',
-    blockIndex: 2,
-    modules: [
-      { id: 'M4', status: 'pending' },
-      { id: 'M7', status: 'pending' },
-    ],
-  },
-];
-
 export function DashboardPage() {
-  // PAUSA: responsable puede reanudar · KILL SWITCH: requiere reactivación manual
-  const [isPausedManually, setIsPausedManually] = useState(false);
   const [showKillSwitchModal, setShowKillSwitchModal] = useState(false);
-  const [killSwitchActive, setKillSwitchActive] = useState(false);
   const [killSwitchTotp, setKillSwitchTotp] = useState('');
 
-  const cycle = getCycleState();
+  const { data: cycleData, loading: cycleLoading, error: cycleError, refetch } = useCycleStatus(30000);
+  const cycleActions = useCycleActions();
+  const cycle = cycleData ? mapApiCycleToUI(cycleData) : getCycleState();
 
-  const handleConfirmKillSwitch = () => {
-    setKillSwitchActive(true);
+  const isPausedManually = cycleData?.paused ?? false;
+  const killSwitchActive = cycleData?.kill_switch_active ?? false;
+
+  const handleConfirmKillSwitch = async () => {
+    try {
+      await cycleActions.activateKillSwitch(killSwitchTotp);
+      refetch();
+    } catch {
+      return;
+    }
     setShowKillSwitchModal(false);
     setKillSwitchTotp('');
   };
+
+  const pipelineBlocks: { timeLabel: string; phaseLabel: string; blockIndex: 0 | 1 | 2; modules: PipelineModule[] }[] = [
+    {
+      timeLabel: 'LUNES 02:00',
+      phaseLabel: 'Fase 1 — Inventario',
+      blockIndex: 0,
+      modules: cycle.phases
+        ?.filter(p => p.phase_number === 1)
+        .flatMap(p => p.modules)
+        .map(m => ({ id: m.id, status: m.status })) ?? [
+          { id: 'M1', status: 'pending' },
+          { id: 'M2', status: 'pending' },
+        ],
+    },
+    {
+      timeLabel: 'MAR/MIÉ 00:00',
+      phaseLabel: 'Fase 2 + Fase 3',
+      blockIndex: 1,
+      modules: (() => {
+        const allModules = cycle.phases
+          ?.filter(p => p.phase_number === 2 || p.phase_number === 3)
+          .flatMap(p => p.modules) ?? [];
+
+        const statusPriority: Record<string, number> = {
+          blocked: 5, in_progress: 4, completed: 3, pending: 2, offline: 1,
+        };
+
+        const deduped = new Map<string, PipelineModule>();
+        for (const m of allModules) {
+          const existing = deduped.get(m.id);
+          const currentPrio = statusPriority[m.status] ?? 0;
+          const existingPrio = existing ? (statusPriority[existing.status] ?? 0) : -1;
+          if (currentPrio > existingPrio) {
+            deduped.set(m.id, {
+              id: m.id,
+              label: m.status === 'blocked' ? 'Revisión' : undefined,
+              isHuman: m.status === 'blocked',
+              status: m.status,
+            });
+          }
+        }
+
+        return allModules.length > 0 ? Array.from(deduped.values()) : [
+          { id: 'M3', status: 'pending' },
+          { id: 'M8', status: 'pending' },
+          { id: '👤', label: 'Revisión', isHuman: true, status: 'pending' },
+        ];
+      })(),
+    },
+    {
+      timeLabel: 'SAB/DOM 01:00',
+      phaseLabel: 'Fase 4 + Fase 5',
+      blockIndex: 2,
+      modules: cycle.phases
+        ?.filter(p => p.phase_number === 4 || p.phase_number === 5)
+        .flatMap(p => p.modules)
+        .map(m => ({ id: m.id, status: m.status })) ?? [
+          { id: 'M4', status: 'pending' },
+          { id: 'M7', status: 'pending' },
+        ],
+    },
+  ];
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar role="System Manager" />
+        <TopBar role="System Manager" cycleLabel={cycle.label} dotColor={cycle.dotColor} />
+
+        {/* Connection error banner */}
+        {cycleError && (
+          <div className="flex items-center gap-2 px-6 py-2 bg-[#f59e0b]/10 border-b border-[#f59e0b]/30 text-xs text-[#f59e0b] font-mono">
+            <span>⚠ Orchestrator no disponible — mostrando datos locales · {cycleError}</span>
+            <button onClick={refetch} className="ml-auto underline">Reintentar</button>
+          </div>
+        )}
 
         {/* Kill Switch persistent banner */}
         {killSwitchActive && (
@@ -6506,7 +6549,9 @@ export function DashboardPage() {
               Kill Switch activo · Ciclo detenido · Reactivación manual requerida
             </span>
             <button
-              onClick={() => setKillSwitchActive(false)}
+              onClick={async () => {
+                try { await cycleActions.deactivateKillSwitch(); refetch(); } catch {}
+              }}
               className="px-4 py-1.5 text-xs text-[#ff3b3b] border border-[#ff3b3b]/40 rounded-lg hover:bg-[#ff3b3b]/10 transition-colors font-semibold"
             >
               Reactivar ciclo
@@ -6523,7 +6568,9 @@ export function DashboardPage() {
             </span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsPausedManually(false)}
+                onClick={async () => {
+                  try { await cycleActions.pauseCycle(); refetch(); } catch {}
+                }}
                 className="px-4 py-1.5 text-xs bg-[#f59e0b] text-[#0f1117] rounded-lg hover:bg-[#d97706] transition-colors font-semibold"
               >
                 Reanudar ahora
@@ -6532,6 +6579,13 @@ export function DashboardPage() {
                 Ver motivo
               </button>
             </div>
+          </div>
+        )}
+
+        {/* First-load skeleton */}
+        {cycleLoading && !cycleData && (
+          <div className="flex items-center justify-center h-32 text-[#9ca3af] text-sm font-mono">
+            Conectando con orchestrator...
           </div>
         )}
 
@@ -6606,11 +6660,13 @@ export function DashboardPage() {
                           <span
                             key={mod.id}
                             className={`px-2.5 py-1 rounded text-xs font-mono font-semibold border transition-all ${
-                              mod.isHuman
+                              mod.isHuman || mod.status === 'blocked'
                                 ? 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30'
+                                : mod.status === 'offline'
+                                ? 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30'
                                 : mod.status === 'completed'
                                 ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20'
-                                : mod.status === 'in-progress'
+                                : mod.status === 'in_progress' || mod.status === 'in-progress'
                                 ? 'bg-[#00d4ff]/10 text-[#00d4ff] border-[#00d4ff]/30 animate-pulse'
                                 : 'bg-[#374151] text-[#6b7280] border-[#4b5563]'
                             }`}
@@ -6663,7 +6719,9 @@ export function DashboardPage() {
             </button>
 
             <button
-              onClick={() => setIsPausedManually(!isPausedManually)}
+              onClick={async () => {
+                try { await cycleActions.pauseCycle(); refetch(); } catch {}
+              }}
               className={`px-6 py-2.5 font-semibold rounded-lg transition-colors flex items-center gap-2 ${
                 isPausedManually
                   ? 'bg-[#f59e0b] text-[#0f1117] hover:bg-[#d97706]'
@@ -6916,71 +6974,33 @@ export function ENSComplianceWidget() {
 FILE:frontend\src\app\components\ExploitationPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
-import { AlertTriangle, Shield, CheckCircle2, XCircle, Info } from 'lucide-react';
+import { AlertTriangle, Shield, CheckCircle2, XCircle, Info, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { usePendingApprovals, type ApprovalRequest } from '../../hooks/usePendingApprovals';
 
-interface ExploitRequest {
-  id: string;
-  cve: string;
-  target: string;
-  module: string;
-  risk: 'Critical' | 'High' | 'Medium';
-  windowLabel: string;
-  timeUntilExec: string;
-  timeUntilUrgent: boolean;
+function deriveRisk(cveId: string): 'Critical' | 'High' | 'Medium' {
+  if (cveId.includes('2024') || cveId.includes('2023')) return 'High';
+  return 'Medium';
 }
 
-const exploitRequests: ExploitRequest[] = [
-  {
-    id: 'EXP-2024-0147',
-    cve: 'CVE-2024-1234',
-    target: 'web-server-03.internal',
-    module: 'exploit/multi/http/apache_struts_rce',
-    risk: 'Critical',
-    windowLabel: 'Sábado 01:00 — Domingo 07:00',
-    timeUntilExec: 'En 6h 14m',
-    timeUntilUrgent: true,
-  },
-  {
-    id: 'EXP-2024-0148',
-    cve: 'CVE-2023-5678',
-    target: 'db-server-01.internal',
-    module: 'exploit/linux/mysql/mysql_udf_payload',
-    risk: 'High',
-    windowLabel: 'Sábado 01:00 — Domingo 07:00',
-    timeUntilExec: 'En 6h 14m',
-    timeUntilUrgent: true,
-  },
-  {
-    id: 'EXP-2024-0149',
-    cve: 'CVE-2024-9012',
-    target: 'app-server-05.internal',
-    module: 'exploit/windows/smb/ms17_010_eternalblue',
-    risk: 'Critical',
-    windowLabel: 'Sábado 01:00 — Domingo 07:00',
-    timeUntilExec: 'En 18h 30m',
-    timeUntilUrgent: false,
-  },
-  {
-    id: 'EXP-2024-0150',
-    cve: 'CVE-2023-3456',
-    target: 'mail-server-02.internal',
-    module: 'exploit/linux/smtp/exim_rce',
-    risk: 'Medium',
-    windowLabel: 'Sábado 01:00 — Domingo 07:00',
-    timeUntilExec: 'En 18h 30m',
-    timeUntilUrgent: false,
-  },
-];
+function formatTimeUntil(expiresAt: string): { label: string; urgent: boolean } {
+  const diff = new Date(expiresAt).getTime() - Date.now();
+  if (diff <= 0) return { label: 'Expirado', urgent: true };
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const urgent = diff < 12 * 3600000;
+  return { label: `En ${h}h ${m}m`, urgent };
+}
 
 export function ExploitationPage() {
+  const { approvals, loading, error, refetch } = usePendingApprovals(60000);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [selectedRequest, setSelectedRequest] = useState<ExploitRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null);
   const [totp, setTotp] = useState('');
   const [pin, setPin] = useState('');
 
-  const handleAuthorize = (request: ExploitRequest) => {
+  const handleAuthorize = (request: ApprovalRequest) => {
     setSelectedRequest(request);
     setShowAuthModal(true);
   };
@@ -6990,18 +7010,15 @@ export function ExploitationPage() {
     setTotp('');
     setPin('');
     setSelectedRequest(null);
+    refetch();
   };
 
   const getRiskColor = (risk: string) => {
     switch (risk) {
-      case 'Critical':
-        return 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30';
-      case 'High':
-        return 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30';
-      case 'Medium':
-        return 'bg-[#00d4ff]/10 text-[#00d4ff] border-[#00d4ff]/30';
-      default:
-        return 'bg-[#9ca3af]/10 text-[#9ca3af] border-[#9ca3af]/30';
+      case 'Critical': return 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30';
+      case 'High': return 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30';
+      case 'Medium': return 'bg-[#00d4ff]/10 text-[#00d4ff] border-[#00d4ff]/30';
+      default: return 'bg-[#9ca3af]/10 text-[#9ca3af] border-[#9ca3af]/30';
     }
   };
 
@@ -7018,6 +7035,20 @@ export function ExploitationPage() {
             <p className="text-[#9ca3af]">Review and authorize pending exploitation requests</p>
           </div>
 
+          {error && (
+            <div className="flex items-center gap-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0" />
+              <span className="text-sm text-[#f59e0b] flex-1">{error}</span>
+              <button
+                onClick={refetch}
+                className="flex items-center gap-1.5 text-xs text-[#f59e0b] hover:text-white transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Reintentar
+              </button>
+            </div>
+          )}
+
           {/* Auto-proceed notice */}
           <div className="flex items-start gap-3 bg-[#00d4ff]/5 border border-[#00d4ff]/20 rounded-lg px-4 py-3">
             <Info className="w-4 h-4 text-[#00d4ff] mt-0.5 shrink-0" />
@@ -7026,63 +7057,76 @@ export function ExploitationPage() {
             </p>
           </div>
 
-          <div className="grid gap-4">
-            {exploitRequests.map((request) => (
-              <div key={request.id} className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <span className={`px-3 py-1 rounded-full border text-xs font-semibold ${getRiskColor(request.risk)}`}>
-                        {request.risk}
-                      </span>
-                      <span className="font-mono text-sm text-[#00d4ff]">{request.cve}</span>
-                      <span className="text-sm text-[#6b7280]">•</span>
-                      <span className="text-sm text-[#9ca3af]">{request.id}</span>
-                    </div>
+          {loading && approvals.length === 0 ? (
+            <div className="text-center py-12 text-[#9ca3af] font-mono text-sm">
+              Cargando cola de aprobaciones...
+            </div>
+          ) : !loading && approvals.length === 0 && !error ? (
+            <div className="text-center py-12 text-[#9ca3af] font-mono text-sm">
+              No hay explotaciones pendientes de aprobación
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {approvals.map((approval) => {
+                const risk = deriveRisk(approval.cve_id);
+                const { label: timeUntilExec, urgent } = formatTimeUntil(approval.expires_at);
+                return (
+                  <div key={approval.id} className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <span className={`px-3 py-1 rounded-full border text-xs font-semibold ${getRiskColor(risk)}`}>
+                            {risk}
+                          </span>
+                          <span className="font-mono text-sm text-[#00d4ff]">{approval.cve_id}</span>
+                          <span className="text-sm text-[#6b7280]">•</span>
+                          <span className="text-sm text-[#9ca3af]">EXP-{approval.id}</span>
+                        </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="text-xs text-[#9ca3af] mb-1">Target Asset</div>
-                        <div className="text-sm text-white font-mono">{request.target}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-[#9ca3af] mb-1">Metasploit Module</div>
-                        <div className="text-sm text-white font-mono">{request.module}</div>
-                      </div>
-                    </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="text-xs text-[#9ca3af] mb-1">Target Asset</div>
+                            <div className="text-sm text-white font-mono">{approval.target_ip}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-[#9ca3af] mb-1">Solicitado por</div>
+                            <div className="text-sm text-white font-mono">{approval.requester}</div>
+                          </div>
+                        </div>
 
-                    {/* Temporal context */}
-                    <div className="grid grid-cols-2 gap-4 pt-2 border-t border-[#1e2530]">
-                      <div>
-                        <div className="text-xs text-[#9ca3af] mb-1">Ventana programada</div>
-                        <div className="text-sm text-white font-mono">{request.windowLabel}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-[#9ca3af] mb-1">Tiempo hasta ejecución</div>
-                        <div className={`text-sm font-mono ${request.timeUntilUrgent ? 'text-[#f59e0b]' : 'text-white'}`}>
-                          {request.timeUntilExec}
+                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-[#1e2530]">
+                          <div>
+                            <div className="text-xs text-[#9ca3af] mb-1">Ventana programada</div>
+                            <div className="text-sm text-white font-mono">Sábado 01:00 — Domingo 07:00</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-[#9ca3af] mb-1">Tiempo hasta expiración</div>
+                            <div className={`text-sm font-mono ${urgent ? 'text-[#f59e0b]' : 'text-white'}`}>
+                              {timeUntilExec}
+                            </div>
+                          </div>
                         </div>
                       </div>
+
+                      <div className="flex items-center gap-3 ml-6">
+                        <button
+                          onClick={() => handleAuthorize(approval)}
+                          className="px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          Authorize
+                        </button>
+                        <button className="px-5 py-2.5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold rounded-lg transition-colors flex items-center gap-2">
+                          <XCircle className="w-4 h-4" />
+                          Reject
+                        </button>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3 ml-6">
-                    <button
-                      onClick={() => handleAuthorize(request)}
-                      className="px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      Authorize
-                    </button>
-                    <button className="px-5 py-2.5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold rounded-lg transition-colors flex items-center gap-2">
-                      <XCircle className="w-4 h-4" />
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </main>
       </div>
 
@@ -7095,7 +7139,7 @@ export function ExploitationPage() {
               Authorize Exploitation
             </Dialog.Title>
             <Dialog.Description className="text-sm text-[#9ca3af] mb-6">
-              Confirm authorization for {selectedRequest?.cve} on {selectedRequest?.target}
+              Confirm authorization for {selectedRequest?.cve_id} on {selectedRequest?.target_ip}
             </Dialog.Description>
 
             <div className="space-y-4">
@@ -7642,29 +7686,45 @@ export function Sidebar() {
 FILE:frontend\src\app\components\TopBar.tsx
 import { Bell, Shield } from 'lucide-react';
 import { getCycleState } from '../utils/cycleState';
+import type { DotColor } from '../utils/cycleState';
 
-export function TopBar({ role = 'System Manager' }: { role?: string }) {
-  const cycle = getCycleState();
+interface TopBarProps {
+  role?: string;
+  cycleLabel?: string;
+  dotColor?: DotColor;
+}
+
+export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBarProps) {
+  const localCycle = getCycleState();
+  const label = cycleLabel ?? localCycle.label;
+  const color = dotColor ?? localCycle.dotColor;
+  const dot = color === 'green' ? '●' : color === 'amber' ? '⏸' : color === 'red' ? '🔴' : '◌';
 
   const dotColorClass =
-    cycle.dotColor === 'green'
+    color === 'green'
       ? 'text-[#22c55e]'
-      : cycle.dotColor === 'amber'
+      : color === 'amber'
       ? 'text-[#f59e0b]'
+      : color === 'red'
+      ? 'text-[#ff3b3b]'
       : 'text-[#6b7280]';
 
   const pillBorderClass =
-    cycle.dotColor === 'green'
+    color === 'green'
       ? 'border-[#22c55e]/20 bg-[#22c55e]/5'
-      : cycle.dotColor === 'amber'
+      : color === 'amber'
       ? 'border-[#f59e0b]/20 bg-[#f59e0b]/5'
+      : color === 'red'
+      ? 'border-[#ff3b3b]/20 bg-[#ff3b3b]/5'
       : 'border-[#4b5563]/30 bg-[#374151]/10';
 
   const pillTextClass =
-    cycle.dotColor === 'green'
+    color === 'green'
       ? 'text-[#22c55e]'
-      : cycle.dotColor === 'amber'
+      : color === 'amber'
       ? 'text-[#f59e0b]'
+      : color === 'red'
+      ? 'text-[#ff3b3b]'
       : 'text-[#6b7280]';
 
   return (
@@ -7675,10 +7735,10 @@ export function TopBar({ role = 'System Manager' }: { role?: string }) {
 
       {/* Centered cycle status pill */}
       <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-full font-mono text-xs ${pillBorderClass} ${pillTextClass}`}>
-        <span className={`text-sm leading-none ${dotColorClass} ${cycle.dotColor === 'green' ? 'animate-pulse' : ''}`}>
-          {cycle.dot}
+        <span className={`text-sm leading-none ${dotColorClass} ${color === 'green' ? 'animate-pulse' : ''}`}>
+          {dot}
         </span>
-        <span>{cycle.label}</span>
+        <span>{label}</span>
       </div>
 
       <div className="flex items-center gap-4">
@@ -12892,16 +12952,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 FILE:frontend\src\app\utils\cycleState.ts
-export type DotColor = 'green' | 'amber' | 'gray';
+export type DotColor = 'green' | 'amber' | 'gray' | 'red';
 
 export interface CycleState {
   label: string;
   phase: string;
   dotColor: DotColor;
-  dot: '●' | '⏸' | '◌';
+  dot: string;
   activeBlock: 0 | 1 | 2 | -1;
   timeRemaining: string;
   weekLabel: string;
+  phases?: import('../../hooks/useCycleStatus').PhaseInfo[];
+  rawPhase?: number;
 }
 
 function getISOWeek(date: Date): number {
@@ -13003,6 +13065,65 @@ export function getCycleState(): CycleState {
         weekLabel,
       };
   }
+}
+
+import type { CycleStatus } from '../../hooks/useCycleStatus';
+
+export function mapApiCycleToUI(apiCycle: CycleStatus): CycleState {
+  const phaseNames: Record<number, string> = {
+    0: 'En espera',
+    1: 'Fase 1 — Inventario',
+    2: 'Fase 2 — Análisis',
+    3: 'Fase 3 — Revisión',
+    4: 'Fase 4 — Explotación',
+    5: 'Fase 5 — Reporting',
+  };
+
+  const dotColor: DotColor = apiCycle.kill_switch_active
+    ? 'red'
+    : apiCycle.paused
+    ? 'amber'
+    : apiCycle.requires_human_approval
+    ? 'amber'
+    : apiCycle.cycle_active
+    ? 'green'
+    : 'gray';
+
+  const timeRemaining = apiCycle.next_phase_at
+    ? (() => {
+        const diff = new Date(apiCycle.next_phase_at!).getTime() - Date.now();
+        if (diff <= 0) return 'Iniciando...';
+        const h = Math.floor(diff / 3600000);
+        const m = Math.floor((diff % 3600000) / 60000);
+        return `Faltan ${h}h ${m}m`;
+      })()
+    : '';
+
+  const activeBlock = (
+    apiCycle.current_phase === 0
+      ? -1
+      : apiCycle.current_phase === 1
+      ? 0
+      : apiCycle.current_phase <= 3
+      ? 1
+      : 2
+  ) as 0 | 1 | 2 | -1;
+
+  return {
+    label: apiCycle.kill_switch_active
+      ? 'Kill Switch activo — Ciclo detenido'
+      : apiCycle.paused
+      ? 'Ciclo pausado manualmente'
+      : `${apiCycle.current_phase_name} en curso`,
+    phase: phaseNames[apiCycle.current_phase] ?? apiCycle.current_phase_name,
+    dotColor,
+    dot: dotColor === 'green' ? '●' : dotColor === 'amber' ? '⏸' : dotColor === 'red' ? '🔴' : '◌',
+    activeBlock,
+    timeRemaining,
+    weekLabel: `Semana ${apiCycle.week_number} · ${apiCycle.year}`,
+    rawPhase: apiCycle.current_phase,
+    phases: apiCycle.phases,
+  };
 }
 FILE:frontend\src\components\m4\CancellationWorkflow.jsx
 /* FILE: frontend/src/components/m4/CancelStyles.css */
@@ -13413,6 +13534,183 @@ export const CancelSuccessPage = ({ cancelledBy, cancelledAt }) => {
         </div>
     );
 };
+FILE:frontend\src\config\api.ts
+export const API_BASE = 'http://localhost:8009';
+
+export const ENDPOINTS = {
+  cycleStatus: `${API_BASE}/orchestrator/cycle/status`,
+  modulesHealth: `${API_BASE}/orchestrator/modules/health`,
+  pause: `${API_BASE}/orchestrator/cycle/pause`,
+  killSwitch: `${API_BASE}/orchestrator/cycle/kill-switch`,
+  killSwitchDeactivate: `${API_BASE}/orchestrator/cycle/kill-switch/deactivate`,
+  pendingApprovals: 'http://localhost:8004/api/m4/pending-approvals',
+};
+FILE:frontend\src\hooks\useCycleActions.ts
+import { ENDPOINTS } from '../config/api';
+
+interface UseCycleActionsReturn {
+  pauseCycle: () => Promise<{ paused: boolean }>;
+  activateKillSwitch: (totpCode: string) => Promise<{ kill_switch_active: boolean }>;
+  deactivateKillSwitch: () => Promise<{ kill_switch_active: boolean }>;
+}
+
+async function postJson<T>(url: string, params?: Record<string, string>): Promise<T> {
+  const fullUrl = params
+    ? `${url}?${new URLSearchParams(params).toString()}`
+    : url;
+  const response = await fetch(fullUrl, { method: 'POST' });
+  if (!response.ok) {
+    let message: string;
+    try {
+      const body = await response.json();
+      message = body?.detail ?? `Error ${response.status}`;
+    } catch {
+      message = `Error ${response.status}`;
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export function useCycleActions(): UseCycleActionsReturn {
+  const pauseCycle = () =>
+    postJson<{ paused: boolean }>(ENDPOINTS.pause);
+
+  const activateKillSwitch = (totpCode: string) =>
+    postJson<{ kill_switch_active: boolean }>(ENDPOINTS.killSwitch, { totp_code: totpCode });
+
+  const deactivateKillSwitch = () =>
+    postJson<{ kill_switch_active: boolean }>(ENDPOINTS.killSwitchDeactivate);
+
+  return { pauseCycle, activateKillSwitch, deactivateKillSwitch };
+}
+FILE:frontend\src\hooks\useCycleStatus.ts
+import { useState, useEffect, useCallback } from 'react';
+import { ENDPOINTS } from '../config/api';
+
+export interface ModuleStatus {
+  id: string;
+  name: string;
+  port: number;
+  status: 'completed' | 'in_progress' | 'pending' | 'blocked' | 'offline';
+}
+
+export interface PhaseInfo {
+  phase_number: number;
+  name: string;
+  scheduled_day: string;
+  scheduled_time: string;
+  status: 'completed' | 'in_progress' | 'pending';
+  modules: ModuleStatus[];
+}
+
+export interface CycleStatus {
+  week_number: number;
+  year: number;
+  week_label: string;
+  current_phase: number;
+  current_phase_name: string;
+  cycle_active: boolean;
+  requires_human_approval: boolean;
+  kill_switch_active: boolean;
+  paused: boolean;
+  phases: PhaseInfo[];
+  next_phase_at: string | null;
+  last_updated: string;
+}
+
+interface UseCycleStatusReturn {
+  data: CycleStatus | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => void;
+}
+
+export function useCycleStatus(pollIntervalMs: number = 30000): UseCycleStatusReturn {
+  const [data, setData] = useState<CycleStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const response = await fetch(ENDPOINTS.cycleStatus);
+      if (!response.ok) {
+        setError(`Error ${response.status}`);
+        return;
+      }
+      const json: CycleStatus = await response.json();
+      setData(json);
+      setError(null);
+    } catch {
+      setError('Orchestrator no disponible');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, pollIntervalMs);
+    return () => clearInterval(interval);
+  }, [fetchStatus, pollIntervalMs]);
+
+  return { data, loading, error, refetch: fetchStatus };
+}
+FILE:frontend\src\hooks\usePendingApprovals.ts
+import { useState, useEffect, useCallback } from 'react';
+import { ENDPOINTS } from '../config/api';
+
+export interface ApprovalRequest {
+  id: number;
+  cve_id: string;
+  target_ip: string;
+  requester: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+  approved_at: string | null;
+}
+
+interface UsePendingApprovalsReturn {
+  approvals: ApprovalRequest[];
+  total: number;
+  loading: boolean;
+  error: string | null;
+  refetch: () => void;
+}
+
+export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovalsReturn {
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchApprovals = useCallback(async () => {
+    try {
+      const response = await fetch(ENDPOINTS.pendingApprovals);
+      if (!response.ok) {
+        setError(`Error ${response.status}`);
+        return;
+      }
+      const data = await response.json();
+      setApprovals(data.approvals ?? []);
+      setTotal(data.total ?? 0);
+      setError(null);
+    } catch {
+      setError('M4 no disponible');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchApprovals();
+    const interval = setInterval(fetchApprovals, pollIntervalMs);
+    return () => clearInterval(interval);
+  }, [fetchApprovals, pollIntervalMs]);
+
+  return { approvals, total, loading, error, refetch: fetchApprovals };
+}
 FILE:frontend\src\styles\fonts.css
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -21434,6 +21732,56 @@ class ApprovalService:
         finally:
             conn.close()
 
+    def _serialize_row(self, row: dict) -> dict:
+        result = {}
+        for k, v in row.items():
+            if hasattr(v, 'isoformat'):
+                result[k] = v.isoformat()
+            else:
+                result[k] = v
+        return result
+
+    def get_pending_approvals(self, limit: int = 50) -> list[dict]:
+        """
+        Returns all PENDING approval requests, ordered by created_at DESC.
+        Proactively marks EXPIRED any PENDING request past its expires_at.
+        Never returns totp_secret or pin fields.
+        ENS: op.acc.5 — all exploitation requires explicit human approval.
+        """
+        conn = self._get_connection()
+        try:
+            now_utc = datetime.now(timezone.utc)
+            with conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        UPDATE m4_approvals
+                        SET status = 'EXPIRED'
+                        WHERE status = 'PENDING' AND expires_at < %s
+                    """, (now_utc,))
+
+                    cur.execute("""
+                        SELECT
+                            id,
+                            cve_id,
+                            target_ip,
+                            requester,
+                            status,
+                            created_at,
+                            expires_at,
+                            approved_at
+                        FROM m4_approvals
+                        WHERE status = 'PENDING'
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                    """, (limit,))
+                    rows = cur.fetchall()
+                    return [self._serialize_row(dict(r)) for r in rows]
+        except Exception as e:
+            logger.error(f"Error fetching pending approvals: {e}")
+            return []
+        finally:
+            conn.close()
+
     def get_approval_status(self, approval_id):
         """Retorna el estado actual manejando la expiración en UTC."""
         conn = self._get_connection()
@@ -23547,7 +23895,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from services.exploit_engine.api.approval_api import router as approval_router
-from services.exploit_engine.api.cancel_api import router as cancel_router
+#from services.exploit_engine.api.cancel_api import router as cancel_router
 from services.exploit_engine.api.patch_api import router as patch_router
 from services.exploit_engine.config import DB_CONFIG
 
@@ -23564,7 +23912,7 @@ app = FastAPI(
 # Configuración de CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -23572,7 +23920,7 @@ app.add_middleware(
 
 # Inclusión de routers de API
 app.include_router(approval_router)
-app.include_router(cancel_router)
+#app.include_router(cancel_router)
 app.include_router(patch_router)
 
 @app.get("/health")
@@ -25078,9 +25426,10 @@ FILE:services\exploit_engine\tasks.py
 FILE:services\exploit_engine\api\__init__.py
 from .approval_api import router as approval_router
 FILE:services\exploit_engine\api\approval_api.py
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Query
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime, timezone
 import sys
 import os
 
@@ -25128,6 +25477,24 @@ async def approve_request(action: ApprovalActionSchema):
         if not success:
             raise HTTPException(status_code=400, detail=message)
         return {"message": message}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/pending-approvals")
+async def get_pending_approvals(limit: int = Query(50, ge=1, le=200)):
+    """
+    Returns all PENDING exploitation approval requests.
+    Used by the dashboard ExploitationPage to populate the approval queue.
+    Proactively expires stale requests before returning.
+    ENS: op.acc.5
+    """
+    try:
+        approvals = approval_svc.get_pending_approvals(limit=limit)
+        return {
+            "total": len(approvals),
+            "approvals": approvals,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -70,7 +70,12 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\('devDependencies',{}\\).keys\\(\\)\\)\\)\")",
       "Bash(pnpm list *)",
       "Bash(pnpm add *)",
-      "Bash(pnpm build *)"
+      "Bash(pnpm build *)",
+      "PowerShell(wsl --shutdown)",
+      "PowerShell(wsl --update)",
+      "PowerShell(Stop-Process -Name \"Docker Desktop\" -Force -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Name \"dockerd\" -Force -ErrorAction SilentlyContinue)",
+      "PowerShell(Remove-Item \"$env:APPDATA\\\\Docker\\\\settings.json\" -ErrorAction SilentlyContinue; Write-Host \"settings.json eliminado \\(o no existía\\)\")"
     ]
   }
 }

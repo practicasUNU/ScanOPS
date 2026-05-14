@@ -65,19 +65,36 @@ export function DashboardPage() {
       timeLabel: 'MAR/MIÉ 00:00',
       phaseLabel: 'Fase 2 + Fase 3',
       blockIndex: 1,
-      modules: cycle.phases
-        ?.filter(p => p.phase_number === 2 || p.phase_number === 3)
-        .flatMap(p => p.modules)
-        .map(m => ({
-          id: m.id,
-          label: m.status === 'blocked' ? 'Revisión' : undefined,
-          isHuman: m.status === 'blocked',
-          status: m.status,
-        })) ?? [
+      modules: (() => {
+        const allModules = cycle.phases
+          ?.filter(p => p.phase_number === 2 || p.phase_number === 3)
+          .flatMap(p => p.modules) ?? [];
+
+        const statusPriority: Record<string, number> = {
+          blocked: 5, in_progress: 4, completed: 3, pending: 2, offline: 1,
+        };
+
+        const deduped = new Map<string, PipelineModule>();
+        for (const m of allModules) {
+          const existing = deduped.get(m.id);
+          const currentPrio = statusPriority[m.status] ?? 0;
+          const existingPrio = existing ? (statusPriority[existing.status] ?? 0) : -1;
+          if (currentPrio > existingPrio) {
+            deduped.set(m.id, {
+              id: m.id,
+              label: m.status === 'blocked' ? 'Revisión' : undefined,
+              isHuman: m.status === 'blocked',
+              status: m.status,
+            });
+          }
+        }
+
+        return allModules.length > 0 ? Array.from(deduped.values()) : [
           { id: 'M3', status: 'pending' },
           { id: 'M8', status: 'pending' },
           { id: '👤', label: 'Revisión', isHuman: true, status: 'pending' },
-        ],
+        ];
+      })(),
     },
     {
       timeLabel: 'SAB/DOM 01:00',

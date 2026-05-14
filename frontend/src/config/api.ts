@@ -6,4 +6,5 @@ export const ENDPOINTS = {
   pause: `${API_BASE}/orchestrator/cycle/pause`,
   killSwitch: `${API_BASE}/orchestrator/cycle/kill-switch`,
   killSwitchDeactivate: `${API_BASE}/orchestrator/cycle/kill-switch/deactivate`,
+  pendingApprovals: 'http://localhost:8004/api/m4/pending-approvals',
 };
