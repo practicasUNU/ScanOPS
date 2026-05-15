@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ENDPOINTS } from '../config/api';
+import { getStoredToken } from './useAuth';
 
 export interface ApprovalRequest {
   id: number;
@@ -28,7 +29,10 @@ export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovals
 
   const fetchApprovals = useCallback(async () => {
     try {
-      const response = await fetch(ENDPOINTS.pendingApprovals);
+      const token = getStoredToken();
+      const response = await fetch(ENDPOINTS.pendingApprovals, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
       if (!response.ok) {
         setError(`Error ${response.status}`);
         return;

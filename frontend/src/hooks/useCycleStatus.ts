@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ENDPOINTS } from '../config/api';
+import { getStoredToken } from './useAuth';
 
 export interface ModuleStatus {
   id: string;
@@ -46,7 +47,10 @@ export function useCycleStatus(pollIntervalMs: number = 30000): UseCycleStatusRe
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch(ENDPOINTS.cycleStatus);
+      const token = getStoredToken();
+      const response = await fetch(ENDPOINTS.cycleStatus, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
       if (!response.ok) {
         setError(`Error ${response.status}`);
         return;

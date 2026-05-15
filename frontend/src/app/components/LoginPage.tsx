@@ -1,16 +1,24 @@
-import { Shield, Lock, Mail, Key } from 'lucide-react';
+import { Shield, Lock, Key, AlertCircle, User } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { useAuth } from '../../hooks/useAuth';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const { login, loading, error } = useAuth();
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [totp, setTotp] = useState('');
+  // TODO: validate TOTP server-side when MFA endpoint is implemented (ENS op.acc.5)
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate('/dashboard');
+    try {
+      await login(username, password);
+      navigate('/dashboard');
+    } catch {
+      // error is set by useAuth
+    }
   };
 
   return (
@@ -28,16 +36,16 @@ export function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-[#e5e7eb] mb-2">
-                Email
+                Usuario
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#9ca3af]" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#9ca3af]" />
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-10 pr-4 py-2.5 text-white placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] focus:ring-1 focus:ring-[#00d4ff] transition-colors"
-                  placeholder="admin@scanops.local"
+                  placeholder="admin"
                 />
               </div>
             </div>
@@ -75,11 +83,19 @@ export function LoginPage() {
               </div>
             </div>
 
+            {error && (
+              <div className="flex items-center gap-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-3 py-2.5 text-sm text-[#ff3b3b]">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-semibold py-2.5 rounded-lg transition-colors shadow-lg shadow-[#00d4ff]/20"
+              disabled={loading}
+              className="w-full bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 disabled:cursor-not-allowed text-[#0f1117] font-semibold py-2.5 rounded-lg transition-colors shadow-lg shadow-[#00d4ff]/20"
             >
-              Acceder
+              {loading ? 'Verificando...' : 'Acceder'}
             </button>
 
             <div className="text-center">

@@ -6,6 +6,7 @@ import { ExploitationPage } from './components/ExploitationPage';
 import { CompliancePage } from './components/CompliancePage';
 import { AlertsPage } from './components/AlertsPage';
 import { AuditLogsPage } from './components/AuditLogsPage';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 export default function App() {
   return (
@@ -13,12 +14,30 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/scanner" element={<ScannerPage />} />
-        <Route path="/exploitation" element={<ExploitationPage />} />
-        <Route path="/compliance" element={<CompliancePage />} />
-        <Route path="/alerts" element={<AlertsPage />} />
-        <Route path="/audit-logs" element={<AuditLogsPage />} />
+        <Route path="/dashboard" element={
+          <ProtectedRoute><DashboardPage /></ProtectedRoute>
+        } />
+        <Route path="/scanner" element={
+          <ProtectedRoute><ScannerPage /></ProtectedRoute>
+        } />
+        <Route path="/exploitation" element={
+          <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
+            <ExploitationPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/compliance" element={
+          <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
+            <CompliancePage />
+          </ProtectedRoute>
+        } />
+        <Route path="/alerts" element={
+          <ProtectedRoute><AlertsPage /></ProtectedRoute>
+        } />
+        <Route path="/audit-logs" element={
+          <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
+            <AuditLogsPage />
+          </ProtectedRoute>
+        } />
       </Routes>
     </BrowserRouter>
   );

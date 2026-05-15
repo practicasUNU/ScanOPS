@@ -7,4 +7,7 @@ export const ENDPOINTS = {
   killSwitch: `${API_BASE}/orchestrator/cycle/kill-switch`,
   killSwitchDeactivate: `${API_BASE}/orchestrator/cycle/kill-switch/deactivate`,
   pendingApprovals: 'http://localhost:8004/api/m4/pending-approvals',
+  authToken: `${API_BASE}/auth/token`,
+  authRefresh: `${API_BASE}/auth/refresh`,
+  authMe: `${API_BASE}/auth/me`,
 };
