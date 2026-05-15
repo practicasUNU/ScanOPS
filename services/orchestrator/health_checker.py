@@ -8,7 +8,7 @@ SERVICE_URLS: dict[str, str] = {
     "M3": "http://localhost:8002/health",
     "M4": "http://localhost:8004/health",
     "M5": "http://localhost:8006/health",
-    "M7": "http://localhost:8007/health",
+    "M7": "http://localhost:8008/health",
     "M8": "http://localhost:8005/health",
 }
 

@@ -1,5 +1,6 @@
 # services/ai_reasoning/rag_engine.py
 
+import json
 import logging
 import os
 from typing import Optional
@@ -58,6 +59,56 @@ class RAGEngine:
         except Exception as e:
             logger.error(f"Error reading RAG context: {e}")
             return ""
+
+    def get_ens_context_from_mapping(self, cve_id: str, vuln_description: str) -> dict | None:
+        """
+        Fast lookup in vulnerability_mapping.json before calling the LLM.
+        Returns a dict with ens_measures, primary_measure, incumplimiento if found.
+        Returns None if no match found — caller should fall back to LLM.
+        Priority: 1) direct CVE match, 2) keyword pattern match
+        """
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            mapping_path = os.path.join(base_dir, "rag_data", "vulnerability_mapping.json")
+            with open(mapping_path, "r", encoding="utf-8") as f:
+                mapping = json.load(f)
+
+            # Priority 1: direct CVE match
+            direct = mapping.get("direct_cve_mappings", {}).get(cve_id)
+            if direct:
+                return {
+                    "ens_measures": direct["measures"],
+                    "primary_measure": direct["primary"],
+                    "incumplimiento": "directo",
+                    "source": "direct_cve_match",
+                    "pattern_id": cve_id,
+                }
+
+            # Priority 2: keyword pattern match
+            desc_lower = vuln_description.lower()
+            best_match = None
+            best_score = 0
+
+            for pattern in mapping.get("vulnerability_patterns", []):
+                score = sum(1 for kw in pattern["keywords"] if kw in desc_lower)
+                if score > best_score:
+                    best_score = score
+                    best_match = pattern
+
+            if best_match and best_score > 0:
+                return {
+                    "ens_measures": best_match["ens_measures"],
+                    "primary_measure": best_match["primary_measure"],
+                    "incumplimiento": best_match["incumplimiento"],
+                    "source": "keyword_pattern_match",
+                    "pattern_id": best_match["pattern_id"],
+                }
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error reading vulnerability_mapping.json: {e}")
+            return None
 
 # Instancia global
 from services.ai_reasoning.ollama_client import ollama

@@ -10,8 +10,8 @@ services:
       POSTGRES_USER: scanops
       POSTGRES_PASSWORD: scanops
       POSTGRES_DB: scanops
-    ports:
-      - "5432:5432"
+  # ports:
+    #  - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -390,6 +390,12 @@ services:
       - ./services/reporting_engine:/app
     environment:
       - SERVICE_NAME=M7-Reporting
+      - DATABASE_URL=postgresql://scanops:scanops@scanops-postgres:5432/scanops
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - scanops
 
 
 

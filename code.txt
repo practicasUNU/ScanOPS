@@ -63,6 +63,19 @@ UBUNTU_TEST_SSH_USER=admin
 # M4 - Dry run: simula ejecución sin lanzar herramientas reales
 M4_DRY_RUN=false
 
+# ==============================================================================
+# JWT AUTHENTICATION (ENS op.acc.1, op.acc.4, op.acc.5)
+# ==============================================================================
+
+# Secret key for signing JWT tokens — MUST be changed in production (min 32 chars)
+JWT_SECRET_KEY=[REDACTED]
+
+# Access token lifetime in minutes (default 480 = 8 hours)
+JWT_ACCESS_EXPIRE_MINUTES=480
+
+# Refresh token lifetime in days (default 7)
+JWT_REFRESH_EXPIRE_DAYS=7
+
 # M4 - Reintentos máximos de Hydra ante fallos (default 2)
 M4_HYDRA_MAX_RETRIES=2
 FILE:=1.0.0
@@ -14608,6 +14621,29 @@ async def map_to_ens(finding: Dict[str, Any], asset: Dict[str, Any]) -> Dict[str
     ens_criticality = asset.get("criticidad", "MEDIO")
     sensitive_data = "SÍ" if asset.get("sensitive_data") else "NO"
 
+    # PASO 0: Fast lookup en vulnerability_mapping.json (antes de llamar al LLM)
+    fast_result = rag_engine.get_ens_context_from_mapping(cve_id, impact_description)
+    if fast_result:
+        logger.info(f"[{finding_id}] Fast mapping hit: {fast_result['pattern_id']} → {fast_result['primary_measure']}")
+        if fast_result["source"] == "direct_cve_match":
+            return {
+                "asset_id": asset_id,
+                "finding_id": finding_id,
+                "medidas_ens": fast_result["ens_measures"],
+                "medida_principal": fast_result["primary_measure"],
+                "nivel_incumplimiento": "crítico",
+                "confianza_mapeo": "alta",
+                "descripcion_incumplimiento": f"Mapeo directo CVE conocido: {cve_id}",
+                "source": "direct_cve_match"
+            }
+        rag_context_supplement = (
+            f"\nMapeo previo detectado: {fast_result['pattern_id']} → "
+            f"medidas {', '.join(fast_result['ens_measures'])}. "
+            f"Nivel: {fast_result['incumplimiento']}."
+        )
+    else:
+        rag_context_supplement = ""
+
     # PASO 1: Obtener contexto RAG
     # Query construida según especificación: {cve_id} {vuln_type} {affected_service}
     query = f"{cve_id} {vuln_type} {affected_service}"
@@ -14617,6 +14653,8 @@ async def map_to_ens(finding: Dict[str, Any], asset: Dict[str, Any]) -> Dict[str
     except Exception as e:
         logger.error(f"[{finding_id}] Error obteniendo contexto RAG: {e}")
         # Fallback: rag_context vacío, el LLM usará su conocimiento base
+
+    rag_context = rag_context + rag_context_supplement
 
     # PASO 2: Cargar y construir System Prompt desde YAML
     try:
@@ -15769,6 +15807,7 @@ prioritizer = Prioritizer()
 FILE:services\ai_reasoning\rag_engine.py
 # services/ai_reasoning/rag_engine.py
 
+import json
 import logging
 import os
 from typing import Optional
@@ -15827,6 +15866,56 @@ class RAGEngine:
         except Exception as e:
             logger.error(f"Error reading RAG context: {e}")
             return ""
+
+    def get_ens_context_from_mapping(self, cve_id: str, vuln_description: str) -> dict | None:
+        """
+        Fast lookup in vulnerability_mapping.json before calling the LLM.
+        Returns a dict with ens_measures, primary_measure, incumplimiento if found.
+        Returns None if no match found — caller should fall back to LLM.
+        Priority: 1) direct CVE match, 2) keyword pattern match
+        """
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            mapping_path = os.path.join(base_dir, "rag_data", "vulnerability_mapping.json")
+            with open(mapping_path, "r", encoding="utf-8") as f:
+                mapping = json.load(f)
+
+            # Priority 1: direct CVE match
+            direct = mapping.get("direct_cve_mappings", {}).get(cve_id)
+            if direct:
+                return {
+                    "ens_measures": direct["measures"],
+                    "primary_measure": direct["primary"],
+                    "incumplimiento": "directo",
+                    "source": "direct_cve_match",
+                    "pattern_id": cve_id,
+                }
+
+            # Priority 2: keyword pattern match
+            desc_lower = vuln_description.lower()
+            best_match = None
+            best_score = 0
+
+            for pattern in mapping.get("vulnerability_patterns", []):
+                score = sum(1 for kw in pattern["keywords"] if kw in desc_lower)
+                if score > best_score:
+                    best_score = score
+                    best_match = pattern
+
+            if best_match and best_score > 0:
+                return {
+                    "ens_measures": best_match["ens_measures"],
+                    "primary_measure": best_match["primary_measure"],
+                    "incumplimiento": best_match["incumplimiento"],
+                    "source": "keyword_pattern_match",
+                    "pattern_id": best_match["pattern_id"],
+                }
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error reading vulnerability_mapping.json: {e}")
+            return None
 
 # Instancia global
 from services.ai_reasoning.ollama_client import ollama
@@ -16896,7 +16985,172 @@ En categoría Alto incluye la notificación obligatoria al CCN-CERT a través de
 sistema LUCIA para incidentes graves. Los incidentes deben clasificarse, registrarse
 y resolverse en los plazos establecidos según su severidad.
 FILE:services\ai_reasoning\rag_data\vulnerability_mapping.json
-
+{
+  "version": "1.0.0",
+  "description": "CVE type to ENS Alto RD 311/2022 measure mapping index",
+  "last_updated": "2026-05-14",
+  "vulnerability_patterns": [
+    {
+      "pattern_id": "RCE",
+      "keywords": ["remote code execution", "rce", "command injection", "code injection", "deserialization"],
+      "cve_examples": ["CVE-2021-44228", "CVE-2021-34527", "CVE-2023-44487"],
+      "ens_measures": ["op.exp.2", "op.exp.4", "op.exp.6", "mp.com.2"],
+      "primary_measure": "op.exp.2",
+      "cvss_threshold": 9.0,
+      "incumplimiento": "crítico",
+      "description": "Ejecución remota de código — incumple gestión de vulnerabilidades y protección frente a código dañino"
+    },
+    {
+      "pattern_id": "SQLi",
+      "keywords": ["sql injection", "sqli", "database injection", "blind sql", "union select"],
+      "cve_examples": ["CVE-2023-23397", "CVE-2022-21587"],
+      "ens_measures": ["op.exp.2", "mp.info.3", "op.acc.5"],
+      "primary_measure": "mp.info.3",
+      "cvss_threshold": 7.0,
+      "incumplimiento": "alto",
+      "description": "Inyección SQL — incumple protección de datos y cifrado de información"
+    },
+    {
+      "pattern_id": "AUTH_BYPASS",
+      "keywords": ["authentication bypass", "auth bypass", "unauthenticated", "no authentication", "missing auth"],
+      "cve_examples": ["CVE-2024-1234", "CVE-2023-5678"],
+      "ens_measures": ["op.acc.5", "op.acc.1", "op.acc.4"],
+      "primary_measure": "op.acc.5",
+      "cvss_threshold": 8.0,
+      "incumplimiento": "crítico",
+      "description": "Bypass de autenticación — incumple mecanismos de autenticación fuerte"
+    },
+    {
+      "pattern_id": "PRIVILEGE_ESCALATION",
+      "keywords": ["privilege escalation", "privesc", "local privilege", "sudo", "elevation of privilege"],
+      "cve_examples": ["CVE-2021-4034", "CVE-2022-0847"],
+      "ens_measures": ["op.acc.4", "op.acc.5", "op.exp.2"],
+      "primary_measure": "op.acc.4",
+      "cvss_threshold": 7.0,
+      "incumplimiento": "alto",
+      "description": "Escalada de privilegios — incumple control de acceso y derechos de acceso"
+    },
+    {
+      "pattern_id": "INFO_DISCLOSURE",
+      "keywords": ["information disclosure", "data exposure", "sensitive data", "credential leak", "path traversal", "directory traversal"],
+      "cve_examples": ["CVE-2021-3129", "CVE-2023-29484"],
+      "ens_measures": ["mp.info.3", "mp.com.2", "op.exp.5"],
+      "primary_measure": "mp.info.3",
+      "cvss_threshold": 5.0,
+      "incumplimiento": "medio",
+      "description": "Exposición de información sensible — incumple cifrado y protección de información"
+    },
+    {
+      "pattern_id": "XSS",
+      "keywords": ["cross-site scripting", "xss", "stored xss", "reflected xss", "dom xss"],
+      "cve_examples": ["CVE-2023-32315", "CVE-2022-36804"],
+      "ens_measures": ["mp.com.1", "mp.com.2", "op.exp.2"],
+      "primary_measure": "mp.com.1",
+      "cvss_threshold": 6.0,
+      "incumplimiento": "medio",
+      "description": "Cross-Site Scripting — incumple protección del perímetro y comunicaciones"
+    },
+    {
+      "pattern_id": "SSRF",
+      "keywords": ["server-side request forgery", "ssrf", "internal network", "blind ssrf"],
+      "cve_examples": ["CVE-2022-22965", "CVE-2021-21985"],
+      "ens_measures": ["mp.com.1", "op.exp.2", "mp.com.2"],
+      "primary_measure": "mp.com.1",
+      "cvss_threshold": 7.0,
+      "incumplimiento": "alto",
+      "description": "SSRF — incumple protección del perímetro y segmentación de red"
+    },
+    {
+      "pattern_id": "UNPATCHED_SOFTWARE",
+      "keywords": ["outdated", "end of life", "eol", "unsupported", "unpatched", "obsolete"],
+      "cve_examples": [],
+      "ens_measures": ["op.exp.4", "op.exp.2", "op.exp.3"],
+      "primary_measure": "op.exp.4",
+      "cvss_threshold": 5.0,
+      "incumplimiento": "medio",
+      "description": "Software sin parchear — incumple mantenimiento y actualizaciones"
+    },
+    {
+      "pattern_id": "WEAK_CRYPTO",
+      "keywords": ["weak encryption", "md5", "sha1", "ssl 2.0", "ssl 3.0", "tls 1.0", "weak cipher", "broken crypto"],
+      "cve_examples": ["CVE-2014-3566", "CVE-2016-2183"],
+      "ens_measures": ["mp.com.2", "mp.info.3", "mp.com.1"],
+      "primary_measure": "mp.com.2",
+      "cvss_threshold": 5.0,
+      "incumplimiento": "medio",
+      "description": "Cifrado débil — incumple protección de comunicaciones y confidencialidad"
+    },
+    {
+      "pattern_id": "DOS",
+      "keywords": ["denial of service", "dos", "ddos", "resource exhaustion", "memory exhaustion", "cpu exhaustion"],
+      "cve_examples": ["CVE-2023-44487", "CVE-2022-3602"],
+      "ens_measures": ["op.exp.2", "mp.com.1", "op.pl.1"],
+      "primary_measure": "op.exp.2",
+      "cvss_threshold": 6.0,
+      "incumplimiento": "alto",
+      "description": "Denegación de servicio — incumple gestión de vulnerabilidades y disponibilidad"
+    },
+    {
+      "pattern_id": "INSECURE_CONFIG",
+      "keywords": ["misconfiguration", "default password", "default credentials", "exposed port", "open port", "debug mode", "insecure default"],
+      "cve_examples": [],
+      "ens_measures": ["op.exp.3", "op.acc.5", "op.exp.2"],
+      "primary_measure": "op.exp.3",
+      "cvss_threshold": 5.0,
+      "incumplimiento": "medio",
+      "description": "Configuración insegura — incumple gestión de configuración"
+    },
+    {
+      "pattern_id": "LOG4SHELL",
+      "keywords": ["log4j", "log4shell", "jndi", "log4j2"],
+      "cve_examples": ["CVE-2021-44228", "CVE-2021-45046"],
+      "ens_measures": ["op.exp.2", "op.exp.4", "op.exp.6", "op.exp.7"],
+      "primary_measure": "op.exp.2",
+      "cvss_threshold": 10.0,
+      "incumplimiento": "crítico",
+      "description": "Log4Shell — vulnerabilidad crítica RCE, incumple gestión de vulnerabilidades y gestión de incidentes"
+    },
+    {
+      "pattern_id": "ETERNALBLUE",
+      "keywords": ["eternalblue", "ms17-010", "smb", "smbv1", "wannacry", "notpetya"],
+      "cve_examples": ["CVE-2017-0144", "CVE-2017-0145"],
+      "ens_measures": ["op.exp.2", "op.exp.4", "mp.com.1", "op.exp.7"],
+      "primary_measure": "op.exp.2",
+      "cvss_threshold": 9.3,
+      "incumplimiento": "crítico",
+      "description": "EternalBlue/MS17-010 — exploit SMB crítico, incumple gestión de vulnerabilidades"
+    },
+    {
+      "pattern_id": "COMMAND_INJECTION",
+      "keywords": ["command injection", "os command", "shell injection", "exec injection", "system call injection"],
+      "cve_examples": ["CVE-2021-41773", "CVE-2022-22963"],
+      "ens_measures": ["op.exp.2", "op.exp.6", "mp.com.2"],
+      "primary_measure": "op.exp.2",
+      "cvss_threshold": 9.0,
+      "incumplimiento": "crítico",
+      "description": "Inyección de comandos — incumple gestión de vulnerabilidades y protección frente a código dañino"
+    },
+    {
+      "pattern_id": "OPEN_REDIRECT",
+      "keywords": ["open redirect", "url redirect", "unvalidated redirect"],
+      "cve_examples": [],
+      "ens_measures": ["mp.com.1", "op.exp.2"],
+      "primary_measure": "mp.com.1",
+      "cvss_threshold": 4.0,
+      "incumplimiento": "bajo",
+      "description": "Redirección abierta — incumple protección del perímetro"
+    }
+  ],
+  "direct_cve_mappings": {
+    "CVE-2021-44228": { "measures": ["op.exp.2", "op.exp.4", "op.exp.6"], "primary": "op.exp.2", "name": "Log4Shell" },
+    "CVE-2017-0144":  { "measures": ["op.exp.2", "op.exp.4", "mp.com.1"], "primary": "op.exp.2", "name": "EternalBlue" },
+    "CVE-2021-34527": { "measures": ["op.exp.2", "op.acc.4", "op.exp.4"], "primary": "op.exp.2", "name": "PrintNightmare" },
+    "CVE-2021-4034":  { "measures": ["op.acc.4", "op.exp.2"],              "primary": "op.acc.4", "name": "PwnKit" },
+    "CVE-2022-0847":  { "measures": ["op.acc.4", "op.exp.2"],              "primary": "op.acc.4", "name": "DirtyPipe" },
+    "CVE-2014-3566":  { "measures": ["mp.com.2", "mp.info.3"],             "primary": "mp.com.2", "name": "POODLE" },
+    "CVE-2016-2183":  { "measures": ["mp.com.2"],                          "primary": "mp.com.2", "name": "SWEET32" }
+  }
+}
 FILE:services\ai_reasoning\tests\__init__.py
 
 FILE:services\ai_reasoning\tests\conftest.py
@@ -27905,6 +28159,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from services.orchestrator.cycle_state import CycleStatus, get_cycle_status
 from services.orchestrator.health_checker import check_all_modules
+from shared.auth_router import router as auth_router
 
 app = FastAPI(
     title="ScanOPS Orchestrator",
@@ -27919,6 +28174,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 # In-memory state (for MVP — replace with Redis/DB later)
 _kill_switch_active: bool = False
@@ -38671,7 +38928,7 @@ FILE:shared\__init__.py
 
 from .database import engine, SessionLocal, get_db, create_tables, drop_tables
 from .scan_logger import ScanLogger
-from .auth import AuthService, get_current_user
+from .auth import get_current_user
 from .config import settings
 from .vault_client import vault_client
 
@@ -38682,36 +38939,266 @@ __all__ = [
     "create_tables",
     "drop_tables",
     "ScanLogger",
-    "AuthService",
     "get_current_user",
     "settings",
     "vault_client",
 ]
 FILE:shared\auth.py
-"""Shared authentication utilities for ScanOPS services."""
+"""
+Shared authentication utilities for ScanOPS services.
+ENS Alto: op.acc.1, op.acc.4, op.acc.5
+"""
 
 import os
-from fastapi import Depends, HTTPException, Security
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import bcrypt as _bcrypt
+from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from pydantic import BaseModel
+
+logger = logging.getLogger("scanops.auth")
+
+# --- Config ---
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_32_CHARS_MIN")
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "480"))  # 8h
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7"))
+
+VALID_ROLES = {"system_manager", "security_officer", "auditor", "service"}
 
 security = HTTPBearer(auto_error=False)
 
-class AuthService:
-    """Stub authentication service for shared ScanOPS logic."""
+# --- Models ---
+class TokenData(BaseModel):
+    sub: str
+    role: str
+    exp: Optional[int] = None
+    token_type: str = "access"
 
-    def __init__(self):
-        self._api_key = os.getenv("SCANOPS_API_KEY", "scanops_secret")
+class UserInDB(BaseModel):
+    username: str
+    hashed_password: str
+    role: str
+    disabled: bool = False
 
-    def validate_token(self, credentials: HTTPAuthorizationCredentials | None):
-        if credentials is None or credentials.scheme.lower() != "bearer":
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        if credentials.credentials != self._api_key:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return {"user": "scanops_service", "role": "service"}
+# --- Static users for MVP ---
+# Passwords (plaintext for reference — stored bcrypt-hashed):
+#   admin            → scanops_admin_2026
+#   resp_seguridad   → scanops_sec_2026
+#   auditor          → scanops_audit_2026
+#   scanops_service  → scanops_secret
+# TODO: replace with DB-backed user store (ENS op.acc.1)
+_USERS_DB: dict[str, UserInDB] = {}
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
-    auth = AuthService()
-    return auth.validate_token(credentials)
+def _init_users() -> None:
+    import json
+    users_json = os.getenv("JWT_USERS")
+    if users_json:
+        try:
+            raw = json.loads(users_json)
+            for u in raw:
+                _USERS_DB[u["username"]] = UserInDB(**u)
+            return
+        except Exception as e:
+            logger.warning(f"JWT_USERS parse error: {e}")
+
+    defaults = [
+        ("admin", "scanops_admin_2026", "system_manager"),
+        ("resp_seguridad", "scanops_sec_2026", "security_officer"),
+        ("auditor", "scanops_audit_2026", "auditor"),
+        ("scanops_service", "scanops_secret", "service"),
+    ]
+    for username, password, role in defaults:
+        _USERS_DB[username] = UserInDB(
+            username=username,
+            hashed_password=_bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode(),
+            role=role,
+        )
+
+_init_users()
+
+# --- Core functions ---
+def verify_password(plain: str, hashed: str) -> bool:
+    return _bcrypt.checkpw(plain.encode(), hashed.encode())
+
+def get_password_hash(password: str) -> str:
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
+
+def get_user(username: str) -> Optional[UserInDB]:
+    return _USERS_DB.get(username)
+
+def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
+    """Validates username + password. Returns UserInDB or None. ENS op.acc.5"""
+    user = get_user(username)
+    if not user or user.disabled:
+        return None
+    if not verify_password(password, user.hashed_password):
+        logger.warning(f"[ENS_EVIDENCE] Failed login attempt for user: {username}")
+        return None
+    logger.info(f"[ENS_EVIDENCE] Successful authentication: {username} (role: {user.role})")
+    return user
+
+def create_access_token(username: str, role: str) -> str:
+    """Creates a signed JWT access token. ENS op.acc.5"""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": username,
+        "role": role,
+        "token_type": "access",
+        "iat": now,
+        "exp": now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+def create_refresh_token(username: str, role: str) -> str:
+    """Creates a signed JWT refresh token with longer expiry."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": username,
+        "role": role,
+        "token_type": "refresh",
+        "iat": now,
+        "exp": now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+def decode_token(token: str) -> TokenData:
+    """Decodes and validates a JWT token. Raises HTTPException on failure."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        username: str = payload.get("sub")
+        role: str = payload.get("role", "service")
+        token_type: str = payload.get("token_type", "access")
+        if not username:
+            raise HTTPException(status_code=401, detail="Invalid token: missing subject")
+        if role not in VALID_ROLES:
+            raise HTTPException(status_code=403, detail=f"Invalid role: {role}")
+        return TokenData(sub=username, role=role, token_type=token_type)
+    except JWTError as e:
+        logger.warning(f"[ENS_EVIDENCE] JWT validation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+# --- FastAPI dependencies ---
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+) -> dict:
+    """
+    FastAPI dependency. Drop-in replacement for the old API-key stub.
+    Returns dict with 'user' and 'role' keys — same shape as before.
+    ENS: op.acc.5
+    """
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Unauthorized — Bearer token required")
+    token_data = decode_token(credentials.credentials)
+    if token_data.token_type != "access":
+        raise HTTPException(status_code=401, detail="Refresh token not valid for API access")
+    user = get_user(token_data.sub)
+    if user and user.disabled:
+        raise HTTPException(status_code=403, detail="User account disabled")
+    logger.info(f"[ENS_EVIDENCE] API access: {token_data.sub} (role: {token_data.role})")
+    return {"user": token_data.sub, "role": token_data.role}
+
+def require_role(*roles: str):
+    """
+    FastAPI dependency factory for role-based access control.
+    Usage: Depends(require_role("system_manager", "security_officer"))
+    The 'service' role bypasses all role checks for backward compatibility.
+    ENS: op.acc.4
+    """
+    def _check(current_user: dict = Depends(get_current_user)) -> dict:
+        if current_user["role"] != "service" and current_user["role"] not in roles:
+            logger.warning(
+                f"[ENS_EVIDENCE] Unauthorized access attempt: {current_user['user']} "
+                f"(role: {current_user['role']}) tried to access endpoint requiring {roles}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Acceso denegado — rol requerido: {', '.join(roles)}",
+            )
+        return current_user
+    return _check
+FILE:shared\auth_router.py
+"""
+Auth router — provides /auth/token, /auth/refresh, and /auth/me endpoints.
+Include this router in any service that needs user login.
+ENS: op.acc.1, op.acc.5
+"""
+
+from fastapi import APIRouter, HTTPException, Depends, Security
+from fastapi.security import OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+
+from shared.auth import (
+    authenticate_user,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    get_user,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+)
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+_security = HTTPBearer(auto_error=False)
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    role: str
+    expires_in: int  # seconds
+
+@router.post("/token", response_model=TokenResponse)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    OAuth2 password flow login.
+    Returns access + refresh tokens.
+    ENS: op.acc.5
+    """
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    return TokenResponse(
+        access_token=create_access_token(user.username, user.role),
+        refresh_token=create_refresh_token(user.username, user.role),
+        role=user.role,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(credentials: HTTPAuthorizationCredentials = Security(_security)):
+    """Exchanges a valid refresh token for a new access + refresh token pair."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Refresh token required")
+    token_data = decode_token(credentials.credentials)
+    if token_data.token_type != "refresh":
+        raise HTTPException(status_code=401, detail="Not a refresh token")
+    return TokenResponse(
+        access_token=create_access_token(token_data.sub, token_data.role),
+        refresh_token=create_refresh_token(token_data.sub, token_data.role),
+        role=token_data.role,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+@router.get("/me")
+async def get_me(credentials: HTTPAuthorizationCredentials = Security(_security)):
+    """Returns current user info from access token."""
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Bearer token required")
+    token_data = decode_token(credentials.credentials)
+    user = get_user(token_data.sub)
+    return {
+        "username": token_data.sub,
+        "role": token_data.role,
+        "disabled": user.disabled if user else False,
+    }
 FILE:shared\celery_app.py
 from celery import Celery
 from shared.config import settings
@@ -39548,6 +40035,136 @@ from pathlib import Path
 # Agregar raíz del proyecto al path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+FILE:tests\test_auth.py
+"""Tests for shared/auth.py — ENS op.acc.5"""
+import pytest
+from fastapi import HTTPException
+from jose import jwt
+
+from shared.auth import (
+    JWT_ALGORITHM,
+    JWT_SECRET_KEY,
+    authenticate_user,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    get_current_user,
+    get_password_hash,
+    require_role,
+    verify_password,
+)
+
+# --- Password hashing ---
+
+def test_password_hash_and_verify():
+    hashed = get_password_hash("test_password")
+    assert verify_password("test_password", hashed)
+    assert not verify_password("wrong_password", hashed)
+
+# --- authenticate_user ---
+
+def test_authenticate_user_valid():
+    user = authenticate_user("admin", "scanops_admin_2026")
+    assert user is not None
+    assert user.role == "system_manager"
+
+def test_authenticate_user_security_officer():
+    user = authenticate_user("resp_seguridad", "scanops_sec_2026")
+    assert user is not None
+    assert user.role == "security_officer"
+
+def test_authenticate_user_auditor():
+    user = authenticate_user("auditor", "scanops_audit_2026")
+    assert user is not None
+    assert user.role == "auditor"
+
+def test_authenticate_user_wrong_password():
+    assert authenticate_user("admin", "wrong_password") is None
+
+def test_authenticate_user_nonexistent():
+    assert authenticate_user("nobody", "any") is None
+
+# --- JWT creation and decoding ---
+
+def test_create_and_decode_access_token():
+    token = create_access_token("admin", "system_manager")
+    data = decode_token(token)
+    assert data.sub == "admin"
+    assert data.role == "system_manager"
+    assert data.token_type == "access"
+
+def test_create_and_decode_refresh_token():
+    token = create_refresh_token("admin", "system_manager")
+    data = decode_token(token)
+    assert data.sub == "admin"
+    assert data.role == "system_manager"
+    assert data.token_type == "refresh"
+
+def test_expired_token_raises_401():
+    from datetime import datetime, timezone, timedelta
+    payload = {
+        "sub": "admin",
+        "role": "system_manager",
+        "token_type": "access",
+        "exp": datetime.now(timezone.utc) - timedelta(seconds=1),
+    }
+    expired_token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    with pytest.raises(HTTPException) as exc:
+        decode_token(expired_token)
+    assert exc.value.status_code == 401
+
+def test_tampered_token_raises_401():
+    token = create_access_token("admin", "system_manager")
+    with pytest.raises(HTTPException) as exc:
+        decode_token(token + "tampered")
+    assert exc.value.status_code == 401
+
+def test_invalid_role_in_token_raises_403():
+    payload = {
+        "sub": "admin",
+        "role": "superuser",  # not in VALID_ROLES
+        "token_type": "access",
+    }
+    from datetime import datetime, timezone, timedelta
+    payload["exp"] = datetime.now(timezone.utc) + timedelta(hours=1)
+    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    with pytest.raises(HTTPException) as exc:
+        decode_token(token)
+    assert exc.value.status_code == 403
+
+# --- require_role ---
+
+def test_require_role_allows_correct_role():
+    checker = require_role("system_manager")
+    result = checker({"user": "admin", "role": "system_manager"})
+    assert result["role"] == "system_manager"
+
+def test_require_role_allows_multiple_roles():
+    checker = require_role("system_manager", "security_officer")
+    result = checker({"user": "resp_seguridad", "role": "security_officer"})
+    assert result["role"] == "security_officer"
+
+def test_require_role_blocks_wrong_role():
+    checker = require_role("system_manager")
+    with pytest.raises(HTTPException) as exc:
+        checker({"user": "auditor", "role": "auditor"})
+    assert exc.value.status_code == 403
+
+def test_require_role_blocks_security_officer_from_manager_only():
+    checker = require_role("system_manager")
+    with pytest.raises(HTTPException) as exc:
+        checker({"user": "resp_seguridad", "role": "security_officer"})
+    assert exc.value.status_code == 403
+
+def test_service_role_bypasses_all_checks():
+    checker = require_role("system_manager")
+    result = checker({"user": "scanops_service", "role": "service"})
+    assert result["role"] == "service"
+
+def test_service_role_bypasses_security_officer_check():
+    checker = require_role("security_officer")
+    result = checker({"user": "scanops_service", "role": "service"})
+    assert result["role"] == "service"
 FILE:tests\test_m3_complete.py
 import pytest
 
@@ -39895,3 +40512,63 @@ async def test_modules_health_endpoint():
     assert "timestamp" in data
     assert data["modules"]["M1"] == "online"
     assert data["modules"]["M2"] == "offline"
+FILE:tests\test_vulnerability_mapping.py
+"""Tests for vulnerability_mapping.json and RAGEngine fast lookup"""
+import pytest
+import json
+import os
+from unittest.mock import MagicMock
+
+def test_mapping_file_exists():
+    path = "services/ai_reasoning/rag_data/vulnerability_mapping.json"
+    assert os.path.exists(path), f"Missing: {path}"
+
+def test_mapping_file_valid_json():
+    path = "services/ai_reasoning/rag_data/vulnerability_mapping.json"
+    with open(path) as f:
+        data = json.load(f)
+    assert "vulnerability_patterns" in data
+    assert "direct_cve_mappings" in data
+    assert len(data["vulnerability_patterns"]) >= 10
+
+def test_all_patterns_have_required_fields():
+    path = "services/ai_reasoning/rag_data/vulnerability_mapping.json"
+    with open(path) as f:
+        data = json.load(f)
+    for p in data["vulnerability_patterns"]:
+        assert "pattern_id" in p
+        assert "keywords" in p
+        assert "ens_measures" in p
+        assert "primary_measure" in p
+        assert p["primary_measure"] in p["ens_measures"]
+
+def test_direct_cve_log4shell():
+    path = "services/ai_reasoning/rag_data/vulnerability_mapping.json"
+    with open(path) as f:
+        data = json.load(f)
+    cve = data["direct_cve_mappings"].get("CVE-2021-44228")
+    assert cve is not None
+    assert "op.exp.2" in cve["measures"]
+    assert cve["primary"] == "op.exp.2"
+
+def test_rag_engine_direct_cve_match():
+    from services.ai_reasoning.rag_engine import RAGEngine
+    engine = RAGEngine(MagicMock())
+    result = engine.get_ens_context_from_mapping("CVE-2021-44228", "log4j rce vulnerability")
+    assert result is not None
+    assert result["source"] == "direct_cve_match"
+    assert result["primary_measure"] == "op.exp.2"
+
+def test_rag_engine_keyword_match():
+    from services.ai_reasoning.rag_engine import RAGEngine
+    engine = RAGEngine(MagicMock())
+    result = engine.get_ens_context_from_mapping("CVE-9999-0001", "sql injection vulnerability in login form")
+    assert result is not None
+    assert result["source"] == "keyword_pattern_match"
+    assert result["primary_measure"] == "mp.info.3"
+
+def test_rag_engine_no_match_returns_none():
+    from services.ai_reasoning.rag_engine import RAGEngine
+    engine = RAGEngine(MagicMock())
+    result = engine.get_ens_context_from_mapping("CVE-0000-0000", "unknown generic issue xyz")
+    assert result is None
