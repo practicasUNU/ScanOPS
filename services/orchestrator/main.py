@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from services.orchestrator.cycle_state import CycleStatus, get_cycle_status
 from services.orchestrator.health_checker import check_all_modules
+from shared.auth_router import router as auth_router
 
 app = FastAPI(
     title="ScanOPS Orchestrator",
@@ -20,6 +21,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 # In-memory state (for MVP — replace with Redis/DB later)
 _kill_switch_active: bool = False
