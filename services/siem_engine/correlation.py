@@ -18,7 +18,7 @@ logger = ScanLogger("siem_engine.correlation")
 router = APIRouter(tags=["US-6.5 Correlación IA"])
 
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:latest")
 INDEXER_URL = os.getenv("INDEXER_URL", "http://wazuh.indexer:9200")
 COWRIE_LOG = "/var/log/cowrie/cowrie.json"
 SURICATA_LOG = "/var/log/suricata/eve.json"

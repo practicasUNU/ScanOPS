@@ -16,6 +16,7 @@ app = Celery(
         "services.scanner_engine.tasks.vuln_tasks",
         "services.ai_reasoning.tasks",
         "services.exploit_engine.tasks",
+        "services.exploit_engine.alert_tasks",
         "services.reporting_engine.tasks",
     ]
 )

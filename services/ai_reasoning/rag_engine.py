@@ -18,6 +18,17 @@ class RAGEngine:
 
     def __init__(self, ollama_client: OllamaClient):
         self.ollama_client = ollama_client
+        self._mapping = self._load_mapping()
+
+    def _load_mapping(self) -> dict:
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            mapping_path = os.path.join(base_dir, "rag_data", "vulnerability_mapping.json")
+            with open(mapping_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading vulnerability_mapping.json: {e}")
+            return {"vulnerability_patterns": [], "direct_cve_mappings": {}}
 
     async def get_ens_context(self, query: str) -> str:
         """
@@ -68,10 +79,7 @@ class RAGEngine:
         Priority: 1) direct CVE match, 2) keyword pattern match
         """
         try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            mapping_path = os.path.join(base_dir, "rag_data", "vulnerability_mapping.json")
-            with open(mapping_path, "r", encoding="utf-8") as f:
-                mapping = json.load(f)
+            mapping = self._mapping
 
             # Priority 1: direct CVE match
             direct = mapping.get("direct_cve_mappings", {}).get(cve_id)

@@ -256,6 +256,18 @@ class TestOllamaClientUnit:
         assert collected == ["Hola", " mundo"]
 
 
+    def test_default_model_is_mistral(self) -> None:
+        """Verifica que OllamaClient() sin argumentos usa mistral:latest como modelo."""
+        import os
+        env_backup = os.environ.pop("OLLAMA_MODEL", None)
+        try:
+            instance = OllamaClient()
+            assert instance.model == "mistral:latest"
+        finally:
+            if env_backup is not None:
+                os.environ["OLLAMA_MODEL"] = env_backup
+
+
 # ---------------------------------------------------------------------------
 # TestOllamaClientIntegration — Tests E2E (requieren Ollama real)
 # ---------------------------------------------------------------------------
