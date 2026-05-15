@@ -82,7 +82,7 @@ services:
   celery-worker:
     build: .
     container_name: scanops-celery-worker
-    command: celery -A shared.celery_app worker --loglevel=info --pool=threads --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning
+    command: celery -A shared.celery_app worker --loglevel=info --pool=threads --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning,exploitation,reporting
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
@@ -97,6 +97,22 @@ services:
         condition: service_healthy
     networks:
       - scanops
+
+  celery-beat:
+    build: .
+    container_name: scanops-celery-beat
+    command: celery -A shared.celery_app beat --loglevel=info --scheduler celery.beat.PersistentScheduler
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+    restart: unless-stopped
 
   m2:
     build:
