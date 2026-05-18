@@ -1,14 +1,20 @@
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from services.orchestrator.cycle_state import CycleStatus, get_cycle_status
 from services.orchestrator.health_checker import check_all_modules
+from shared.auth import create_access_token
 from shared.auth_router import router as auth_router
+
+_M1_BASE = os.getenv("M1_URL", "http://localhost:8001") + "/api/v1"
+_M3_BASE = os.getenv("M3_URL", "http://localhost:8002")
 
 app = FastAPI(
     title="ScanOPS Orchestrator",
@@ -133,6 +139,71 @@ def _enrich_with_health(status: CycleStatus, module_health: dict[str, str]) -> N
             health = module_health.get(module.id)
             if health == "offline" and module.status in ("pending", "completed"):
                 module.status = "offline"
+
+
+@app.get("/orchestrator/dashboard/metrics")
+async def get_dashboard_metrics():
+    """
+    Aggregates KPI data from M1 and M3 for the dashboard.
+    Returns safe defaults if a service is unavailable.
+    ENS: op.exp.2, op.exp.3
+    """
+    service_token = create_access_token("scanops_service", "service")
+    headers = {"Authorization": f"Bearer {service_token}"}
+
+    total_assets = 0
+    open_vulns = 0
+    ens_score = 0
+    m1_available = False
+    m3_available = False
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            r = await client.get(f"{_M1_BASE}/assets?page_size=1", headers=headers)
+            if r.status_code == 200:
+                total_assets = r.json().get("total", 0)
+                m1_available = True
+        except Exception as e:
+            _add_log_entry("WARN", f"M1 unavailable for metrics: {e}", "orchestrator")
+
+        if m1_available and total_assets > 0:
+            try:
+                r2 = await client.get(f"{_M1_BASE}/assets?page_size=200", headers=headers)
+                if r2.status_code == 200:
+                    assets = r2.json().get("items", [])
+                    vuln_count = 0
+                    critical_assets = 0
+                    for asset in assets[:20]:
+                        r3 = await client.get(
+                            f"{_M3_BASE}/scanner/results/{asset['id']}", headers=headers
+                        )
+                        if r3.status_code == 200:
+                            vulns = r3.json()
+                            vuln_count += len(vulns)
+                            if any(v.get("severity") in ("CRITICAL", "HIGH") for v in vulns):
+                                critical_assets += 1
+                    open_vulns = vuln_count
+                    if len(assets) > 0:
+                        clean_assets = len(assets) - critical_assets
+                        ens_score = int((clean_assets / len(assets)) * 100)
+                    m3_available = True
+            except Exception as e:
+                _add_log_entry("WARN", f"M3 unavailable for metrics: {e}", "orchestrator")
+
+    _add_log_entry(
+        "INFO",
+        f"Dashboard metrics: assets={total_assets} vulns={open_vulns} ens={ens_score}%",
+        "orchestrator",
+    )
+
+    return {
+        "total_assets": total_assets,
+        "open_vulnerabilities": open_vulns,
+        "ens_compliance_score": ens_score,
+        "m1_available": m1_available,
+        "m3_available": m3_available,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/orchestrator/modules/health")

@@ -8,6 +8,7 @@ import { getCycleState, mapApiCycleToUI } from '../utils/cycleState';
 import { useCycleStatus } from '../../hooks/useCycleStatus';
 import { useCycleActions } from '../../hooks/useCycleActions';
 import { useLogStream } from '../../hooks/useLogStream';
+import { useDashboardMetrics } from '../../hooks/useDashboardMetrics';
 
 interface PipelineModule {
   id: string;
@@ -28,6 +29,7 @@ export function DashboardPage() {
   const killSwitchActive = cycleData?.kill_switch_active ?? false;
 
   const { entries: logEntries, connected: logConnected } = useLogStream();
+  const { metrics, loading: metricsLoading } = useDashboardMetrics(60000);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -181,8 +183,13 @@ export function DashboardPage() {
                   <Activity className="w-5 h-5 text-[#00d4ff]" />
                 </div>
               </div>
-              <div className="text-3xl font-semibold text-white mb-1">47</div>
+              <div className="text-3xl font-semibold text-white mb-1">
+                {metricsLoading ? '—' : (metrics?.total_assets ?? '—')}
+              </div>
               <div className="text-sm text-[#9ca3af]">Total Assets</div>
+              {metrics && !metrics.m1_available && (
+                <span className="text-xs text-[#f59e0b] font-mono">M1 offline</span>
+              )}
             </div>
 
             <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
@@ -191,8 +198,13 @@ export function DashboardPage() {
                   <AlertTriangle className="w-5 h-5 text-[#ff3b3b]" />
                 </div>
               </div>
-              <div className="text-3xl font-semibold text-white mb-1">12</div>
+              <div className="text-3xl font-semibold text-white mb-1">
+                {metricsLoading ? '—' : (metrics?.open_vulnerabilities ?? '—')}
+              </div>
               <div className="text-sm text-[#9ca3af]">Open Vulnerabilities</div>
+              {metrics && !metrics.m3_available && (
+                <span className="text-xs text-[#f59e0b] font-mono">M3 offline</span>
+              )}
             </div>
 
             <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
@@ -201,8 +213,13 @@ export function DashboardPage() {
                   <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
                 </div>
               </div>
-              <div className="text-3xl font-semibold text-white mb-1">78%</div>
+              <div className="text-3xl font-semibold text-white mb-1">
+                {metricsLoading ? '—' : `${metrics?.ens_compliance_score ?? '—'}%`}
+              </div>
               <div className="text-sm text-[#9ca3af]">ENS Compliance</div>
+              {metrics && !metrics.m3_available && (
+                <span className="text-xs text-[#f59e0b] font-mono">M3 offline</span>
+              )}
             </div>
 
             {/* Dynamic Ciclo Semanal card */}

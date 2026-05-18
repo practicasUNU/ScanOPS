@@ -12,4 +12,5 @@ export const ENDPOINTS = {
   authToken: `${API_BASE}/auth/token`,
   authRefresh: `${API_BASE}/auth/refresh`,
   authMe: `${API_BASE}/auth/me`,
-  d
+  dashboardMetrics: `${API_BASE}/orchestrator/dashboard/metrics`,
+};
