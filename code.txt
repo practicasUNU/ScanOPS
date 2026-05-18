@@ -1237,6 +1237,24 @@ services:
     networks:
       - scanops
     restart: unless-stopped
+
+  # Web-Check — OSINT capa de aplicación (ENS local, sin API pública)
+  scanops-webcheck:
+    image: lissy93/web-check:latest
+    container_name: scanops-webcheck
+    ports:
+      - "3000:3000"
+    networks:
+      - scanops
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # services/scanner_engine (M3)
   scanner-engine:
     build:
@@ -6476,6 +6494,7 @@ import { CompliancePage } from './components/CompliancePage';
 import { AlertsPage } from './components/AlertsPage';
 import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { AssetManagerPage } from './components/AssetManagerPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
@@ -6513,6 +6532,9 @@ export default function App() {
         <Route path="/surface" element={
           <ProtectedRoute><UnifiedScannerLayout /></ProtectedRoute>
         } />
+        <Route path="/assets" element={
+          <ProtectedRoute><AssetManagerPage /></ProtectedRoute>
+        } />
       </Routes>
     </BrowserRouter>
   );
@@ -6533,6 +6555,142 @@ export function AlertsPage() {
           <div className="text-center space-y-2">
             <p className="text-[#9ca3af] font-mono text-sm">Vista en construcción · HITO 8 en progreso</p>
           </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+FILE:frontend\src\app\components\AssetManagerPage.tsx
+import { Sidebar } from './Sidebar';
+import { TopBar } from './TopBar';
+import { Server, ShieldAlert, KeyRound, Plus, RefreshCw, AlertCircle } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Badge } from './ui/badge';
+import { useAssets } from '../../hooks/useAssets';
+import { useState } from 'react';
+
+export function AssetManagerPage() {
+  const { assets, loading, error, refetch } = useAssets();
+  const [activeTab, setActiveTab] = useState('cmdb');
+
+  return (
+    <div className="flex h-screen bg-[#0f1117]">
+      <Sidebar />
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <TopBar role="System Manager" />
+
+        <main className="flex-1 overflow-auto p-6 space-y-6">
+          {/* Cabecera */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-white mb-1">Asset Manager (M1)</h1>
+              <p className="text-[#9ca3af] text-sm">Inventario centralizado y gestión de credenciales (ENS op.exp.1)</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={refetch}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-2 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-sm text-[#9ca3af] hover:text-white transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </button>
+              <button className="flex items-center gap-2 px-4 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-semibold rounded-lg transition-colors text-sm">
+                <Plus className="w-4 h-4" />
+                Nuevo Activo
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-4 py-3 text-sm text-[#ff3b3b]">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              M1 API Error: {error}
+            </div>
+          )}
+
+          {/* Navegación por Pestañas */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="bg-[#1a1d27] border border-[#1e2530] h-10 justify-start rounded-lg p-1">
+              <TabsTrigger value="cmdb" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff]">
+                <Server className="w-3.5 h-3.5" /> Inventario Oficial
+              </TabsTrigger>
+              <TabsTrigger value="shadow" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#f59e0b]/10 data-[state=active]:text-[#f59e0b]">
+                <ShieldAlert className="w-3.5 h-3.5" /> Shadow IT (M2 Discovery)
+              </TabsTrigger>
+              <TabsTrigger value="vault" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#22c55e]/10 data-[state=active]:text-[#22c55e]">
+                <KeyRound className="w-3.5 h-3.5" /> Credenciales (Vault)
+              </TabsTrigger>
+            </TabsList>
+
+            {/* TAB 1: Inventario Oficial */}
+            <TabsContent value="cmdb" className="mt-4">
+              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">ID</th>
+                      <th className="px-6 py-3 font-semibold">Activo</th>
+                      <th className="px-6 py-3 font-semibold">Criticidad</th>
+                      <th className="px-6 py-3 font-semibold">Tipo</th>
+                      <th className="px-6 py-3 font-semibold">Responsable</th>
+                      <th className="px-6 py-3 font-semibold">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1e2530]">
+                    {loading ? (
+                      <tr><td colSpan={6} className="px-6 py-8 text-center text-[#6b7280] font-mono">Cargando inventario...</td></tr>
+                    ) : assets.length === 0 ? (
+                      <tr><td colSpan={6} className="px-6 py-8 text-center text-[#6b7280] font-mono">No hay activos registrados.</td></tr>
+                    ) : (
+                      assets.map((asset) => (
+                        <tr key={asset.id} className="hover:bg-[#1e2530]/50 transition-colors">
+                          <td className="px-6 py-4 font-mono text-[#6b7280]">{asset.id}</td>
+                          <td className="px-6 py-4">
+                            <div className="text-white font-mono">{asset.ip}</div>
+                            <div className="text-xs text-[#9ca3af] mt-0.5">{asset.hostname || 'Sin hostname'}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <Badge variant="outline" className={`border ${
+                              asset.criticidad === 'CRITICA' ? 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10' :
+                              asset.criticidad === 'ALTA' ? 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10' :
+                              'text-[#00d4ff] border-[#00d4ff]/30 bg-[#00d4ff]/10'
+                            }`}>
+                              {asset.criticidad}
+                            </Badge>
+                          </td>
+                          <td className="px-6 py-4 text-[#9ca3af]">{asset.tipo}</td>
+                          <td className="px-6 py-4 text-white">{asset.responsable}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-1.5">
+                              <div className={`w-1.5 h-1.5 rounded-full ${asset.status === 'ACTIVO' ? 'bg-[#22c55e]' : 'bg-[#6b7280]'}`}></div>
+                              <span className="text-xs text-[#9ca3af]">{asset.status}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+
+            {/* TAB 2 y 3 (Placeholders por ahora) */}
+            <TabsContent value="shadow" className="mt-4">
+              <div className="p-8 border border-dashed border-[#1e2530] rounded-lg text-center">
+                <ShieldAlert className="w-8 h-8 text-[#f59e0b] mx-auto mb-3 opacity-50" />
+                <p className="text-[#9ca3af] font-mono text-sm">Vista de dispositivos descubiertos por Nmap pendiente de clasificar.</p>
+              </div>
+            </TabsContent>
+            <TabsContent value="vault" className="mt-4">
+              <div className="p-8 border border-dashed border-[#1e2530] rounded-lg text-center">
+                <KeyRound className="w-8 h-8 text-[#22c55e] mx-auto mb-3 opacity-50" />
+                <p className="text-[#9ca3af] font-mono text-sm">Gestor de secretos cifrados en HashiCorp Vault.</p>
+              </div>
+            </TabsContent>
+          </Tabs>
+
         </main>
       </div>
     </div>
@@ -7782,6 +7940,23 @@ import { Search, Plus, Play, Activity, AlertCircle, CheckCircle2, RefreshCw, Che
 import { useState } from 'react';
 import { useAssets, type Asset, type VulnResult } from '../../hooks/useAssets';
 
+type WebCheckData = {
+  ssl?: any;
+  headers?: any;
+  dns?: any;
+  cookies?: any;
+  'tech-stack'?: any;
+  dnssec?: any;
+  'mail-config'?: any;
+};
+
+const SECURITY_HEADERS = [
+  'X-Frame-Options',
+  'Content-Security-Policy',
+  'Strict-Transport-Security',
+  'X-Content-Type-Options',
+] as const;
+
 export function ScannerPage() {
   const { assets, loading, error, refetch, createAsset, scanAsset, getScanStatus, getVulnResults } = useAssets();
   const [newIP, setNewIP] = useState('');
@@ -7792,6 +7967,7 @@ export function ScannerPage() {
   const [adding, setAdding] = useState(false);
   const [scanTypes, setScanTypes] = useState<Record<number, string[]>>({});
   const [taskIds, setTaskIds] = useState<Record<number, string>>({});
+  const [reconData, setReconData] = useState<Record<number, any>>({});
 
   const handleAddAsset = async () => {
     if (!newIP.trim()) return;
@@ -7842,6 +8018,20 @@ export function ScannerPage() {
     if (!vulns[asset.id]) {
       const results = await getVulnResults(asset.id);
       setVulns(prev => ({ ...prev, [asset.id]: results }));
+    }
+    if (!reconData[asset.id]) {
+      try {
+        const res = await fetch(
+          `http://localhost:8003/api/v1/snapshots/latest?target=${encodeURIComponent(asset.ip)}`,
+          { headers: { Authorization: 'Bearer scanops_secret' } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setReconData(prev => ({ ...prev, [asset.id]: data }));
+        }
+      } catch {
+        // silencioso — M2 puede no estar disponible
+      }
     }
   };
 
@@ -7980,7 +8170,7 @@ export function ScannerPage() {
                   </div>
 
                   {expanded === asset.id && (
-                    <div className="border-t border-[#1e2530] px-4 py-3">
+                    <div className="border-t border-[#1e2530] px-4 py-3 space-y-3">
                       {!vulns[asset.id] ? (
                         <div className="text-xs text-[#9ca3af] font-mono">Cargando resultados...</div>
                       ) : vulns[asset.id].length === 0 ? (
@@ -8001,6 +8191,100 @@ export function ScannerPage() {
                           ))}
                         </div>
                       )}
+
+                      {(() => {
+                        const wc: WebCheckData | undefined = reconData[asset.id]?.webcheck;
+                        if (!wc) return null;
+                        const ssl = wc.ssl;
+                        const headersRaw = wc.headers;
+                        const techStack = wc['tech-stack'];
+                        const mailConfig = wc['mail-config'];
+
+                        const sslValid: boolean = ssl?.valid ?? ssl?.isValid ?? false;
+                        const sslDays: number | null = ssl?.daysUntilExpiry ?? ssl?.days_remaining ?? null;
+                        const sslIssuer: string | null = ssl?.issuer?.O ?? ssl?.issuer ?? null;
+
+                        const presentHeaders = new Set<string>(
+                          Array.isArray(headersRaw)
+                            ? headersRaw.map((h: any) => h?.name ?? h)
+                            : Object.keys(headersRaw ?? {}),
+                        );
+
+                        const techRaw = techStack?.technologies ?? techStack;
+                        const techList: string[] = Array.isArray(techRaw)
+                          ? techRaw.map((t: any) => t?.name ?? t).filter(Boolean)
+                          : typeof techRaw === 'object' && techRaw
+                          ? Object.keys(techRaw)
+                          : []
+
+                        const spfOk: boolean = mailConfig?.spf?.valid ?? mailConfig?.spf ?? false;
+                        const dmarcOk: boolean = mailConfig?.dmarc?.valid ?? mailConfig?.dmarc ?? false;
+
+                        return (
+                          <div className="pt-2 border-t border-[#1e2530]">
+                            <div className="text-xs text-[#9ca3af] mb-2 font-medium">🌐 Web-Check</div>
+                            <div className="grid grid-cols-2 gap-2">
+
+                              {ssl && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">SSL</div>
+                                  <div className={`text-xs font-medium ${sslValid ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>
+                                    {sslValid ? 'Válido' : 'Expirado'}
+                                  </div>
+                                  {sslDays != null && (
+                                    <div className="text-xs text-[#9ca3af] font-mono mt-0.5">{sslDays}d restantes</div>
+                                  )}
+                                  {sslIssuer && (
+                                    <div className="text-xs text-[#6b7280] font-mono mt-0.5 truncate">{sslIssuer}</div>
+                                  )}
+                                </div>
+                              )}
+
+                              {headersRaw && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">Headers</div>
+                                  <div className="space-y-0.5">
+                                    {SECURITY_HEADERS.map(h => (
+                                      <div key={h} className="flex items-center gap-1.5">
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${presentHeaders.has(h) ? 'bg-[#22c55e]' : 'bg-[#ff3b3b]'}`} />
+                                        <span className={`text-xs font-mono ${presentHeaders.has(h) ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>{h}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {techList.length > 0 && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">Tech Stack</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {techList.map(t => (
+                                      <span key={t} className="text-xs px-1.5 py-0.5 rounded bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20 font-mono">
+                                        {t}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {mailConfig && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">Mail</div>
+                                  <div className="space-y-0.5">
+                                    {([['SPF', spfOk], ['DMARC', dmarcOk]] as const).map(([label, ok]) => (
+                                      <div key={label} className="flex items-center gap-1.5">
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ok ? 'bg-[#22c55e]' : 'bg-[#ff3b3b]'}`} />
+                                        <span className={`text-xs font-mono ${ok ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>{label}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -8013,61 +8297,132 @@ export function ScannerPage() {
   );
 }
 FILE:frontend\src\app\components\Sidebar.tsx
-import { Shield, LayoutDashboard, FileCheck, ClipboardList, Search, Bell, ScrollText } from 'lucide-react';
+import {
+  Shield,
+  LayoutDashboard,
+  FileCheck,
+  ClipboardList,
+  Search,
+  Bell,
+  ScrollText,
+  PanelLeftClose,
+  PanelLeft,
+  Boxes,        // Icono ideal para el M1 Asset Manager (Inventario/Cajas)
+  Layers        // Icono para agrupar o flujos
+} from 'lucide-react';
 import { Link, useLocation } from 'react-router';
+import { useState } from 'react';
 
 export function Sidebar() {
   const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const isActive = (path: string) => location.pathname === path;
 
-  const navItems = [
-    { icon: Shield, label: 'Dashboard', path: '/dashboard' },
-    { icon: Search, label: 'Network Scanner', path: '/scanner' },
-    { icon: ClipboardList, label: 'Explotación', path: '/exploitation' },
-    { icon: FileCheck, label: 'Cumplimiento', path: '/compliance' },
-    { icon: Bell, label: 'Alertas', path: '/alerts' },
-    { icon: ScrollText, label: 'Logs Auditoría', path: '/audit-logs' },
+  // [1] ESTRUCTURA: Agrupamos las opciones por secciones de control y pipeline
+  const sections = [
+    {
+      title: 'Pipeline',
+      items: [
+        { icon: Boxes, label: 'M1 - Asset Manager', path: '/assets' },
+        { icon: Search, label: 'M2+M3 - Scanner', path: '/surface' }, // <-- CAMBIO AQUÍ
+        { icon: ClipboardList, label: 'M4 - Explotación', path: '/exploitation' },
+        { icon: Bell, label: 'M5 - Alertas SIEM', path: '/alerts' },
+      ]
+    },
+    {
+      title: 'Control',
+      items: [
+        { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
+        { icon: FileCheck, label: 'Cumplimiento', path: '/compliance' },
+        { icon: ScrollText, label: 'Logs Auditoría', path: '/audit-logs' },
+      ]
+    }
   ];
 
   return (
-    <aside className="w-60 bg-[#1a1d27] border-r border-[#1e2530] flex flex-col">
-      <div className="p-6 border-b border-[#1e2530]">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-gradient-to-br from-[#00d4ff] to-[#0099cc] rounded flex items-center justify-center">
-            <Shield className="w-5 h-5 text-[#0f1117]" />
-          </div>
-          <span className="text-xl font-semibold text-white">ScanOps</span>
+    <aside
+      className={`relative bg-[#1a1d27] border-r border-[#1e2530] flex flex-col transition-all duration-300 ease-in-out z-20 ${
+        isCollapsed ? 'w-20' : 'w-64'
+      }`}
+    >
+      {/* Botón flotante para colapsar */}
+      <button
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="absolute -right-3 top-6 bg-[#1a1d27] text-[#9ca3af] hover:text-[#00d4ff] p-1.5 rounded-full border border-[#1e2530] hover:border-[#00d4ff]/50 transition-all z-30 cursor-pointer"
+        title={isCollapsed ? "Expandir menú" : "Colapsar menú"}
+      >
+        {isCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+      </button>
+
+      {/* Header con Logo */}
+      <div className={`p-6 border-b border-[#1e2530] flex items-center h-[89px] ${isCollapsed ? 'justify-center px-0' : 'gap-3'}`}>
+        <div className="w-8 h-8 bg-gradient-to-br from-[#00d4ff] to-[#0099cc] rounded flex items-center justify-center shrink-0">
+          <Shield className="w-5 h-5 text-[#0f1117]" />
         </div>
+        {!isCollapsed && (
+          <span className="text-xl font-semibold text-white truncate transition-opacity duration-300">
+            ScanOps
+          </span>
+        )}
       </div>
 
-      <nav className="flex-1 p-4 space-y-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = isActive(item.path);
+      {/* Menú de Navegación por Secciones */}
+      <div className="flex-1 p-4 space-y-4 overflow-y-auto overflow-x-hidden">
+        {sections.map((section, idx) => (
+          <div key={idx} className="space-y-1">
+            {/* [2] TÍTULO DE CATEGORÍA: Solo se muestra si el sidebar está expandido */}
+            {!isCollapsed ? (
+              <div className="text-[10px] font-bold tracking-wider text-slate-500 uppercase px-3 pt-2 pb-1 select-none">
+                {section.title}
+              </div>
+            ) : (
+              // Una pequeña línea divisoria visual si está colapsado para separar bloques
+              idx > 0 && <div className="border-t border-[#1e2530] my-2 mx-2" />
+            )}
 
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                active
-                  ? 'bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20'
-                  : 'text-[#9ca3af] hover:bg-[#1e2530] hover:text-white'
-              }`}
-            >
-              <Icon className="w-5 h-5" />
-              <span className="font-medium">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+            {section.items.map((item) => {
+              const Icon = item.icon;
+              const active = isActive(item.path);
 
-      <div className="p-4 border-t border-[#1e2530]">
-        <div className="text-xs text-[#9ca3af] space-y-1">
-          <div>v2.4.1-alpha</div>
-          <div>ENS Alto Certified</div>
-        </div>
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  title={isCollapsed ? item.label : undefined}
+                  className={`flex items-center rounded-lg transition-all duration-200 ${
+                    isCollapsed ? 'justify-center p-3' : 'gap-3 px-4 py-2.5'
+                  } ${
+                    active
+                      ? 'bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20'
+                      : 'text-[#9ca3af] hover:bg-[#1e2530] hover:text-white border border-transparent'
+                  }`}
+                >
+                  <Icon className="w-5 h-5 shrink-0" />
+                  {!isCollapsed && (
+                    <span className="text-sm font-medium truncate transition-opacity duration-300">
+                      {item.label}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Footer de Versión */}
+      <div className={`p-4 border-t border-[#1e2530] transition-all duration-300 ${isCollapsed ? 'text-center' : ''}`}>
+        {!isCollapsed ? (
+          <div className="text-xs text-[#9ca3af] space-y-1">
+            <div className="truncate">v2.4.1-alpha</div>
+            <div className="truncate text-[#22c55e]">ENS Alto Certified</div>
+          </div>
+        ) : (
+          <div className="text-[10px] text-[#9ca3af] font-mono font-bold cursor-default" title="v2.4.1-alpha">
+            v2.4
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -14489,18 +14844,16 @@ export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovals
 }
 FILE:frontend\src\pages\UnifiedScanner\UnifiedScannerLayout.jsx
 import { ScanLine, Radio, LayoutGrid, Map, RefreshCw, AlertCircle } from 'lucide-react';
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from '@/app/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/app/components/ui/tabs';
 import { useScanData } from './hooks/useScanData';
 import { LivePipelineTerminal } from './components/LivePipelineTerminal';
 import { FindingsTable } from './components/FindingsTable';
 import { SurfaceMap } from './components/SurfaceMap';
 
-/** KPI summary pill shown in the page header. */
+// IMPORTACIONES AÑADIDAS: Traemos la barra lateral y superior
+import { Sidebar } from '../../app/components/Sidebar';
+import { TopBar } from '../../app/components/TopBar';
+
 function StatPill({ label, value, accent }) {
   const accentClass =
     accent === 'red'   ? 'text-red-400 border-red-500/20 bg-red-500/5' :
@@ -14516,18 +14869,9 @@ function StatPill({ label, value, accent }) {
   );
 }
 
-/**
- * UnifiedScannerLayout — contenedor principal de la vista M2+M3.
- * Gestiona el estado de carga/error del hook y distribuye los datos
- * entre las tres pestañas.
- */
 export function UnifiedScannerLayout() {
   const { data, loading, error, refetch } = useScanData();
-
-  // Derive findings array from API shape or empty fallback
   const findings = data?.findings ?? data?.items ?? [];
-
-  // Count by severity for header KPIs
   const counts = findings.reduce((acc, f) => {
     const s = f.severidad ?? f.severity ?? 'INFO';
     acc[s] = (acc[s] ?? 0) + 1;
@@ -14535,98 +14879,108 @@ export function UnifiedScannerLayout() {
   }, {});
 
   return (
-    <div className="flex flex-col gap-6 p-6 min-h-screen bg-[#0f1117]">
-      {/* ── Page header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#00d4ff]/10 border border-[#00d4ff]/20 rounded-lg flex items-center justify-center shrink-0">
-            <ScanLine className="w-5 h-5 text-[#00d4ff]" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold text-white leading-tight">
-              Superficie y Riesgos
-            </h1>
-            <p className="text-sm text-[#6b7280] mt-0.5">
-              M2 Reconocimiento · M3 Escaneo — hallazgos consolidados ENS Alto
-            </p>
-          </div>
-        </div>
+    // EL NUEVO LAYOUT ENVOLVENTE
+    <div className="flex h-screen bg-[#0f1117]">
+      <Sidebar />
 
-        {/* Right: KPI pills + refresh */}
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {!loading && !error && (
-            <>
-              {counts.CRITICAL > 0 && <StatPill value={counts.CRITICAL} label="CRITICAL" accent="red" />}
-              {counts.HIGH     > 0 && <StatPill value={counts.HIGH}     label="HIGH"     accent="red" />}
-              {counts.MEDIUM   > 0 && <StatPill value={counts.MEDIUM}   label="MEDIUM"   accent="amber" />}
-              {counts.LOW      > 0 && <StatPill value={counts.LOW}      label="LOW"      accent="blue" />}
-              <StatPill value={findings.length} label="total" accent="green" />
-            </>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <TopBar role="System Manager" />
+
+        <main className="flex-1 overflow-auto p-6 space-y-6">
+          {/* ── Page header ── */}
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-[#00d4ff]/10 border border-[#00d4ff]/20 rounded-lg flex items-center justify-center shrink-0">
+                <ScanLine className="w-5 h-5 text-[#00d4ff]" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold text-white leading-tight">
+                  Superficie y Riesgos
+                </h1>
+                <p className="text-sm text-[#6b7280] mt-0.5">
+                  M2 Reconocimiento · M3 Escaneo — hallazgos consolidados ENS Alto
+                </p>
+              </div>
+            </div>
+
+            {/* Right: KPI pills + refresh */}
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {!loading && !error && (
+                <>
+                  {counts.CRITICAL > 0 && <StatPill value={counts.CRITICAL} label="CRITICAL" accent="red" />}
+                  {counts.HIGH     > 0 && <StatPill value={counts.HIGH}     label="HIGH"     accent="red" />}
+                  {counts.MEDIUM   > 0 && <StatPill value={counts.MEDIUM}   label="MEDIUM"   accent="amber" />}
+                  {counts.LOW      > 0 && <StatPill value={counts.LOW}      label="LOW"      accent="blue" />}
+                  <StatPill value={findings.length} label="total" accent="green" />
+                </>
+              )}
+              <button
+                onClick={refetch}
+                disabled={loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-[#9ca3af] hover:text-white hover:border-[#00d4ff]/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Cargando…' : 'Actualizar'}
+              </button>
+            </div>
+          </div>
+
+          {/* ── API error banner ── */}
+          {error && (
+            <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-400 font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>M3 no disponible — mostrando datos de demostración · {error}</span>
+            </div>
           )}
-          <button
-            onClick={refetch}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-[#9ca3af] hover:text-white hover:border-[#00d4ff]/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Cargando…' : 'Actualizar'}
-          </button>
-        </div>
+
+          {/* ── Tabs ── */}
+          <Tabs defaultValue="pipeline" className="flex-1">
+            <TabsList className="bg-[#1a1d27] border border-[#1e2530] h-10 w-full justify-start rounded-lg gap-1 p-1">
+              <TabsTrigger
+                value="pipeline"
+                className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"
+              >
+                <Radio className="w-3.5 h-3.5" />
+                Live Pipeline
+              </TabsTrigger>
+
+              <TabsTrigger
+                value="findings"
+                className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                Matriz de Hallazgos
+                {findings.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 bg-[#1e2530] rounded text-[10px] font-mono text-[#6b7280]">
+                    {findings.length}
+                  </span>
+                )}
+              </TabsTrigger>
+
+              <TabsTrigger
+                value="surface"
+                className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"
+              >
+                <Map className="w-3.5 h-3.5" />
+                Mapa de Superficie
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="pipeline" className="mt-4">
+              <LivePipelineTerminal />
+            </TabsContent>
+
+            <TabsContent value="findings" className="mt-4">
+              <FindingsTable findings={findings} />
+            </TabsContent>
+
+            <TabsContent value="surface" className="mt-4">
+              <SurfaceMap data={data} />
+            </TabsContent>
+          </Tabs>
+
+        </main>
       </div>
-
-      {/* ── API error banner ─────────────────────────────────────────────────── */}
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-400 font-mono">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>M3 no disponible — mostrando datos de demostración · {error}</span>
-        </div>
-      )}
-
-      {/* ── Tabs ─────────────────────────────────────────────────────────────── */}
-      <Tabs defaultValue="pipeline" className="flex-1">
-        <TabsList className="bg-[#1a1d27] border border-[#1e2530] h-10 w-full justify-start rounded-lg gap-1 p-1">
-          <TabsTrigger
-            value="pipeline"
-            className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"
-          >
-            <Radio className="w-3.5 h-3.5" />
-            Live Pipeline
-          </TabsTrigger>
-
-          <TabsTrigger
-            value="findings"
-            className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            Matriz de Hallazgos
-            {findings.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-[#1e2530] rounded text-[10px] font-mono text-[#6b7280]">
-                {findings.length}
-              </span>
-            )}
-          </TabsTrigger>
-
-          <TabsTrigger
-            value="surface"
-            className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"
-          >
-            <Map className="w-3.5 h-3.5" />
-            Mapa de Superficie
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="pipeline" className="mt-4">
-          <LivePipelineTerminal />
-        </TabsContent>
-
-        <TabsContent value="findings" className="mt-4">
-          <FindingsTable findings={findings} />
-        </TabsContent>
-
-        <TabsContent value="surface" className="mt-4">
-          <SurfaceMap data={data} />
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }
@@ -32575,6 +32929,82 @@ async def start_scan(
     result = await perform_full_recon(snapshot_id, target, db)
     return result
 
+@router.get("/snapshots/latest", response_model=ReconSnapshotSchema)
+async def get_latest_snapshot(
+    target: str = Query(..., description="Target IP or hostname"),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve el snapshot de reconocimiento más reciente para un target,
+    incluyendo datos de Web-Check si están disponibles.
+    """
+    snapshot = (
+        db.query(ReconSnapshot)
+        .filter(ReconSnapshot.target == target)
+        .order_by(ReconSnapshot.started_at.desc())
+        .first()
+    )
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot found for target")
+
+    findings = db.query(ReconFinding).filter(ReconFinding.snapshot_id == snapshot.id).all()
+    ports_discovered = [
+        PortDiscovery(
+            port=int(f.port) if f.port and f.port.isdigit() else 0,
+            protocol="tcp",
+            state=f.state or "open",
+            service=f.service or "unknown",
+            version=f.version or "unknown",
+            product=None,
+            confidence=0.9 if f.source == "nmap" else 0.7,
+        )
+        for f in findings if f.port
+    ]
+
+    os_information = None
+    if snapshot.os_family:
+        os_information = OSInformation(
+            detected_family=snapshot.os_family,
+            detected_version=snapshot.os_version or "Unknown",
+            cpe=snapshot.os_cpe,
+            confidence=snapshot.os_confidence or 0.5,
+        )
+
+    host_information = None
+    if snapshot.mac_address or snapshot.latency_ms:
+        host_information = HostInformation(
+            mac_address=snapshot.mac_address,
+            vendor=snapshot.mac_vendor,
+            latency_ms=snapshot.latency_ms,
+        )
+
+    subdomains_db = db.query(ReconSubdomain).filter(ReconSubdomain.snapshot_id == snapshot.id).all()
+
+    recon_data = ReconData(
+        ports_discovered=ports_discovered,
+        os_information=os_information,
+        host_information=host_information,
+    )
+
+    summary = ReconSummary(
+        total_ports_open=len(ports_discovered),
+        total_services_detected=len([p for p in ports_discovered if p.service != "unknown"]),
+        scan_duration_seconds=0.0,
+    )
+
+    return ReconSnapshotSchema(
+        snapshot_id=snapshot.cycle_id,
+        target=snapshot.target,
+        status=snapshot.status,
+        created_at=snapshot.started_at,
+        finished_at=snapshot.finished_at,
+        reconnaissance=recon_data,
+        subdomains=[s.subdomain for s in subdomains_db],
+        summary=summary,
+        webcheck=snapshot.webcheck_data or None,
+    )
+
 @router.get("/snapshots/{snapshot_id}/findings", response_model=ReconSnapshotSchema)
 async def get_snapshot_recon(snapshot_id: str, db: Session = Depends(get_db)):
     """
@@ -32713,6 +33143,9 @@ class ReconSnapshot(ReconBase):
     mac_address = Column(String(50), nullable=True)
     mac_vendor = Column(String(255), nullable=True)
     latency_ms = Column(Float, nullable=True)
+
+    # Web-Check results (JSONB — M2 escáner 4)
+    webcheck_data = Column(JSON, nullable=True)
 
     # Relaciones
     findings = relationship("ReconFinding", back_populates="snapshot",
@@ -32856,6 +33289,7 @@ class ReconSnapshotSchema(BaseModel):
     subdomains: List[str] = []
     change_detection: ChangeDetection = Field(default_factory=ChangeDetection)
     summary: ReconSummary
+    webcheck: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -33604,6 +34038,7 @@ import xml.etree.ElementTree as ET
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
+import aiohttp
 
 from shared.scan_logger import ScanLogger
 from shared.database import SessionLocal
@@ -33769,6 +34204,40 @@ async def run_nmap_scan(
         logger.error("NMAP_SCAN_ERROR", error=str(e))
         return [], None, None, 0
 
+_WEB_PORTS = {80, 443, 8080, 8443, 8000, 8888}
+_WEBCHECK_BASE = "http://scanops-webcheck:3000/api"
+_WEBCHECK_ENDPOINTS = ["ssl", "headers", "dns", "cookies", "tech-stack", "dnssec", "mail-config"]
+
+def has_web_service(ports: List[PortDiscovery]) -> bool:
+    return any(p.port in _WEB_PORTS for p in ports)
+
+async def run_webcheck(target: str) -> dict:
+    url_target = target if target.startswith(("http://", "https://")) else f"https://{target}"
+    logger.info("WEBCHECK_START", target=url_target)
+    timeout = aiohttp.ClientTimeout(total=30)
+    results: dict = {}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async def _fetch(endpoint: str) -> tuple[str, dict]:
+                try:
+                    async with session.get(
+                        f"{_WEBCHECK_BASE}/{endpoint}",
+                        params={"url": url_target},
+                    ) as resp:
+                        data = await resp.json(content_type=None)
+                        return endpoint, data
+                except Exception as e:
+                    logger.warning("WEBCHECK_ENDPOINT_ERROR", endpoint=endpoint, error=str(e))
+                    return endpoint, {}
+
+            responses = await asyncio.gather(*[_fetch(ep) for ep in _WEBCHECK_ENDPOINTS])
+            results = {ep: data for ep, data in responses}
+    except Exception as e:
+        logger.error("WEBCHECK_SESSION_ERROR", target=url_target, error=str(e))
+        return {}
+    logger.info("WEBCHECK_DONE", target=url_target, endpoints=len(results))
+    return results
+
 async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> ReconSnapshotSchema:
     """
     Orquestación completa del reconocimiento M2.
@@ -33819,6 +34288,14 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
             if raw_tls:
                 port_obj.tls_info = TlsInfo(**raw_tls)
 
+    # Web-Check (M2 - escáner 4)
+    if has_web_service(ports):
+        logger.info("WEBCHECK_START", target=target)
+        webcheck_data = await run_webcheck(target)
+    else:
+        logger.info("WEBCHECK_SKIPPED", target=target, reason="no web ports detected")
+        webcheck_data = {}
+
     # Persistir findings
     for p in ports:
         finding = ReconFinding(
@@ -33859,6 +34336,8 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
         snapshot_db.mac_address = host_info.mac_address
         snapshot_db.mac_vendor = host_info.vendor
         snapshot_db.latency_ms = host_info.latency_ms
+
+    snapshot_db.webcheck_data = webcheck_data if webcheck_data else None
 
     db.commit()
     db.refresh(snapshot_db)
@@ -33910,6 +34389,7 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
         finished_at=snapshot_db.finished_at,
         reconnaissance=recon_data,
         summary=summary,
+        webcheck=webcheck_data if webcheck_data else None,
     )
 FILE:services\recon_engine\services\surface_diff.py
 """

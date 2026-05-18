@@ -7,6 +7,7 @@ import { CompliancePage } from './components/CompliancePage';
 import { AlertsPage } from './components/AlertsPage';
 import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { AssetManagerPage } from './components/AssetManagerPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
@@ -43,6 +44,9 @@ export default function App() {
         } />
         <Route path="/surface" element={
           <ProtectedRoute><UnifiedScannerLayout /></ProtectedRoute>
+        } />
+        <Route path="/assets" element={
+          <ProtectedRoute><AssetManagerPage /></ProtectedRoute>
         } />
       </Routes>
     </BrowserRouter>
