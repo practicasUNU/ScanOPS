@@ -7,6 +7,9 @@ import { CompliancePage } from './components/CompliancePage';
 import { AlertsPage } from './components/AlertsPage';
 import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore – JSX module without type declarations
+import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
 
 export default function App() {
   return (
@@ -37,6 +40,9 @@ export default function App() {
           <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
             <AuditLogsPage />
           </ProtectedRoute>
+        } />
+        <Route path="/surface" element={
+          <ProtectedRoute><UnifiedScannerLayout /></ProtectedRoute>
         } />
       </Routes>
     </BrowserRouter>
