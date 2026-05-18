@@ -3,16 +3,307 @@ import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   Server, ShieldAlert, KeyRound, Plus, RefreshCw, AlertCircle,
-  Play, Loader2, Eye,
+  Play, Loader2, Eye, Info, Terminal, Monitor, HelpCircle, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAssets, type Asset, type VulnResult } from '../../hooks/useAssets';
+import { useShadowIT, type M2Snapshot } from '../../hooks/useShadowIT';
+import { getStoredToken } from '../../hooks/useAuth';
 
 type RowStatus = 'idle' | 'scanning' | 'done' | 'error';
 interface RowState { status: RowStatus; msg?: string }
+
+const M2_BASE = 'http://localhost:8003/api/v1';
+
+const fmt = new Intl.DateTimeFormat('es-ES', {
+  day: '2-digit', month: 'short', year: 'numeric',
+  hour: '2-digit', minute: '2-digit',
+});
+
+function serviceBadgeClass(service: string) {
+  const s = service.toLowerCase();
+  if (['telnet', 'ftp', 'msrpc', 'netbios-ssn', 'netbios', 'microsoft-ds', 'ms-wbt-server'].some(k => s.includes(k))) {
+    return 'border-[#ff3b3b]/40 text-[#ff3b3b] bg-[#ff3b3b]/5';
+  }
+  if (['ssh', 'http', 'https', 'mysql'].some(k => s.includes(k))) {
+    return 'border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/5';
+  }
+  return 'border-[#374151] text-[#6b7280] bg-[#374151]/10';
+}
+
+function OsIcon({ os }: { os?: string | null }) {
+  if (!os) return <HelpCircle className="w-3.5 h-3.5 text-[#6b7280] shrink-0" />;
+  if (os.toLowerCase().includes('linux')) return <Terminal className="w-3.5 h-3.5 text-[#00d4ff] shrink-0" />;
+  if (os.toLowerCase().includes('windows')) return <Monitor className="w-3.5 h-3.5 text-[#00d4ff] shrink-0" />;
+  return <HelpCircle className="w-3.5 h-3.5 text-[#6b7280] shrink-0" />;
+}
+
+interface ShadowITTabProps {
+  onRegisterAsset: (ip: string) => void;
+}
+
+function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
+  const { snapshots, loading, error, refetch } = useShadowIT();
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [rescanState, setRescanState] = useState<Record<string, RowState>>({});
+
+  const handleRescan = async (snap: M2Snapshot) => {
+    setRescanState(prev => ({ ...prev, [snap.snapshot_id]: { status: 'scanning' } }));
+    try {
+      const token = getStoredToken();
+      const headers: HeadersInit = token
+        ? { 'Authorization': `Bearer ${token}` }
+        : {};
+      const res = await fetch(`${M2_BASE}/scan?target=${encodeURIComponent(snap.target)}`, {
+        method: 'POST',
+        headers,
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      setRescanState(prev => ({ ...prev, [snap.snapshot_id]: { status: 'done', msg: 'Escaneo iniciado' } }));
+      refetch();
+    } catch {
+      setRescanState(prev => ({ ...prev, [snap.snapshot_id]: { status: 'error', msg: 'Error al re-escanear' } }));
+    }
+    setTimeout(() => {
+      setRescanState(prev => ({ ...prev, [snap.snapshot_id]: { status: 'idle' } }));
+    }, 3000);
+  };
+
+  const toggleRow = (id: string) => {
+    setExpandedRow(prev => (prev === id ? null : id));
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Banner informativo */}
+      <div className="flex items-start gap-3 bg-[#00d4ff]/5 border border-[#00d4ff]/20 rounded-lg px-4 py-3 text-sm text-[#9ca3af]">
+        <Info className="w-4 h-4 text-[#00d4ff] shrink-0 mt-0.5" />
+        <span>
+          Hosts descubiertos por M2 (Nmap) no registrados en el inventario oficial.
+          Clasificar como activo conocido o marcar como no autorizado.
+        </span>
+      </div>
+
+      {/* Banner error M2 */}
+      {error && (
+        <div className="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-3 text-sm text-[#f59e0b]">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          M2 no disponible — mostrando datos de demostración
+        </div>
+      )}
+
+      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+        <table className="w-full text-sm text-left">
+          <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+            <tr>
+              <th className="px-4 py-3 font-semibold w-6"></th>
+              <th className="px-4 py-3 font-semibold">IP / Target</th>
+              <th className="px-4 py-3 font-semibold">OS</th>
+              <th className="px-4 py-3 font-semibold">Puertos</th>
+              <th className="px-4 py-3 font-semibold">Servicios</th>
+              <th className="px-4 py-3 font-semibold">Último escaneo</th>
+              <th className="px-4 py-3 font-semibold">Estado</th>
+              <th className="px-4 py-3 font-semibold">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#1e2530]">
+            {loading ? (
+              <tr>
+                <td colSpan={8} className="px-6 py-8 text-center text-[#6b7280] font-mono">
+                  <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                  Cargando datos M2...
+                </td>
+              </tr>
+            ) : snapshots.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-6 py-8 text-center text-[#6b7280] font-mono">
+                  No hay dispositivos descubiertos.
+                </td>
+              </tr>
+            ) : (
+              snapshots.map((snap) => {
+                const isExpanded = expandedRow === snap.snapshot_id;
+                const rs = rescanState[snap.snapshot_id] ?? { status: 'idle' };
+                const visiblePorts = snap.ports?.slice(0, 3) ?? [];
+                const extraPorts = (snap.ports?.length ?? 0) - 3;
+
+                return (
+                  <>
+                    <tr
+                      key={snap.snapshot_id}
+                      className="hover:bg-[#1e2530]/40 transition-colors cursor-pointer"
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.closest('button')) return;
+                        toggleRow(snap.snapshot_id);
+                      }}
+                    >
+                      {/* Expand chevron */}
+                      <td className="px-4 py-4 text-[#6b7280]">
+                        {isExpanded
+                          ? <ChevronDown className="w-3.5 h-3.5" />
+                          : <ChevronRight className="w-3.5 h-3.5" />}
+                      </td>
+
+                      {/* IP / Target */}
+                      <td className="px-4 py-4">
+                        <div className="text-white font-mono">{snap.target}</div>
+                        <div className="text-xs text-[#6b7280] mt-0.5">{snap.snapshot_id}</div>
+                      </td>
+
+                      {/* OS */}
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-1.5">
+                          <OsIcon os={snap.os_family} />
+                          <span className={snap.os_family ? 'text-[#9ca3af] text-xs' : 'text-[#6b7280] text-xs'}>
+                            {snap.os_family ?? 'Desconocido'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Puertos abiertos */}
+                      <td className="px-4 py-4">
+                        {snap.ports_open ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#1e2530] text-white text-xs font-mono">
+                            {snap.ports_open}
+                          </span>
+                        ) : (
+                          <span className="text-[#6b7280] text-xs">—</span>
+                        )}
+                      </td>
+
+                      {/* Servicios */}
+                      <td className="px-4 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {visiblePorts.map((p) => (
+                            <span
+                              key={p.port}
+                              className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-mono ${serviceBadgeClass(p.service)}`}
+                            >
+                              {p.service || String(p.port)}
+                            </span>
+                          ))}
+                          {extraPorts > 0 && (
+                            <span className="text-[10px] text-[#6b7280] self-center">+{extraPorts} más</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Último escaneo */}
+                      <td className="px-4 py-4 text-xs text-[#9ca3af] whitespace-nowrap">
+                        {fmt.format(new Date(snap.created_at))}
+                      </td>
+
+                      {/* Estado */}
+                      <td className="px-4 py-4">
+                        {snap.status === 'completed' && (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
+                            <span className="text-xs text-[#9ca3af]">Completado</span>
+                          </div>
+                        )}
+                        {snap.status === 'running' && (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
+                            <span className="text-xs text-[#9ca3af]">Escaneando...</span>
+                          </div>
+                        )}
+                        {snap.status === 'failed' && (
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-[#ff3b3b]" />
+                            <span className="text-xs text-[#9ca3af]">Error</span>
+                          </div>
+                        )}
+                        {!['completed', 'running', 'failed'].includes(snap.status) && (
+                          <span className="text-xs text-[#6b7280]">{snap.status}</span>
+                        )}
+                      </td>
+
+                      {/* Acciones */}
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => onRegisterAsset(snap.target)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg hover:bg-[#22c55e]/20 transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Registrar en M1
+                          </button>
+                          <button
+                            onClick={() => handleRescan(snap)}
+                            disabled={rs.status === 'scanning'}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {rs.status === 'scanning'
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <RefreshCw className="w-3.5 h-3.5" />}
+                            Re-escanear
+                          </button>
+                        </div>
+                        {rs.status === 'done' && rs.msg && (
+                          <div className="mt-1 text-xs text-[#22c55e] font-mono">{rs.msg}</div>
+                        )}
+                        {rs.status === 'error' && rs.msg && (
+                          <div className="mt-1 text-xs text-[#ff3b3b] font-mono">{rs.msg}</div>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* Fila expandible */}
+                    {isExpanded && (
+                      <tr key={`${snap.snapshot_id}-expanded`} className="bg-[#0f1117]">
+                        <td colSpan={8} className="px-8 py-4">
+                          {!snap.ports || snap.ports.length === 0 ? (
+                            <p className="text-xs text-[#6b7280] font-mono">Sin datos de puertos disponibles.</p>
+                          ) : (
+                            <table className="w-full text-xs text-left">
+                              <thead>
+                                <tr className="text-[#6b7280] uppercase">
+                                  <th className="pr-6 py-1 font-semibold">Puerto</th>
+                                  <th className="pr-6 py-1 font-semibold">Protocolo</th>
+                                  <th className="pr-6 py-1 font-semibold">Servicio</th>
+                                  <th className="pr-6 py-1 font-semibold">Versión</th>
+                                  <th className="pr-6 py-1 font-semibold">Estado</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#1e2530]/50">
+                                {snap.ports.map((p) => (
+                                  <tr key={p.port}>
+                                    <td className="pr-6 py-1.5 font-mono text-white">{p.port}</td>
+                                    <td className="pr-6 py-1.5 text-[#6b7280]">tcp</td>
+                                    <td className="pr-6 py-1.5">
+                                      <span className={`px-1.5 py-0.5 rounded border font-mono ${serviceBadgeClass(p.service)}`}>
+                                        {p.service || '—'}
+                                      </span>
+                                    </td>
+                                    <td className="pr-6 py-1.5 text-[#9ca3af] font-mono">{p.version || '—'}</td>
+                                    <td className="pr-6 py-1.5">
+                                      <div className="flex items-center gap-1.5">
+                                        <div className={`w-1.5 h-1.5 rounded-full ${p.state === 'open' ? 'bg-[#22c55e]' : 'bg-[#6b7280]'}`} />
+                                        <span className="text-[#9ca3af]">{p.state}</span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 const severityClass = (sev: string) => {
   switch (sev.toUpperCase()) {
@@ -116,6 +407,12 @@ export function AssetManagerPage() {
     setNewAssetErrors({});
   };
 
+  const handleOpenCreateDialog = useCallback((ip?: string) => {
+    resetCreateForm();
+    if (ip) setNewAssetForm(prev => ({ ...prev, ip }));
+    setCreateDialogOpen(true);
+  }, []);
+
   return (
     <div className="flex h-screen bg-[#0f1117]">
       <Sidebar />
@@ -140,7 +437,7 @@ export function AssetManagerPage() {
                 Actualizar
               </button>
               <button
-                onClick={() => { resetCreateForm(); setCreateDialogOpen(true); }}
+                onClick={() => handleOpenCreateDialog()}
                 className="flex items-center gap-2 px-4 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-semibold rounded-lg transition-colors text-sm"
               >
                 <Plus className="w-4 h-4" />
@@ -274,10 +571,7 @@ export function AssetManagerPage() {
 
             {/* TAB 2 y 3 */}
             <TabsContent value="shadow" className="mt-4">
-              <div className="p-8 border border-dashed border-[#1e2530] rounded-lg text-center">
-                <ShieldAlert className="w-8 h-8 text-[#f59e0b] mx-auto mb-3 opacity-50" />
-                <p className="text-[#9ca3af] font-mono text-sm">Vista de dispositivos descubiertos por Nmap pendiente de clasificar.</p>
-              </div>
+              <ShadowITTab onRegisterAsset={(ip) => handleOpenCreateDialog(ip)} />
             </TabsContent>
             <TabsContent value="vault" className="mt-4">
               <div className="p-8 border border-dashed border-[#1e2530] rounded-lg text-center">
