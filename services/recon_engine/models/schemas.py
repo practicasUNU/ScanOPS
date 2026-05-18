@@ -111,6 +111,7 @@ class ReconSnapshotSchema(BaseModel):
     subdomains: List[str] = []
     change_detection: ChangeDetection = Field(default_factory=ChangeDetection)
     summary: ReconSummary
+    webcheck: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

@@ -40,6 +40,85 @@ async def start_scan(
     result = await perform_full_recon(snapshot_id, target, db)
     return result
 
+
+
+@router.get("/snapshots/latest", response_model=ReconSnapshotSchema)
+async def get_latest_snapshot(
+    target: str = Query(..., description="Target IP or hostname"),
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve el snapshot de reconocimiento más reciente para un target,
+    incluyendo datos de Web-Check si están disponibles.
+    """
+    snapshot = (
+        db.query(ReconSnapshot)
+        .filter(ReconSnapshot.target == target)
+        .order_by(ReconSnapshot.started_at.desc())
+        .first()
+    )
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot found for target")
+
+    findings = db.query(ReconFinding).filter(ReconFinding.snapshot_id == snapshot.id).all()
+    ports_discovered = [
+        PortDiscovery(
+            port=int(f.port) if f.port and f.port.isdigit() else 0,
+            protocol="tcp",
+            state=f.state or "open",
+            service=f.service or "unknown",
+            version=f.version or "unknown",
+            product=None,
+            confidence=0.9 if f.source == "nmap" else 0.7,
+        )
+        for f in findings if f.port
+    ]
+
+    os_information = None
+    if snapshot.os_family:
+        os_information = OSInformation(
+            detected_family=snapshot.os_family,
+            detected_version=snapshot.os_version or "Unknown",
+            cpe=snapshot.os_cpe,
+            confidence=snapshot.os_confidence or 0.5,
+        )
+
+    host_information = None
+    if snapshot.mac_address or snapshot.latency_ms:
+        host_information = HostInformation(
+            mac_address=snapshot.mac_address,
+            vendor=snapshot.mac_vendor,
+            latency_ms=snapshot.latency_ms,
+        )
+
+    subdomains_db = db.query(ReconSubdomain).filter(ReconSubdomain.snapshot_id == snapshot.id).all()
+
+    recon_data = ReconData(
+        ports_discovered=ports_discovered,
+        os_information=os_information,
+        host_information=host_information,
+    )
+
+    summary = ReconSummary(
+        total_ports_open=len(ports_discovered),
+        total_services_detected=len([p for p in ports_discovered if p.service != "unknown"]),
+        scan_duration_seconds=0.0,
+    )
+
+    return ReconSnapshotSchema(
+        snapshot_id=snapshot.cycle_id,
+        target=snapshot.target,
+        status=snapshot.status,
+        created_at=snapshot.started_at,
+        finished_at=snapshot.finished_at,
+        reconnaissance=recon_data,
+        subdomains=[s.subdomain for s in subdomains_db],
+        summary=summary,
+        webcheck=snapshot.webcheck_data or None,
+    )
+
+
 @router.get("/snapshots/{snapshot_id}/findings", response_model=ReconSnapshotSchema)
 async def get_snapshot_recon(snapshot_id: str, db: Session = Depends(get_db)):
     """

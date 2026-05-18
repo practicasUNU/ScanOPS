@@ -4,6 +4,23 @@ import { Search, Plus, Play, Activity, AlertCircle, CheckCircle2, RefreshCw, Che
 import { useState } from 'react';
 import { useAssets, type Asset, type VulnResult } from '../../hooks/useAssets';
 
+type WebCheckData = {
+  ssl?: any;
+  headers?: any;
+  dns?: any;
+  cookies?: any;
+  'tech-stack'?: any;
+  dnssec?: any;
+  'mail-config'?: any; 
+};
+
+const SECURITY_HEADERS = [
+  'X-Frame-Options',
+  'Content-Security-Policy',
+  'Strict-Transport-Security',
+  'X-Content-Type-Options',
+] as const;
+
 export function ScannerPage() {
   const { assets, loading, error, refetch, createAsset, scanAsset, getScanStatus, getVulnResults } = useAssets();
   const [newIP, setNewIP] = useState('');
@@ -14,6 +31,7 @@ export function ScannerPage() {
   const [adding, setAdding] = useState(false);
   const [scanTypes, setScanTypes] = useState<Record<number, string[]>>({});
   const [taskIds, setTaskIds] = useState<Record<number, string>>({});
+  const [reconData, setReconData] = useState<Record<number, any>>({});
 
   const handleAddAsset = async () => {
     if (!newIP.trim()) return;
@@ -64,6 +82,20 @@ export function ScannerPage() {
     if (!vulns[asset.id]) {
       const results = await getVulnResults(asset.id);
       setVulns(prev => ({ ...prev, [asset.id]: results }));
+    }
+    if (!reconData[asset.id]) {
+      try {
+        const res = await fetch(
+          `http://localhost:8003/api/v1/snapshots/latest?target=${encodeURIComponent(asset.ip)}`,
+          { headers: { Authorization: 'Bearer scanops_secret' } },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setReconData(prev => ({ ...prev, [asset.id]: data }));
+        }
+      } catch {
+        // silencioso — M2 puede no estar disponible
+      }
     }
   };
 
@@ -202,7 +234,7 @@ export function ScannerPage() {
                   </div>
 
                   {expanded === asset.id && (
-                    <div className="border-t border-[#1e2530] px-4 py-3">
+                    <div className="border-t border-[#1e2530] px-4 py-3 space-y-3">
                       {!vulns[asset.id] ? (
                         <div className="text-xs text-[#9ca3af] font-mono">Cargando resultados...</div>
                       ) : vulns[asset.id].length === 0 ? (
@@ -223,6 +255,100 @@ export function ScannerPage() {
                           ))}
                         </div>
                       )}
+
+                      {(() => {
+                        const wc: WebCheckData | undefined = reconData[asset.id]?.webcheck;
+                        if (!wc) return null;
+                        const ssl = wc.ssl;
+                        const headersRaw = wc.headers;
+                        const techStack = wc['tech-stack'];
+                        const mailConfig = wc['mail-config'];
+
+                        const sslValid: boolean = ssl?.valid ?? ssl?.isValid ?? false;
+                        const sslDays: number | null = ssl?.daysUntilExpiry ?? ssl?.days_remaining ?? null;
+                        const sslIssuer: string | null = ssl?.issuer?.O ?? ssl?.issuer ?? null;
+
+                        const presentHeaders = new Set<string>(
+                          Array.isArray(headersRaw)
+                            ? headersRaw.map((h: any) => h?.name ?? h)
+                            : Object.keys(headersRaw ?? {}),
+                        );
+
+                        const techRaw = techStack?.technologies ?? techStack;
+                        const techList: string[] = Array.isArray(techRaw)
+                          ? techRaw.map((t: any) => t?.name ?? t).filter(Boolean)
+                          : typeof techRaw === 'object' && techRaw
+                          ? Object.keys(techRaw)
+                          : []
+
+                        const spfOk: boolean = mailConfig?.spf?.valid ?? mailConfig?.spf ?? false;
+                        const dmarcOk: boolean = mailConfig?.dmarc?.valid ?? mailConfig?.dmarc ?? false;
+
+                        return (
+                          <div className="pt-2 border-t border-[#1e2530]">
+                            <div className="text-xs text-[#9ca3af] mb-2 font-medium">🌐 Web-Check</div>
+                            <div className="grid grid-cols-2 gap-2">
+
+                              {ssl && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">SSL</div>
+                                  <div className={`text-xs font-medium ${sslValid ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>
+                                    {sslValid ? 'Válido' : 'Expirado'}
+                                  </div>
+                                  {sslDays != null && (
+                                    <div className="text-xs text-[#9ca3af] font-mono mt-0.5">{sslDays}d restantes</div>
+                                  )}
+                                  {sslIssuer && (
+                                    <div className="text-xs text-[#6b7280] font-mono mt-0.5 truncate">{sslIssuer}</div>
+                                  )}
+                                </div>
+                              )}
+
+                              {headersRaw && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">Headers</div>
+                                  <div className="space-y-0.5">
+                                    {SECURITY_HEADERS.map(h => (
+                                      <div key={h} className="flex items-center gap-1.5">
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${presentHeaders.has(h) ? 'bg-[#22c55e]' : 'bg-[#ff3b3b]'}`} />
+                                        <span className={`text-xs font-mono ${presentHeaders.has(h) ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>{h}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {techList.length > 0 && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">Tech Stack</div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {techList.map(t => (
+                                      <span key={t} className="text-xs px-1.5 py-0.5 rounded bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20 font-mono">
+                                        {t}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {mailConfig && (
+                                <div className="bg-[#1e2530] rounded-lg p-3">
+                                  <div className="text-xs text-[#9ca3af] mb-1.5">Mail</div>
+                                  <div className="space-y-0.5">
+                                    {([['SPF', spfOk], ['DMARC', dmarcOk]] as const).map(([label, ok]) => (
+                                      <div key={label} className="flex items-center gap-1.5">
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ok ? 'bg-[#22c55e]' : 'bg-[#ff3b3b]'}`} />
+                                        <span className={`text-xs font-mono ${ok ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>{label}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

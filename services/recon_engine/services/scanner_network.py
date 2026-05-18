@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
+import aiohttp
 
 from shared.scan_logger import ScanLogger
 from shared.database import SessionLocal
@@ -181,6 +182,43 @@ async def run_nmap_scan(
         return [], None, None, 0
 
 
+_WEB_PORTS = {80, 443, 8080, 8443, 8000, 8888}
+_WEBCHECK_BASE = "http://scanops-webcheck:3000/api"
+_WEBCHECK_ENDPOINTS = ["ssl", "headers", "dns", "cookies", "tech-stack", "dnssec", "mail-config"]
+
+
+def has_web_service(ports: List[PortDiscovery]) -> bool:
+    return any(p.port in _WEB_PORTS for p in ports)
+
+
+async def run_webcheck(target: str) -> dict:
+    url_target = target if target.startswith(("http://", "https://")) else f"https://{target}"
+    logger.info("WEBCHECK_START", target=url_target)
+    timeout = aiohttp.ClientTimeout(total=30)
+    results: dict = {}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async def _fetch(endpoint: str) -> tuple[str, dict]:
+                try:
+                    async with session.get(
+                        f"{_WEBCHECK_BASE}/{endpoint}",
+                        params={"url": url_target},
+                    ) as resp:
+                        data = await resp.json(content_type=None)
+                        return endpoint, data
+                except Exception as e:
+                    logger.warning("WEBCHECK_ENDPOINT_ERROR", endpoint=endpoint, error=str(e))
+                    return endpoint, {}
+
+            responses = await asyncio.gather(*[_fetch(ep) for ep in _WEBCHECK_ENDPOINTS])
+            results = {ep: data for ep, data in responses}
+    except Exception as e:
+        logger.error("WEBCHECK_SESSION_ERROR", target=url_target, error=str(e))
+        return {}
+    logger.info("WEBCHECK_DONE", target=url_target, endpoints=len(results))
+    return results
+
+
 async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> ReconSnapshotSchema:
     """
     Orquestación completa del reconocimiento M2.
@@ -231,6 +269,14 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
             if raw_tls:
                 port_obj.tls_info = TlsInfo(**raw_tls)
 
+    # Web-Check (M2 - escáner 4)
+    if has_web_service(ports):
+        logger.info("WEBCHECK_START", target=target)
+        webcheck_data = await run_webcheck(target)
+    else:
+        logger.info("WEBCHECK_SKIPPED", target=target, reason="no web ports detected")
+        webcheck_data = {}
+
     # Persistir findings
     for p in ports:
         finding = ReconFinding(
@@ -271,6 +317,8 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
         snapshot_db.mac_address = host_info.mac_address
         snapshot_db.mac_vendor = host_info.vendor
         snapshot_db.latency_ms = host_info.latency_ms
+
+    snapshot_db.webcheck_data = webcheck_data if webcheck_data else None
 
     db.commit()
     db.refresh(snapshot_db)
@@ -322,4 +370,5 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
         finished_at=snapshot_db.finished_at,
         reconnaissance=recon_data,
         summary=summary,
+        webcheck=webcheck_data if webcheck_data else None,
     )

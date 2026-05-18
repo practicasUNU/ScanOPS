@@ -139,6 +139,27 @@ services:
     networks:
       - scanops
     restart: unless-stopped
+
+
+  # Web-Check — OSINT capa de aplicación (ENS local, sin API pública)
+  scanops-webcheck:
+    image: lissy93/web-check:latest
+    container_name: scanops-webcheck
+    ports:
+      - "3000:3000"
+    networks:
+      - scanops
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+
+
   # services/scanner_engine (M3)
   scanner-engine:
     build:
