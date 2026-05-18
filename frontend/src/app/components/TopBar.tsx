@@ -1,6 +1,8 @@
-import { Bell, Shield } from 'lucide-react';
+import { Bell, Shield, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import { getCycleState } from '../utils/cycleState';
 import type { DotColor } from '../utils/cycleState';
+import { useAuth } from '../../hooks/useAuth';
 
 interface TopBarProps {
   role?: string;
@@ -9,6 +11,14 @@ interface TopBarProps {
 }
 
 export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBarProps) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
   const localCycle = getCycleState();
   const label = cycleLabel ?? localCycle.label;
   const color = dotColor ?? localCycle.dotColor;
@@ -75,6 +85,14 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
             <div className="text-[#9ca3af] text-xs">{role}</div>
           </div>
         </div>
+
+        <button
+          onClick={handleLogout}
+          className="p-2 text-[#9ca3af] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded-lg transition-colors"
+          title="Cerrar sesión"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </div>
     </header>
   );
