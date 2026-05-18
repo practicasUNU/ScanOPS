@@ -1526,7 +1526,7 @@ services:
     build: ./services/reporting_engine
     container_name: scanops-m7
     ports:
-      - "8008:8000"
+      - "8007:8000"
     volumes:
       - ./services/reporting_engine:/app
     environment:
@@ -6496,6 +6496,7 @@ import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AssetManagerPage } from './components/AssetManagerPage';
 import { AIReasoningPage } from './components/AIReasoningPage';
+import { ReportingPage } from './components/ReportingPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
@@ -6538,6 +6539,11 @@ export default function App() {
         } />
         <Route path="/ai-reasoning" element={
           <ProtectedRoute><AIReasoningPage /></ProtectedRoute>
+        } />
+        <Route path="/reporting" element={
+          <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
+            <ReportingPage />
+          </ProtectedRoute>
         } />
       </Routes>
     </BrowserRouter>
@@ -6918,6 +6924,7 @@ import { TopBar } from './TopBar';
 import {
   Server, ShieldAlert, KeyRound, Plus, RefreshCw, AlertCircle,
   Play, Loader2, Eye, Info, Terminal, Monitor, HelpCircle, ChevronDown, ChevronRight,
+  Copy, Check, Lock,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
@@ -7219,6 +7226,122 @@ function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
   );
 }
 
+interface VaultEntry {
+  asset: string;
+  type: string;
+  ref: string;
+  rotated: string;
+}
+
+const VAULT_ENTRIES: VaultEntry[] = [
+  { asset: '10.202.15.15',  type: 'SSH Private Key',   ref: 'secret/scanops/assets/10/ssh_key',     rotated: '2026-05-13T10:00:00Z' },
+  { asset: '10.202.15.100', type: 'SSH Password',       ref: 'secret/scanops/assets/1/ssh_pass',     rotated: '2026-05-13T10:00:00Z' },
+  { asset: '10.202.15.15',  type: 'API Token M3',       ref: 'secret/scanops/scanner/api_token',     rotated: '2026-05-01T08:00:00Z' },
+  { asset: 'Global',        type: 'MSF RPC Password',   ref: 'secret/scanops/msf/rpc_password',      rotated: '2026-04-20T12:00:00Z' },
+];
+
+function VaultTab() {
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  const [maskedRow, setMaskedRow] = useState<string | null>(null);
+
+  const handleCopy = (ref: string) => {
+    navigator.clipboard.writeText(ref);
+    setCopiedRef(ref);
+    setTimeout(() => setCopiedRef(null), 2000);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Banner */}
+      <div className="flex items-start gap-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-lg px-4 py-3 text-sm text-[#9ca3af]">
+        <Lock className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" />
+        <span>
+          Las credenciales están cifradas en HashiCorp Vault (AES-256).
+          Este panel muestra referencias masked — nunca el secreto en claro.
+          Acceso real requiere autenticación directa al Vault API (ENS mp.info.3).
+        </span>
+      </div>
+
+      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+        <table className="w-full text-sm text-left">
+          <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+            <tr>
+              <th className="px-6 py-3 font-semibold">Activo</th>
+              <th className="px-6 py-3 font-semibold">Tipo de credencial</th>
+              <th className="px-6 py-3 font-semibold">Referencia Vault</th>
+              <th className="px-6 py-3 font-semibold">Última rotación</th>
+              <th className="px-6 py-3 font-semibold">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#1e2530]">
+            {VAULT_ENTRIES.map((entry) => (
+              <>
+                <tr key={entry.ref} className="hover:bg-[#1e2530]/40 transition-colors">
+                  <td className="px-6 py-4 font-mono text-white">{entry.asset}</td>
+                  <td className="px-6 py-4 text-[#9ca3af]">{entry.type}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-[#6b7280]">{entry.ref}</span>
+                      <button
+                        onClick={() => handleCopy(entry.ref)}
+                        className="text-[#6b7280] hover:text-[#00d4ff] transition-colors shrink-0"
+                        title="Copiar referencia"
+                      >
+                        {copiedRef === entry.ref
+                          ? <Check className="w-3 h-3 text-[#22c55e]" />
+                          : <Copy className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-xs text-[#9ca3af]">
+                    {fmt.format(new Date(entry.rotated))}
+                  </td>
+                  <td className="px-6 py-4">
+                    {maskedRow === entry.ref ? (
+                      <button
+                        onClick={() => setMaskedRow(null)}
+                        className="px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                      >
+                        Cerrar
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setMaskedRow(entry.ref)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#f59e0b]/10 border border-[#f59e0b]/30 text-[#f59e0b] rounded-lg hover:bg-[#f59e0b]/20 transition-colors"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        Ver masked
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {maskedRow === entry.ref && (
+                  <tr key={`${entry.ref}-masked`} className="bg-[#0f1117]">
+                    <td colSpan={5} className="px-6 py-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="password"
+                          readOnly
+                          value="••••••••••••••••"
+                          className="font-mono text-sm bg-[#1a1d27] border border-[#1e2530] rounded px-3 py-1.5 text-[#9ca3af] w-48 focus:outline-none"
+                        />
+                        <span className="text-xs text-[#6b7280]">Valor enmascarado — solo referencia visible</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            ))}
+          </tbody>
+        </table>
+        <div className="px-6 py-2.5 border-t border-[#1e2530] text-xs text-[#6b7280]">
+          Vault path: http://localhost:8200 · Política: scanops-readonly · ENS mp.info.3
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const severityClass = (sev: string) => {
   switch (sev.toUpperCase()) {
     case 'CRITICAL': return 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10';
@@ -7488,10 +7611,7 @@ export function AssetManagerPage() {
               <ShadowITTab onRegisterAsset={(ip) => handleOpenCreateDialog(ip)} />
             </TabsContent>
             <TabsContent value="vault" className="mt-4">
-              <div className="p-8 border border-dashed border-[#1e2530] rounded-lg text-center">
-                <KeyRound className="w-8 h-8 text-[#22c55e] mx-auto mb-3 opacity-50" />
-                <p className="text-[#9ca3af] font-mono text-sm">Gestor de secretos cifrados en HashiCorp Vault.</p>
-              </div>
+              <VaultTab />
             </TabsContent>
           </Tabs>
         </main>
@@ -9030,6 +9150,286 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
 
   return <>{children}</>;
 }
+FILE:frontend\src\app\components\ReportingPage.tsx
+import { useState, useEffect, useCallback } from 'react';
+import { Sidebar } from './Sidebar';
+import { TopBar } from './TopBar';
+import {
+  BarChart3, FileCode, Shield, Archive, RefreshCw, Download,
+  Loader2, AlertCircle,
+} from 'lucide-react';
+
+const M7_BASE = 'http://localhost:8007';
+
+function getAuthHeader(): HeadersInit {
+  try {
+    const raw = sessionStorage.getItem('scanops_auth');
+    const token = raw ? JSON.parse(raw)?.access_token : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
+async function blobDownload(url: string, filename: string): Promise<void> {
+  const res = await fetch(url, { headers: getAuthHeader() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(href);
+}
+
+interface ReportCard {
+  id: string;
+  icon: React.ElementType;
+  color: string;
+  title: string;
+  description: string;
+  endpoint: string;
+  filename: string;
+}
+
+const REPORT_CARDS: ReportCard[] = [
+  {
+    id: 'executive',
+    icon: BarChart3,
+    color: '#00d4ff',
+    title: 'Informe Ejecutivo',
+    description: 'Métricas globales, score ENS, ROI y top vulnerabilidades.',
+    endpoint: `${M7_BASE}/report/executive`,
+    filename: 'ScanOps_Informe_Ejecutivo.pdf',
+  },
+  {
+    id: 'technical',
+    icon: FileCode,
+    color: '#f59e0b',
+    title: 'Informe Técnico',
+    description: 'Cadena completa de evidencias M1+M2+M3+M4 con plan de remediación.',
+    endpoint: `${M7_BASE}/report/technical`,
+    filename: 'ScanOps_Informe_Tecnico.pdf',
+  },
+  {
+    id: 'soa',
+    icon: Shield,
+    color: '#22c55e',
+    title: 'Declaración de Aplicabilidad (SoA)',
+    description: '73 medidas ENS Alto — estado de cumplimiento por control (RD 311/2022).',
+    endpoint: `${M7_BASE}/report/soa`,
+    filename: 'ScanOps_SoA_ENS_Alto.pdf',
+  },
+  {
+    id: 'full-audit',
+    icon: Archive,
+    color: '#8b5cf6',
+    title: 'Auditoría Completa (ZIP)',
+    description: 'Paquete completo: 4 PDFs firmados + evidencias. Generación paralela asíncrona.',
+    endpoint: `${M7_BASE}/report/full-audit`,
+    filename: 'ScanOps_Auditoria_Completa.zip',
+  },
+];
+
+const historyDateFmt = (name: string): string => {
+  const m = name.match(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+  if (!m) return '—';
+  return `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`;
+};
+
+export function ReportingPage() {
+  const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
+  const [errorMap, setErrorMap] = useState<Record<string, string | null>>({});
+
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [dlLoading, setDlLoading] = useState<Record<string, boolean>>({});
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const res = await fetch(`${M7_BASE}/report/history`, { headers: getAuthHeader() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setHistory(data.archivos ?? []);
+    } catch (e) {
+      setHistoryError(e instanceof Error ? e.message : 'Error al cargar historial');
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  const handleDownload = async (card: ReportCard) => {
+    setLoadingMap(p => ({ ...p, [card.id]: true }));
+    setErrorMap(p => ({ ...p, [card.id]: null }));
+    try {
+      await blobDownload(card.endpoint, card.filename);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido';
+      setErrorMap(p => ({ ...p, [card.id]: msg }));
+      setTimeout(() => setErrorMap(p => ({ ...p, [card.id]: null })), 4000);
+    } finally {
+      setLoadingMap(p => ({ ...p, [card.id]: false }));
+    }
+  };
+
+  const handleHistoryDownload = async (filename: string) => {
+    setDlLoading(p => ({ ...p, [filename]: true }));
+    try {
+      await blobDownload(`${M7_BASE}/report/history/${encodeURIComponent(filename)}`, filename);
+    } catch {
+      // silent — no banner for history items
+    } finally {
+      setDlLoading(p => ({ ...p, [filename]: false }));
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-[#0f1117]">
+      <Sidebar />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <TopBar role="Auditor" />
+        <main className="flex-1 overflow-auto p-6 space-y-8">
+
+          {/* Header */}
+          <div>
+            <h1 className="text-2xl font-semibold text-white mb-1">Reporting Engine (M7)</h1>
+            <p className="text-[#9ca3af] text-sm">
+              Informes PDF firmados digitalmente · ENS mp.info.4 · AES-256
+            </p>
+          </div>
+
+          {/* Generación de informes */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">
+              Generación de informes
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {REPORT_CARDS.map((card) => {
+                const Icon = card.icon;
+                const isLoading = loadingMap[card.id];
+                const err = errorMap[card.id];
+                return (
+                  <div
+                    key={card.id}
+                    className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5 flex flex-col gap-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${card.color}1a` }}
+                      >
+                        <Icon className="w-5 h-5" style={{ color: card.color }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-white">{card.title}</div>
+                        <div className="text-xs text-[#9ca3af] mt-0.5">{card.description}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-auto space-y-1.5">
+                      <button
+                        onClick={() => handleDownload(card)}
+                        disabled={!!isLoading}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        style={{
+                          backgroundColor: `${card.color}1a`,
+                          border: `1px solid ${card.color}4d`,
+                          color: card.color,
+                        }}
+                        onMouseEnter={e => { if (!isLoading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = `${card.color}33`; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = `${card.color}1a`; }}
+                      >
+                        {isLoading
+                          ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</>
+                          : <><Download className="w-4 h-4" /> Generar y Descargar</>}
+                      </button>
+                      {err && (
+                        <div className="flex items-center gap-1.5 text-xs text-[#ff3b3b]">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          {err}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Historial */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">
+                Historial de ciclos
+              </h2>
+              <button
+                onClick={fetchHistory}
+                disabled={historyLoading}
+                className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-[#9ca3af] hover:text-white transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </button>
+            </div>
+
+            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+              {historyLoading ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-[#6b7280]">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Cargando historial...</span>
+                </div>
+              ) : historyError || history.length === 0 ? (
+                <div className="py-10 text-center text-sm text-[#6b7280] font-mono">
+                  No hay informes históricos disponibles.
+                </div>
+              ) : (
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Archivo</th>
+                      <th className="px-6 py-3 font-semibold">Fecha</th>
+                      <th className="px-6 py-3 font-semibold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1e2530]">
+                    {history.map((filename) => (
+                      <tr key={filename} className="hover:bg-[#1e2530]/40 transition-colors">
+                        <td className="px-6 py-3 font-mono text-xs text-[#9ca3af]">{filename}</td>
+                        <td className="px-6 py-3 text-xs text-[#6b7280]">
+                          {historyDateFmt(filename)}
+                        </td>
+                        <td className="px-6 py-3">
+                          <button
+                            onClick={() => handleHistoryDownload(filename)}
+                            disabled={!!dlLoading[filename]}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg hover:bg-[#00d4ff]/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {dlLoading[filename]
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <Download className="w-3.5 h-3.5" />}
+                            Descargar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </section>
+
+        </main>
+      </div>
+    </div>
+  );
+}
 FILE:frontend\src\app\components\ScannerPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -9406,13 +9806,61 @@ import {
   PanelLeft,
   Boxes,
   Brain,
+  FileText,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+function useModuleHealth() {
+  const [health, setHealth] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const raw = sessionStorage.getItem('scanops_auth');
+        const token = raw ? JSON.parse(raw)?.access_token : null;
+        const res = await fetch('http://localhost:8009/orchestrator/modules/health', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: AbortSignal.timeout(4000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setHealth(data.modules ?? {});
+        }
+      } catch { /* silencioso */ }
+    };
+    check();
+    const id = setInterval(check, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  return health;
+}
+
+const MODULE_MAP: Record<string, string | string[]> = {
+  '/assets': 'M1',
+  '/surface': ['M2', 'M3'],
+  '/ai-reasoning': 'M8',
+  '/exploitation': 'M4',
+  '/alerts': 'M5',
+  '/reporting': 'M7',
+};
+
+function getModuleStatus(path: string, health: Record<string, string>): 'online' | 'offline' | undefined {
+  const mapping = MODULE_MAP[path];
+  if (!mapping) return undefined;
+  if (Array.isArray(mapping)) {
+    if (mapping.every(m => health[m] === undefined)) return undefined;
+    return mapping.some(m => health[m] === 'offline') ? 'offline' : 'online';
+  }
+  if (health[mapping] === undefined) return undefined;
+  return health[mapping] === 'online' ? 'online' : 'offline';
+}
 
 export function Sidebar() {
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const health = useModuleHealth();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -9426,6 +9874,7 @@ export function Sidebar() {
         { icon: Brain, label: 'M8 - IA Reasoning', path: '/ai-reasoning' },
         { icon: ClipboardList, label: 'M4 - Explotación', path: '/exploitation' },
         { icon: Bell, label: 'M5 - Alertas SIEM', path: '/alerts' },
+        { icon: FileText, label: 'M7 - Reportes', path: '/reporting' },
       ]
     },
     {
@@ -9482,6 +9931,8 @@ export function Sidebar() {
             {section.items.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
+              const isPipeline = section.title === 'Pipeline';
+              const moduleStatus = isPipeline ? getModuleStatus(item.path, health) : undefined;
 
               return (
                 <Link
@@ -9498,9 +9949,16 @@ export function Sidebar() {
                 >
                   <Icon className="w-5 h-5 shrink-0" />
                   {!isCollapsed && (
-                    <span className="text-sm font-medium truncate transition-opacity duration-300">
-                      {item.label}
-                    </span>
+                    <>
+                      <span className="text-sm font-medium truncate transition-opacity duration-300">
+                        {item.label}
+                      </span>
+                      {moduleStatus !== undefined && (
+                        <div className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${
+                          moduleStatus === 'online' ? 'bg-[#22c55e]' : 'bg-[#ff3b3b]'
+                        }`} />
+                      )}
+                    </>
                   )}
                 </Link>
               );
@@ -37913,6 +38371,9 @@ FILE:services\reporting_engine\history\ScanOps_Audit_20260513_073212.zip
 BINARY:true
 
 FILE:services\reporting_engine\history\ScanOps_Audit_20260513_144927.zip
+BINARY:true
+
+FILE:services\reporting_engine\history\ScanOps_Audit_20260518_135633.zip
 BINARY:true
 
 FILE:services\reporting_engine\templates\base.html

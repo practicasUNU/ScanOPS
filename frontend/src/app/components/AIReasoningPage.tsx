@@ -3,7 +3,7 @@ import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   Filter, ArrowUpDown, BookOpen, FileText, Crosshair, UserCheck,
-  Check, Terminal,
+  Check, Terminal, XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -133,45 +133,12 @@ export function AIReasoningPage() {
   const [msfInput, setMsfInput] = useState(MSF_DATA.msf_module);
 
   // [5] UBICACIÓN EXACTA: La función se declara aquí dentro para que pueda leer y escribir usando setStepStates
-  const handleRejectDecision = async () => {
-    try {
-      const authDataRaw = sessionStorage.getItem('scanops_auth');
-      const token = authDataRaw ? JSON.parse(authDataRaw)?.access_token : null;
-      const operatorId = authDataRaw ? JSON.parse(authDataRaw)?.username : 'system_manager';
-
-      /* Descomenta esto cuando uses el backend real
-      const response = await fetch('http://localhost:8005/ai/decision', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
-        },
-        body: JSON.stringify({
-          asset_id: "1",
-          finding_id: "f_real",
-          decision: 'rechazada',
-          corrected_module: null,
-          operator_id: operatorId
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Error al registrar la decisión en el servidor');
-      }
-      */
-
-      setStepStates((prevStates) => {
-        const newStates = [...prevStates];
-        newStates[5] = 'rejected'; 
-        return newStates;
-      });
-
-      alert('Vector de ataque rechazado. Decisión registrada de forma inmutable en los logs de auditoría (ENS op.exp.5).');
-
-    } catch (error) {
-      alert('Error de comunicación con el motor M8 al intentar rechazar el vector.');
-      console.error('M8 Correlation/Decision Error:', error);
-    }
+  const handleRejectDecision = () => {
+    setStepStates((prevStates) => {
+      const newStates = [...prevStates];
+      newStates[5] = 'rejected';
+      return newStates;
+    });
   };
 
   const step = STEPS[selectedStep];
@@ -288,7 +255,7 @@ export function AIReasoningPage() {
             )}
 
             {/* Step 6 — human validation form */}
-            {selectedStep === 5 && (stepStatus === 'pending' || stepStatus === 'rejected') && (
+            {selectedStep === 5 && stepStatus === 'pending' && (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3">
                   <button
@@ -335,6 +302,31 @@ export function AIReasoningPage() {
                 <p className="text-xs text-[#6b7280]">
                   ENS op.pl.1 — Toda decisión requiere justificación humana
                 </p>
+              </div>
+            )}
+
+            {/* Step 6 — rejected confirmation */}
+            {selectedStep === 5 && stepStatus === 'rejected' && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-4 py-3">
+                  <XCircle className="w-4 h-4 text-[#ff3b3b] shrink-0" />
+                  <div>
+                    <div className="text-sm font-semibold text-[#ff3b3b]">Vector rechazado</div>
+                    <div className="text-xs text-[#9ca3af] mt-0.5">
+                      Decisión registrada de forma inmutable en los logs de auditoría (ENS op.exp.5).
+                    </div>
+                  </div>
+                </div>
+                <button
+                  className="self-start px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg text-sm hover:text-white transition-colors"
+                  onClick={() => {
+                    const next = [...stepStates];
+                    next[5] = 'pending';
+                    setStepStates(next);
+                  }}
+                >
+                  Revertir decisión
+                </button>
               </div>
             )}
           </div>

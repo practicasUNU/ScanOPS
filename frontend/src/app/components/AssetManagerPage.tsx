@@ -4,6 +4,7 @@ import { TopBar } from './TopBar';
 import {
   Server, ShieldAlert, KeyRound, Plus, RefreshCw, AlertCircle,
   Play, Loader2, Eye, Info, Terminal, Monitor, HelpCircle, ChevronDown, ChevronRight,
+  Copy, Check, Lock,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
@@ -305,6 +306,122 @@ function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
   );
 }
 
+interface VaultEntry {
+  asset: string;
+  type: string;
+  ref: string;
+  rotated: string;
+}
+
+const VAULT_ENTRIES: VaultEntry[] = [
+  { asset: '10.202.15.15',  type: 'SSH Private Key',   ref: 'secret/scanops/assets/10/ssh_key',     rotated: '2026-05-13T10:00:00Z' },
+  { asset: '10.202.15.100', type: 'SSH Password',       ref: 'secret/scanops/assets/1/ssh_pass',     rotated: '2026-05-13T10:00:00Z' },
+  { asset: '10.202.15.15',  type: 'API Token M3',       ref: 'secret/scanops/scanner/api_token',     rotated: '2026-05-01T08:00:00Z' },
+  { asset: 'Global',        type: 'MSF RPC Password',   ref: 'secret/scanops/msf/rpc_password',      rotated: '2026-04-20T12:00:00Z' },
+];
+
+function VaultTab() {
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  const [maskedRow, setMaskedRow] = useState<string | null>(null);
+
+  const handleCopy = (ref: string) => {
+    navigator.clipboard.writeText(ref);
+    setCopiedRef(ref);
+    setTimeout(() => setCopiedRef(null), 2000);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Banner */}
+      <div className="flex items-start gap-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-lg px-4 py-3 text-sm text-[#9ca3af]">
+        <Lock className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" />
+        <span>
+          Las credenciales están cifradas en HashiCorp Vault (AES-256).
+          Este panel muestra referencias masked — nunca el secreto en claro.
+          Acceso real requiere autenticación directa al Vault API (ENS mp.info.3).
+        </span>
+      </div>
+
+      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+        <table className="w-full text-sm text-left">
+          <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+            <tr>
+              <th className="px-6 py-3 font-semibold">Activo</th>
+              <th className="px-6 py-3 font-semibold">Tipo de credencial</th>
+              <th className="px-6 py-3 font-semibold">Referencia Vault</th>
+              <th className="px-6 py-3 font-semibold">Última rotación</th>
+              <th className="px-6 py-3 font-semibold">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#1e2530]">
+            {VAULT_ENTRIES.map((entry) => (
+              <>
+                <tr key={entry.ref} className="hover:bg-[#1e2530]/40 transition-colors">
+                  <td className="px-6 py-4 font-mono text-white">{entry.asset}</td>
+                  <td className="px-6 py-4 text-[#9ca3af]">{entry.type}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-[#6b7280]">{entry.ref}</span>
+                      <button
+                        onClick={() => handleCopy(entry.ref)}
+                        className="text-[#6b7280] hover:text-[#00d4ff] transition-colors shrink-0"
+                        title="Copiar referencia"
+                      >
+                        {copiedRef === entry.ref
+                          ? <Check className="w-3 h-3 text-[#22c55e]" />
+                          : <Copy className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-xs text-[#9ca3af]">
+                    {fmt.format(new Date(entry.rotated))}
+                  </td>
+                  <td className="px-6 py-4">
+                    {maskedRow === entry.ref ? (
+                      <button
+                        onClick={() => setMaskedRow(null)}
+                        className="px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                      >
+                        Cerrar
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setMaskedRow(entry.ref)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#f59e0b]/10 border border-[#f59e0b]/30 text-[#f59e0b] rounded-lg hover:bg-[#f59e0b]/20 transition-colors"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        Ver masked
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {maskedRow === entry.ref && (
+                  <tr key={`${entry.ref}-masked`} className="bg-[#0f1117]">
+                    <td colSpan={5} className="px-6 py-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="password"
+                          readOnly
+                          value="••••••••••••••••"
+                          className="font-mono text-sm bg-[#1a1d27] border border-[#1e2530] rounded px-3 py-1.5 text-[#9ca3af] w-48 focus:outline-none"
+                        />
+                        <span className="text-xs text-[#6b7280]">Valor enmascarado — solo referencia visible</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            ))}
+          </tbody>
+        </table>
+        <div className="px-6 py-2.5 border-t border-[#1e2530] text-xs text-[#6b7280]">
+          Vault path: http://localhost:8200 · Política: scanops-readonly · ENS mp.info.3
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const severityClass = (sev: string) => {
   switch (sev.toUpperCase()) {
     case 'CRITICAL': return 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10';
@@ -336,6 +453,7 @@ export function AssetManagerPage() {
   });
   const [newAssetErrors, setNewAssetErrors] = useState<{ ip?: string; responsable?: string }>({});
   const [newAssetSubmitting, setNewAssetSubmitting] = useState(false);
+  const [createApiError, setCreateApiError] = useState<string | null>(null);
 
   const handleScan = useCallback(async (asset: Asset) => {
     setRowState(prev => ({ ...prev, [asset.id]: { status: 'scanning' } }));
@@ -395,8 +513,9 @@ export function AssetManagerPage() {
       setNewAssetForm({ ip: '', hostname: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '' });
       setNewAssetErrors({});
       refetch();
-    } catch {
-      // keep dialog open on error
+    } catch (e: any) {
+      const msg = e?.detail ?? e?.message ?? (typeof e === 'string' ? e : 'Error al crear el activo');
+      setCreateApiError(msg);
     } finally {
       setNewAssetSubmitting(false);
     }
@@ -405,10 +524,12 @@ export function AssetManagerPage() {
   const resetCreateForm = () => {
     setNewAssetForm({ ip: '', hostname: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '' });
     setNewAssetErrors({});
+    setCreateApiError(null);
   };
 
   const handleOpenCreateDialog = useCallback((ip?: string) => {
     resetCreateForm();
+    setCreateApiError(null);
     if (ip) setNewAssetForm(prev => ({ ...prev, ip }));
     setCreateDialogOpen(true);
   }, []);
@@ -574,10 +695,7 @@ export function AssetManagerPage() {
               <ShadowITTab onRegisterAsset={(ip) => handleOpenCreateDialog(ip)} />
             </TabsContent>
             <TabsContent value="vault" className="mt-4">
-              <div className="p-8 border border-dashed border-[#1e2530] rounded-lg text-center">
-                <KeyRound className="w-8 h-8 text-[#22c55e] mx-auto mb-3 opacity-50" />
-                <p className="text-[#9ca3af] font-mono text-sm">Gestor de secretos cifrados en HashiCorp Vault.</p>
-              </div>
+              <VaultTab />
             </TabsContent>
           </Tabs>
         </main>
@@ -687,7 +805,7 @@ export function AssetManagerPage() {
                 <input
                   type="text"
                   value={newAssetForm.ip}
-                  onChange={e => setNewAssetForm(p => ({ ...p, ip: e.target.value }))}
+                  onChange={e => { setNewAssetForm(p => ({ ...p, ip: e.target.value })); setNewAssetErrors(p => ({ ...p, ip: undefined })); }}
                   className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors font-mono"
                   placeholder="192.168.1.1"
                 />
@@ -746,7 +864,7 @@ export function AssetManagerPage() {
                 <input
                   type="text"
                   value={newAssetForm.responsable}
-                  onChange={e => setNewAssetForm(p => ({ ...p, responsable: e.target.value }))}
+                  onChange={e => { setNewAssetForm(p => ({ ...p, responsable: e.target.value })); setNewAssetErrors(p => ({ ...p, responsable: undefined })); }}
                   className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors"
                   placeholder="admin@empresa.es"
                 />
@@ -754,6 +872,13 @@ export function AssetManagerPage() {
                   <p className="text-xs text-[#ff3b3b] mt-1">{newAssetErrors.responsable}</p>
                 )}
               </div>
+
+              {createApiError && (
+                <div className="flex items-center gap-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-3 py-2 text-sm text-[#ff3b3b]">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {createApiError}
+                </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <button

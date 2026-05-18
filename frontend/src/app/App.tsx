@@ -9,6 +9,7 @@ import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AssetManagerPage } from './components/AssetManagerPage';
 import { AIReasoningPage } from './components/AIReasoningPage';
+import { ReportingPage } from './components/ReportingPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
@@ -51,6 +52,11 @@ export default function App() {
         } />
         <Route path="/ai-reasoning" element={
           <ProtectedRoute><AIReasoningPage /></ProtectedRoute>
+        } />
+        <Route path="/reporting" element={
+          <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
+            <ReportingPage />
+          </ProtectedRoute>
         } />
       </Routes>
     </BrowserRouter>

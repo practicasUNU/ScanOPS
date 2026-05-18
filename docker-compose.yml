@@ -431,7 +431,7 @@ services:
     build: ./services/reporting_engine
     container_name: scanops-m7
     ports:
-      - "8008:8000"
+      - "8007:8000"
     volumes:
       - ./services/reporting_engine:/app
     environment:

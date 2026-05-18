@@ -10,13 +10,61 @@ import {
   PanelLeft,
   Boxes,
   Brain,
+  FileText,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+function useModuleHealth() {
+  const [health, setHealth] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const raw = sessionStorage.getItem('scanops_auth');
+        const token = raw ? JSON.parse(raw)?.access_token : null;
+        const res = await fetch('http://localhost:8009/orchestrator/modules/health', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: AbortSignal.timeout(4000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setHealth(data.modules ?? {});
+        }
+      } catch { /* silencioso */ }
+    };
+    check();
+    const id = setInterval(check, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  return health;
+}
+
+const MODULE_MAP: Record<string, string | string[]> = {
+  '/assets': 'M1',
+  '/surface': ['M2', 'M3'],
+  '/ai-reasoning': 'M8',
+  '/exploitation': 'M4',
+  '/alerts': 'M5',
+  '/reporting': 'M7',
+};
+
+function getModuleStatus(path: string, health: Record<string, string>): 'online' | 'offline' | undefined {
+  const mapping = MODULE_MAP[path];
+  if (!mapping) return undefined;
+  if (Array.isArray(mapping)) {
+    if (mapping.every(m => health[m] === undefined)) return undefined;
+    return mapping.some(m => health[m] === 'offline') ? 'offline' : 'online';
+  }
+  if (health[mapping] === undefined) return undefined;
+  return health[mapping] === 'online' ? 'online' : 'offline';
+}
 
 export function Sidebar() {
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const health = useModuleHealth();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -30,6 +78,7 @@ export function Sidebar() {
         { icon: Brain, label: 'M8 - IA Reasoning', path: '/ai-reasoning' },
         { icon: ClipboardList, label: 'M4 - Explotación', path: '/exploitation' },
         { icon: Bell, label: 'M5 - Alertas SIEM', path: '/alerts' },
+        { icon: FileText, label: 'M7 - Reportes', path: '/reporting' },
       ]
     },
     {
@@ -86,6 +135,8 @@ export function Sidebar() {
             {section.items.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.path);
+              const isPipeline = section.title === 'Pipeline';
+              const moduleStatus = isPipeline ? getModuleStatus(item.path, health) : undefined;
 
               return (
                 <Link
@@ -102,9 +153,16 @@ export function Sidebar() {
                 >
                   <Icon className="w-5 h-5 shrink-0" />
                   {!isCollapsed && (
-                    <span className="text-sm font-medium truncate transition-opacity duration-300">
-                      {item.label}
-                    </span>
+                    <>
+                      <span className="text-sm font-medium truncate transition-opacity duration-300">
+                        {item.label}
+                      </span>
+                      {moduleStatus !== undefined && (
+                        <div className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${
+                          moduleStatus === 'online' ? 'bg-[#22c55e]' : 'bg-[#ff3b3b]'
+                        }`} />
+                      )}
+                    </>
                   )}
                 </Link>
               );
