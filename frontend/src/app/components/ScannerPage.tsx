@@ -179,7 +179,10 @@ export function ScannerPage() {
                       >
                         <option value="nikto">Nikto</option>
                         <option value="nuclei">Nuclei</option>
+                        <option value="nmap">Nmap</option>
                         <option value="nikto,nuclei">Nikto + Nuclei</option>
+                        <option value="nikto,nmap">Nikto + Nmap</option>
+                        <option value="nikto,nuclei,nmap">Todo</option>
                       </select>
                       <button
                         onClick={() => handleScan(asset)}
