@@ -1,15 +1,15 @@
-import { 
-  Shield, 
-  LayoutDashboard, 
-  FileCheck, 
-  ClipboardList, 
-  Search, 
-  Bell, 
+import {
+  Shield,
+  LayoutDashboard,
+  FileCheck,
+  ClipboardList,
+  Search,
+  Bell,
   ScrollText,
-  PanelLeftClose, 
+  PanelLeftClose,
   PanelLeft,
-  Boxes,        // Icono ideal para el M1 Asset Manager (Inventario/Cajas)
-  Layers        // Icono para agrupar o flujos
+  Boxes,
+  Brain,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useState } from 'react';
@@ -26,7 +26,8 @@ export function Sidebar() {
       title: 'Pipeline',
       items: [
         { icon: Boxes, label: 'M1 - Asset Manager', path: '/assets' },
-        { icon: Search, label: 'M2+M3 - Scanner', path: '/surface' }, // <-- CAMBIO AQUÍ
+        { icon: Search, label: 'M2+M3 - Scanner', path: '/surface' },
+        { icon: Brain, label: 'M8 - IA Reasoning', path: '/ai-reasoning' },
         { icon: ClipboardList, label: 'M4 - Explotación', path: '/exploitation' },
         { icon: Bell, label: 'M5 - Alertas SIEM', path: '/alerts' },
       ]
