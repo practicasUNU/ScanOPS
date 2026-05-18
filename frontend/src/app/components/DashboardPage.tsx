@@ -2,22 +2,12 @@ import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { ENSComplianceWidget } from './ENSComplianceWidget';
 import { Activity, AlertTriangle, CheckCircle2, CalendarClock, Play, Pause, Zap, Power, Shield } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { getCycleState, mapApiCycleToUI } from '../utils/cycleState';
 import { useCycleStatus } from '../../hooks/useCycleStatus';
 import { useCycleActions } from '../../hooks/useCycleActions';
-
-const logEntries = [
-  { time: '14:32:18', level: 'INFO', msg: 'Starting exploitation phase M8...' },
-  { time: '14:32:19', level: 'SUCCESS', msg: 'Target 192.168.1.45:445 - SMB enumeration complete' },
-  { time: '14:32:21', level: 'WARN', msg: 'CVE-2024-1234 detected on target web-server-03' },
-  { time: '14:32:23', level: 'INFO', msg: 'Metasploit module exploit/windows/smb/ms17_010_eternalblue loaded' },
-  { time: '14:32:25', level: 'SUCCESS', msg: 'Meterpreter session 1 opened (10.0.0.1:4444 -> 192.168.1.45:49158)' },
-  { time: '14:32:27', level: 'INFO', msg: 'Gathering system information...' },
-  { time: '14:32:29', level: 'WARN', msg: 'Privilege escalation required for full access' },
-  { time: '14:32:31', level: 'INFO', msg: 'Running post-exploitation enumeration scripts' },
-];
+import { useLogStream } from '../../hooks/useLogStream';
 
 interface PipelineModule {
   id: string;
@@ -36,6 +26,15 @@ export function DashboardPage() {
 
   const isPausedManually = cycleData?.paused ?? false;
   const killSwitchActive = cycleData?.kill_switch_active ?? false;
+
+  const { entries: logEntries, connected: logConnected } = useLogStream();
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logEntries]);
 
   const handleConfirmKillSwitch = async () => {
     try {
@@ -273,25 +272,34 @@ export function DashboardPage() {
           <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-[#1e2530]">
               <h2 className="text-lg font-semibold text-white">Live Execution Log</h2>
-              <div className="flex items-center gap-2 text-xs text-[#22c55e]">
-                <div className="w-2 h-2 bg-[#22c55e] rounded-full animate-pulse"></div>
-                LIVE
+              <div className="flex items-center gap-1.5 text-xs font-mono">
+                <div className={`w-2 h-2 rounded-full ${logConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#6b7280]'}`} />
+                <span className={logConnected ? 'text-[#22c55e]' : 'text-[#6b7280]'}>
+                  {logConnected ? 'LIVE' : 'OFFLINE'}
+                </span>
               </div>
             </div>
 
-            <div className="bg-[#0f1117] p-4 h-80 overflow-auto font-mono text-sm">
-              {logEntries.map((entry, i) => (
-                <div key={i} className="py-1 hover:bg-[#1a1d27]/50">
-                  <span className="text-[#6b7280]">[{entry.time}]</span>{' '}
-                  <span className={
-                    entry.level === 'SUCCESS' ? 'text-[#22c55e]' :
-                    entry.level === 'WARN' ? 'text-[#f59e0b]' :
-                    entry.level === 'ERROR' ? 'text-[#ff3b3b]' :
-                    'text-[#00d4ff]'
-                  }>{entry.level}</span>{' '}
-                  <span className="text-[#e5e7eb]">{entry.msg}</span>
-                </div>
-              ))}
+            <div ref={logContainerRef} className="bg-[#0a0c12] p-3 h-32 overflow-y-auto font-mono text-xs space-y-0.5">
+              {logEntries.length === 0 ? (
+                <div className="text-[#4b5563]">Esperando eventos del ciclo...</div>
+              ) : (
+                logEntries.map((entry, i) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-[#4b5563] shrink-0">
+                      {new Date(entry.timestamp).toLocaleTimeString('es-ES')}
+                    </span>
+                    <span className={`shrink-0 ${
+                      entry.level === 'SUCCESS' ? 'text-[#22c55e]' :
+                      entry.level === 'WARN' ? 'text-[#f59e0b]' :
+                      entry.level === 'ERROR' ? 'text-[#ff3b3b]' :
+                      'text-[#00d4ff]'
+                    }`}>{entry.level}</span>
+                    <span className="text-[#6b7280] shrink-0">[{entry.module}]</span>
+                    <span className="text-[#d1d5db]">{entry.message}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 

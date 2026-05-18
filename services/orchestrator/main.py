@@ -1,8 +1,10 @@
 import asyncio
+import json
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from services.orchestrator.cycle_state import CycleStatus, get_cycle_status
 from services.orchestrator.health_checker import check_all_modules
@@ -28,10 +30,79 @@ app.include_router(auth_router)
 _kill_switch_active: bool = False
 _paused: bool = False
 
+# In-memory log buffer — stores last 100 entries
+# TODO: replace with Redis pub/sub for multi-instance support
+_log_buffer: list[dict] = []
+_log_subscribers: list[asyncio.Queue] = []
+
+
+def _add_log_entry(level: str, message: str, module: str = "orchestrator") -> None:
+    """Add a log entry to the buffer and notify all SSE subscribers."""
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "level": level,  # INFO | SUCCESS | WARN | ERROR
+        "module": module,
+        "message": message,
+    }
+    _log_buffer.append(entry)
+    if len(_log_buffer) > 100:
+        _log_buffer.pop(0)
+    for q in _log_subscribers:
+        try:
+            q.put_nowait(entry)
+        except asyncio.QueueFull:
+            pass
+
+
+@app.on_event("startup")
+async def on_startup():
+    _add_log_entry("SUCCESS", "Orchestrator started — ScanOps cycle manager ready", "orchestrator")
+    _add_log_entry("INFO", "Weekly cycle schedule loaded — 5 phases, timezone: Europe/Madrid", "orchestrator")
+
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "orchestrator"}
+
+
+@app.get("/orchestrator/logs/stream")
+async def stream_logs():
+    """
+    SSE endpoint — streams live log entries to the dashboard.
+    Sends last 20 buffered entries on connect, then new entries as they arrive.
+    ENS: op.exp.5 (activity logging)
+    """
+    queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _log_subscribers.append(queue)
+
+    async def event_generator():
+        try:
+            for entry in _log_buffer[-20:]:
+                yield f"data: {json.dumps(entry)}\n\n"
+            while True:
+                try:
+                    entry = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(entry)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            _log_subscribers.remove(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/orchestrator/logs/add")
+async def add_log_entry(level: str, message: str, module: str = "orchestrator"):
+    """Add a log entry programmatically (used by other services or tests)."""
+    _add_log_entry(level, message, module)
+    return {"ok": True}
 
 
 @app.get("/orchestrator/cycle/status", response_model=CycleStatus)
@@ -42,6 +113,7 @@ async def get_cycle_status_endpoint():
     """
     status, module_health = await _gather_status_and_health()
     _enrich_with_health(status, module_health)
+    _add_log_entry("INFO", f"Cycle status queried — phase {status.current_phase}: {status.current_phase_name}", "orchestrator")
     return status
 
 

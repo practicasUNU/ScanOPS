@@ -76,6 +76,17 @@ def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
         logger.error(f"Error en suggest_attack_vector_task: {exc}")
         self.retry(countdown=60, exc=exc)
 
+
+@celery_app.task(name="suggest_attack_vector_task")
+def suggest_attack_vector_pentestgpt_task(ficha_unica: dict) -> dict:
+    """
+    US-4.7 — Attack vector reasoning via AttackVectorAgent (pentestgpt_integration).
+    Replaces OpenAI-dependent PentestGPT with 100% local Ollama inference.
+    ENS mp.info.3 compliant.
+    """
+    from services.ai_reasoning.pentestgpt_integration import suggest_attack_vector_for_finding
+    return asyncio.run(suggest_attack_vector_for_finding(ficha_unica))
+
 @celery_app.task(queue='ai_reasoning', bind=True, max_retries=1)
 def generate_preliminary_report_task(self, hallazgos: list, activos: list, fecha_ciclo: str, fecha_sabado: str) -> str:
     """

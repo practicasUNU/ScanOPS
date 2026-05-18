@@ -10,6 +10,7 @@ services:
       POSTGRES_USER: scanops
       POSTGRES_PASSWORD: scanops
       POSTGRES_DB: scanops
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
   # ports:
     #  - "5432:5432"
     volumes:
@@ -65,6 +66,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: "myroot"
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,6 +92,7 @@ services:
       ZAP_PORT: 8080
       OLLAMA_MODEL: "mistral:7b"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,6 +108,7 @@ services:
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,6 +129,7 @@ services:
       m1:
         condition: service_healthy
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       M2_PORT: 8003
       M1_URL: http://m1:8001
@@ -144,6 +149,7 @@ services:
       - "8002:8002"
     command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       ZAP_HOST: scanops-zap
@@ -207,6 +213,7 @@ services:
       - "8004:8004"
     command: uvicorn services.exploit_engine.main:app --host 0.0.0.0 --port 8004
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       MSF_HOST: 10.202.15.199
@@ -239,6 +246,7 @@ services:
       - "8005:8005"
     command: uvicorn services.ai_reasoning.main:app --host 0.0.0.0 --port 8005
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
@@ -272,6 +280,7 @@ services:
     image: opensearchproject/opensearch:2.11.0
     container_name: scanops-opensearch
     environment:
+      
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
       - "bootstrap.memory_lock=true"
       - "discovery.type=single-node"

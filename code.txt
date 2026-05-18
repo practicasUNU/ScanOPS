@@ -78,6 +78,14 @@ JWT_REFRESH_EXPIRE_DAYS=7
 
 # M4 - Reintentos máximos de Hydra ante fallos (default 2)
 M4_HYDRA_MAX_RETRIES=2
+
+# M4 - Alert channels
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+SMTP_HOST=smtp.unuware.local
+SMTP_PORT=587
+SMTP_USER=scanops@unuware.local
+SMTP_PASSWORD=[REDACTED]
+SMTP_FROM=scanops@unuware.local
 FILE:=1.0.0
 
 FILE:Dockerfile
@@ -154,13 +162,13 @@ CMD ["uvicorn", "services.asset_manager.main:app", "--host", "0.0.0.0", "--port"
 FILE:Dockerfile.m2
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --break-system-packages --no-cache-dir -r requirements.txt
 RUN apt-get update && apt-get install -y \
     nmap \
     dnsutils \
     whois \
     && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 COPY services/recon_engine /app/services/recon_engine
 COPY shared /app/shared
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD python3 -c "import requests; requests.get('http://localhost:8003/health')" || exit 1
@@ -245,8 +253,8 @@ CMD ["uvicorn", "services.ai_reasoning.main:app", "--host", "0.0.0.0", "--port",
 FILE:Dockerfile.orchestrator
 FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir fastapi uvicorn httpx pydantic
+COPY requirements.orchestrator.txt .
+RUN pip install --no-cache-dir -r requirements.orchestrator.txt
 COPY services/orchestrator /app/services/orchestrator
 EXPOSE 8009
 CMD ["uvicorn", "services.orchestrator.main:app", "--host", "0.0.0.0", "--port", "8009"]
@@ -300,498 +308,490 @@ EXPOSE 8002
 # ✅ CMD correcto para M3 - Scanner Engine
 CMD ["uvicorn", "services.scanner_engine.main:app", "--host", "0.0.0.0", "--port", "8002"]
 FILE:activos_hito1.json
-﻿{
-    "total":  18,
-    "page":  1,
-    "page_size":  200,
-    "items":  [
-                  {
-                      "id":  18,
-                      "ip":  "10.202.15.60",
-                      "hostname":  "nas-backups",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "SERVER",
-                      "status":  "ACTIVO",
-                      "responsable":  "Sistemas",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:37:22.546798",
-                      "updated_at":  "2026-04-22T08:37:22.546799",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  17,
-                      "ip":  "10.202.15.50",
-                      "hostname":  "printer-cpd",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Sistemas",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:37:22.541572",
-                      "updated_at":  "2026-04-22T08:37:22.541574",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  16,
-                      "ip":  "192.168.1.15",
-                      "hostname":  "discovered-192-168-1-15",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.559651",
-                      "updated_at":  "2026-04-22T08:22:30.559652",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  15,
-                      "ip":  "192.168.1.14",
-                      "hostname":  "discovered-192-168-1-14",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.557201",
-                      "updated_at":  "2026-04-22T08:22:30.557203",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  14,
-                      "ip":  "192.168.1.13",
-                      "hostname":  "discovered-192-168-1-13",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.554954",
-                      "updated_at":  "2026-04-22T08:22:30.554955",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  13,
-                      "ip":  "192.168.1.12",
-                      "hostname":  "discovered-192-168-1-12",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.552770",
-                      "updated_at":  "2026-04-22T08:22:30.552771",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  12,
-                      "ip":  "192.168.1.11",
-                      "hostname":  "discovered-192-168-1-11",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.550627",
-                      "updated_at":  "2026-04-22T08:22:30.550628",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  11,
-                      "ip":  "192.168.1.10",
-                      "hostname":  "discovered-192-168-1-10",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.548189",
-                      "updated_at":  "2026-04-22T08:22:30.548190",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  10,
-                      "ip":  "192.168.1.9",
-                      "hostname":  "discovered-192-168-1-9",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.545990",
-                      "updated_at":  "2026-04-22T08:22:30.545990",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  9,
-                      "ip":  "192.168.1.8",
-                      "hostname":  "discovered-192-168-1-8",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.543795",
-                      "updated_at":  "2026-04-22T08:22:30.543796",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  8,
-                      "ip":  "192.168.1.7",
-                      "hostname":  "discovered-192-168-1-7",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.541474",
-                      "updated_at":  "2026-04-22T08:22:30.541475",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  7,
-                      "ip":  "192.168.1.6",
-                      "hostname":  "discovered-192-168-1-6",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.539158",
-                      "updated_at":  "2026-04-22T08:22:30.539159",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  6,
-                      "ip":  "192.168.1.5",
-                      "hostname":  "discovered-192-168-1-5",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.536880",
-                      "updated_at":  "2026-04-22T08:22:30.536881",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  5,
-                      "ip":  "192.168.1.4",
-                      "hostname":  "discovered-192-168-1-4",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.534203",
-                      "updated_at":  "2026-04-22T08:22:30.534204",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  4,
-                      "ip":  "192.168.1.3",
-                      "hostname":  "discovered-192-168-1-3",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.531096",
-                      "updated_at":  "2026-04-22T08:22:30.531097",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  3,
-                      "ip":  "192.168.1.2",
-                      "hostname":  "discovered-192-168-1-2",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.528665",
-                      "updated_at":  "2026-04-22T08:22:30.528666",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  2,
-                      "ip":  "192.168.1.1",
-                      "hostname":  "discovered-192-168-1-1",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.526009",
-                      "updated_at":  "2026-04-22T08:22:30.526010",
-                      "deleted_at":  null
-                  },
-                  {
-                      "id":  1,
-                      "ip":  "192.168.1.0",
-                      "hostname":  "discovered-192-168-1-0",
-                      "dominio":  null,
-                      "mac_address":  null,
-                      "criticidad":  "PENDIENTE_CLASIFICAR",
-                      "tipo":  "OTRO",
-                      "status":  "ACTIVO",
-                      "responsable":  "Pendiente asignar",
-                      "departamento":  null,
-                      "ubicacion":  null,
-                      "tags_ens":  [
-
-                                   ],
-                      "notas":  null,
-                      "vault_path":  null,
-                      "external_id":  null,
-                      "external_source":  null,
-                      "discovered_by":  null,
-                      "network_range":  null,
-                      "os_family":  null,
-                      "os_version":  null,
-                      "created_at":  "2026-04-22T08:22:30.518357",
-                      "updated_at":  "2026-04-22T08:22:30.518359",
-                      "deleted_at":  null
-                  }
-              ]
+{
+    "total": 19,
+    "page": 1,
+    "page_size": 200,
+    "items": [
+        {
+            "id": 19,
+            "ip": "10.202.15.100",
+            "hostname": "dc-01",
+            "dominio": "unuware.local",
+            "mac_address": null,
+            "criticidad": "CRITICA",
+            "tipo": "SERVER",
+            "status": "ACTIVO",
+            "responsable": "Sistemas",
+            "departamento": "IT",
+            "ubicacion": null,
+            "tags_ens": [
+                "op.acc.1",
+                "op.acc.4"
+            ],
+            "notas": "Controlador de dominio principal",
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "10.202.15.0/24",
+            "os_family": "Windows",
+            "os_version": "Windows Server 2022",
+            "created_at": "2026-04-22T08:37:22.546798",
+            "updated_at": "2026-04-22T08:37:22.546799",
+            "deleted_at": null
+        },
+        {
+            "id": 18,
+            "ip": "10.202.15.60",
+            "hostname": "nas-backups",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "ALTA",
+            "tipo": "SERVER",
+            "status": "ACTIVO",
+            "responsable": "Sistemas",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "10.202.15.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:37:22.546798",
+            "updated_at": "2026-04-22T08:37:22.546799",
+            "deleted_at": null
+        },
+        {
+            "id": 17,
+            "ip": "10.202.15.50",
+            "hostname": "printer-cpd",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "BAJA",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Sistemas",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "10.202.15.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:37:22.541572",
+            "updated_at": "2026-04-22T08:37:22.541574",
+            "deleted_at": null
+        },
+        {
+            "id": 16,
+            "ip": "192.168.1.15",
+            "hostname": "discovered-192-168-1-15",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.559651",
+            "updated_at": "2026-04-22T08:22:30.559652",
+            "deleted_at": null
+        },
+        {
+            "id": 15,
+            "ip": "192.168.1.14",
+            "hostname": "discovered-192-168-1-14",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.557201",
+            "updated_at": "2026-04-22T08:22:30.557203",
+            "deleted_at": null
+        },
+        {
+            "id": 14,
+            "ip": "192.168.1.13",
+            "hostname": "discovered-192-168-1-13",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.554954",
+            "updated_at": "2026-04-22T08:22:30.554955",
+            "deleted_at": null
+        },
+        {
+            "id": 13,
+            "ip": "192.168.1.12",
+            "hostname": "discovered-192-168-1-12",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.552770",
+            "updated_at": "2026-04-22T08:22:30.552771",
+            "deleted_at": null
+        },
+        {
+            "id": 12,
+            "ip": "192.168.1.11",
+            "hostname": "discovered-192-168-1-11",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.550627",
+            "updated_at": "2026-04-22T08:22:30.550628",
+            "deleted_at": null
+        },
+        {
+            "id": 11,
+            "ip": "192.168.1.10",
+            "hostname": "discovered-192-168-1-10",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.548189",
+            "updated_at": "2026-04-22T08:22:30.548190",
+            "deleted_at": null
+        },
+        {
+            "id": 10,
+            "ip": "192.168.1.9",
+            "hostname": "discovered-192-168-1-9",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.545990",
+            "updated_at": "2026-04-22T08:22:30.545990",
+            "deleted_at": null
+        },
+        {
+            "id": 9,
+            "ip": "192.168.1.8",
+            "hostname": "discovered-192-168-1-8",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.543795",
+            "updated_at": "2026-04-22T08:22:30.543796",
+            "deleted_at": null
+        },
+        {
+            "id": 8,
+            "ip": "192.168.1.7",
+            "hostname": "discovered-192-168-1-7",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.541474",
+            "updated_at": "2026-04-22T08:22:30.541475",
+            "deleted_at": null
+        },
+        {
+            "id": 7,
+            "ip": "192.168.1.6",
+            "hostname": "discovered-192-168-1-6",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.539158",
+            "updated_at": "2026-04-22T08:22:30.539159",
+            "deleted_at": null
+        },
+        {
+            "id": 6,
+            "ip": "192.168.1.5",
+            "hostname": "discovered-192-168-1-5",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.536880",
+            "updated_at": "2026-04-22T08:22:30.536881",
+            "deleted_at": null
+        },
+        {
+            "id": 5,
+            "ip": "192.168.1.4",
+            "hostname": "discovered-192-168-1-4",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.534203",
+            "updated_at": "2026-04-22T08:22:30.534204",
+            "deleted_at": null
+        },
+        {
+            "id": 4,
+            "ip": "192.168.1.3",
+            "hostname": "discovered-192-168-1-3",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.531096",
+            "updated_at": "2026-04-22T08:22:30.531097",
+            "deleted_at": null
+        },
+        {
+            "id": 3,
+            "ip": "192.168.1.2",
+            "hostname": "discovered-192-168-1-2",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.528665",
+            "updated_at": "2026-04-22T08:22:30.528666",
+            "deleted_at": null
+        },
+        {
+            "id": 2,
+            "ip": "192.168.1.1",
+            "hostname": "discovered-192-168-1-1",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.526009",
+            "updated_at": "2026-04-22T08:22:30.526010",
+            "deleted_at": null
+        },
+        {
+            "id": 1,
+            "ip": "192.168.1.0",
+            "hostname": "discovered-192-168-1-0",
+            "dominio": null,
+            "mac_address": null,
+            "criticidad": "PENDIENTE_CLASIFICAR",
+            "tipo": "OTRO",
+            "status": "ACTIVO",
+            "responsable": "Pendiente asignar",
+            "departamento": null,
+            "ubicacion": null,
+            "tags_ens": [],
+            "notas": null,
+            "vault_path": null,
+            "external_id": null,
+            "external_source": null,
+            "discovered_by": null,
+            "network_range": "192.168.1.0/24",
+            "os_family": null,
+            "os_version": null,
+            "created_at": "2026-04-22T08:22:30.518357",
+            "updated_at": "2026-04-22T08:22:30.518359",
+            "deleted_at": null
+        }
+    ]
 }
 FILE:demo_scan.py
 #!/usr/bin/env python3
@@ -1862,9 +1862,6 @@ dependencies = [
     "redis>=4.5.0",
     "httpx>=0.24.0",
     "paramiko>=3.1.0",
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.0.0",
     "aiohttp>=3.9.0",
     "lxml>=4.9.0",
     "PyYAML>=6.0",
@@ -1874,6 +1871,11 @@ dependencies = [
 requires-python = ">=3.8"
 
 [project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+]
 gvm = [
     "python-gvm>=24.1.0",
     "gvm-tools>=20.8.0"
@@ -1901,6 +1903,12 @@ FILE:requirements-dev.txt
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.0.0
+FILE:requirements.orchestrator.txt
+fastapi>=0.100.0
+uvicorn>=0.20.0
+httpx>=0.24.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
 FILE:run_migrations.sh
 #!/bin/bash
 # run_migrations.sh - Ejecuta las migraciones de Alembic dentro del contenedor
@@ -1924,270 +1932,6 @@ FILE:test
 {"detail":"Not Found"}
 FILE:test-weasy
 {"detail":"Error generando reporte: PDF.__init__() takes 1 positional argument but 3 were given"}
-FILE:test_m1_m2_m3.py
-"""
-Script de Testing para validar M1, M2, M3
-==========================================
-Verifica que los 3 microservicios están funcionales.
-
-Ejecución:
-  python test_m1_m2_m3.py
-"""
-
-import sys
-import importlib
-from pathlib import Path
-
-# Colores para output
-GREEN = "\033[92m"
-RED = "\033[91m"
-YELLOW = "\033[93m"
-RESET = "\033[0m"
-
-def test_imports():
-    """Test 1: Verificar que todos los módulos se importan sin errores."""
-    print(f"\n{YELLOW}--- TEST 1: IMPORTS ---{RESET}")
-
-    tests = [
-        ("M1 - Asset Manager Main", "services.asset_manager.main", "app"),
-        ("M1 - Asset Model", "services.asset_manager.models.asset", "Asset"),
-        ("M1 - Asset Router", "services.asset_manager.api.router", "router"),
-        ("M1 - Asset Service", "services.asset_manager.services.asset_service", None),
-
-        ("M2 - Recon Engine Main", "services.recon_engine.main", "app"),
-        ("M2 - Recon Model", "services.recon_engine.models.recon", "ReconFinding"),
-        ("M2 - Recon API", "services.recon_engine.api.recon_api", "router"),
-        ("M2 - Scanner Network", "services.recon_engine.services.scanner_network", None),
-
-        ("M3 - Scanner Engine Main", "services.scanner_engine.main", "app"),
-        ("M3 - Scan Endpoints", "services.scanner_engine.endpoints.scan", "router"),
-        ("M3 - OpenVAS Client", "services.scanner_engine.clients.openvas_client", "OpenVASClient"),
-        ("M3 - Nuclei Client", "services.scanner_engine.clients.nuclei_client", "NucleiClient"),
-        ("M3 - ZAP Client", "services.scanner_engine.clients.zap_client", "ZAPClient"),
-        ("M3 - Vulnerability Model", "services.scanner_engine.models.vulnerability", "VulnFinding"),
-    ]
-
-    passed = 0
-    failed = 0
-
-    for name, module, attr in tests:
-        try:
-            mod = importlib.import_module(module)
-            if attr:
-                getattr(mod, attr)
-            print(f"  {GREEN}[OK]{RESET} {name}")
-            passed += 1
-        except Exception as e:
-            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:60]}")
-            failed += 1
-
-    return passed, failed
-
-def test_database_models():
-    """Test 2: Verificar que los modelos de BD están definidos."""
-    print(f"\n{YELLOW}--- TEST 2: DATABASE MODELS ---{RESET}")
-
-    try:
-        from services.asset_manager.models.asset import Asset, Base as AssetBase
-        print(f"  {GREEN}[OK]{RESET} M1 - Asset model with fields: {len(Asset.__table__.columns)} columns")
-
-        from services.recon_engine.models.recon import ReconFinding, Base as ReconBase
-        print(f"  {GREEN}[OK]{RESET} M2 - ReconFinding model with fields: {len(ReconFinding.__table__.columns)} columns")
-
-        from services.scanner_engine.models.vulnerability import VulnFinding, Base as VulnBase
-        print(f"  {GREEN}[OK]{RESET} M3 - VulnFinding model with fields: {len(VulnFinding.__table__.columns)} columns")
-
-        return 3, 0
-    except Exception as e:
-        print(f"  {RED}[FAIL]{RESET} Database models error: {str(e)}")
-        return 0, 3
-
-def test_fastapi_apps():
-    """Test 3: Verificar que las apps FastAPI están correctamente configuradas."""
-    print(f"\n{YELLOW}--- TEST 3: FASTAPI APPS ---{RESET}")
-
-    passed = 0
-    failed = 0
-
-    apps = [
-        ("M1 - Asset Manager", "services.asset_manager.main", "app"),
-        ("M2 - Recon Engine", "services.recon_engine.main", "app"),
-        ("M3 - Scanner Engine", "services.scanner_engine.main", "app"),
-    ]
-
-    for name, module_name, attr_name in apps:
-        try:
-            mod = importlib.import_module(module_name)
-            app = getattr(mod, attr_name)
-
-            # Verificar que sea una FastAPI app
-            if not hasattr(app, 'openapi'):
-                raise Exception("No es una FastAPI app")
-
-            # Contar routers
-            router_count = len(app.routes)
-            print(f"  {GREEN}[OK]{RESET} {name}: {router_count} rutas")
-            passed += 1
-        except Exception as e:
-            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:60]}")
-            failed += 1
-
-    return passed, failed
-
-def test_routers():
-    """Test 4: Verificar que los routers están incluidos en las apps."""
-    print(f"\n{YELLOW}--- TEST 4: ROUTERS INCLUDED ---{RESET}")
-
-    try:
-        from services.asset_manager.main import app as m1_app
-        m1_routes = [r.path for r in m1_app.routes]
-        m1_has_assets = any('/assets' in r or '/scan' in r for r in m1_routes)
-
-        if m1_has_assets:
-            print(f"  {GREEN}[OK]{RESET} M1 - Asset endpoints included")
-        else:
-            print(f"  {YELLOW}[WARN]{RESET} M1 - No asset endpoints found in routes")
-
-        from services.recon_engine.main import app as m2_app
-        m2_routes = []
-        for r in m2_app.routes:
-            m2_routes.append(r.path)
-            if hasattr(r, 'app') and hasattr(r.app, 'routes'):
-                for sr in r.app.routes:
-                    m2_routes.append(f"{r.path}{sr.path}")
-
-        m2_has_recon = any('/recon' in r or '/scan' in r for r in m2_routes)
-
-        if m2_has_recon:
-            print(f"  {GREEN}[OK]{RESET} M2 - Recon endpoints included")
-        else:
-            print(f"  {YELLOW}[WARN]{RESET} M2 - No recon endpoints found")
-
-        from services.scanner_engine.main import app as m3_app
-        m3_routes = []
-        for r in m3_app.routes:
-            m3_routes.append(r.path)
-            if hasattr(r, 'app') and hasattr(r.app, 'routes'):
-                for sr in r.app.routes:
-                    m3_routes.append(f"{r.path}{sr.path}")
-
-        m3_has_scan = any('/scan' in r or '/status' in r for r in m3_routes)
-
-        if m3_has_scan:
-            print(f"  {GREEN}[OK]{RESET} M3 - Scan endpoints included")
-        else:
-            print(f"  {YELLOW}[WARN]{RESET} M3 - No scan endpoints found")
-
-        return 3, 0
-
-    except Exception as e:
-        print(f"  {RED}[FAIL]{RESET} Router verification failed: {str(e)}")
-        return 0, 3
-
-def test_celery():
-    """Test 5: Verificar que Celery tasks están disponibles."""
-    print(f"\n{YELLOW}--- TEST 5: CELERY TASKS ---{RESET}")
-
-    passed = 0
-    failed = 0
-
-    tasks = [
-        ("M1 - Discovery Task", "services.asset_manager.tasks.discovery", "run_network_discovery"),
-        ("M2 - Scan Tasks", "services.recon_engine.tasks.scan_tasks", "run_recon_complete"),
-        ("M3 - Parallel Scan", "services.scanner_engine.tasks.vuln_tasks", "scan_asset_parallel"),
-        ("M3 - Nuclei Task", "services.scanner_engine.tasks.vuln_tasks", "run_nuclei_task"),
-    ]
-
-    for name, module_name, task_name in tasks:
-        try:
-            mod = importlib.import_module(module_name)
-            task = getattr(mod, task_name)
-            print(f"  {GREEN}[OK]{RESET} {name}")
-            passed += 1
-        except Exception as e:
-            print(f"  {YELLOW}[WARN]{RESET} {name}: {str(e)[:50]}")
-            failed += 1
-
-    return passed, failed
-
-def test_vault_and_shared():
-    """Test 6: Verificar que dependencias compartidas existen."""
-    print(f"\n{YELLOW}--- TEST 6: SHARED DEPENDENCIES ---{RESET}")
-
-    passed = 0
-    failed = 0
-
-    shared = [
-        ("Database", "shared.database", ["engine", "get_db"]),
-        ("Vault Client", "shared.vault_client", ["vault_client"]),
-        ("Auth", "shared.auth", ["get_current_user"]),
-        ("Celery App", "shared.celery_app", ["app"]),
-        ("Logger", "shared.scan_logger", ["get_logger"]),
-    ]
-
-    for name, module_name, attrs in shared:
-        try:
-            mod = importlib.import_module(module_name)
-            for attr in attrs:
-                getattr(mod, attr)
-            print(f"  {GREEN}[OK]{RESET} {name}")
-            passed += 1
-        except Exception as e:
-            print(f"  {RED}[FAIL]{RESET} {name}: {str(e)[:50]}")
-            failed += 1
-
-    return passed, failed
-
-def main():
-    """Ejecutar todos los tests."""
-    print(f"\n{YELLOW}{'='*60}")
-    print(f"  VALIDACIÓN FUNCIONAL: M1, M2, M3")
-    print(f"{'='*60}{RESET}")
-
-    total_passed = 0
-    total_failed = 0
-
-    # Ejecutar tests
-    p, f = test_imports()
-    total_passed += p
-    total_failed += f
-
-    p, f = test_database_models()
-    total_passed += p
-    total_failed += f
-
-    p, f = test_fastapi_apps()
-    total_passed += p
-    total_failed += f
-
-    p, f = test_routers()
-    total_passed += p
-    total_failed += f
-
-    p, f = test_celery()
-    total_passed += p
-    total_failed += f
-
-    p, f = test_vault_and_shared()
-    total_passed += p
-    total_failed += f
-
-    # Resumen
-    print(f"\n{YELLOW}{'='*60}{RESET}")
-    print(f"  RESUMEN")
-    print(f"{YELLOW}{'='*60}{RESET}")
-    print(f"  {GREEN}[OK] Pasados:{RESET}  {total_passed}")
-    print(f"  {RED}[FAIL] Fallidos:{RESET}  {total_failed}")
-
-    if total_failed == 0:
-        print(f"\n  {GREEN}[CONGRATS] TODOS LOS TESTS PASARON - M1, M2, M3 FUNCIONALES{RESET}")
-        return 0
-    else:
-        print(f"\n  {RED}[WARN] HAY {total_failed} PROBLEMAS QUE REVISAR{RESET}")
-        return 1
-
-if __name__ == "__main__":
-    sys.exit(main())
 FILE:vault.exe
 BINARY:true
 
@@ -15379,7 +15123,7 @@ import os
 # Constantes por defecto
 # ---------------------------------------------------------------------------
 DEFAULT_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
+DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "mistral:latest")
 DEFAULT_EMBED_MODEL: str = "nomic-embed-text"
 DEFAULT_TEMPERATURE: float = 0.7
 DEFAULT_TOP_P: float = 0.9
@@ -15809,7 +15553,7 @@ class OllamaClient:
 # Instancia global
 # ---------------------------------------------------------------------------
 ollama = OllamaClient(
-    model=os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
+    model=os.getenv("OLLAMA_MODEL", "mistral:latest")
 )
 """Instancia global de OllamaClient lista para importar.
 
@@ -15820,7 +15564,108 @@ Uso::
     result = await ollama.analyze("¿Qué es un CVE?")
 """
 FILE:services\ai_reasoning\pentestgpt_integration.py
+"""
+pentestgpt_integration.py — US-4.7 Attack Vector Reasoning Agent.
 
+100% local: LangChain + Ollama (Mistral). ENS mp.info.3 compliant.
+No calls to external APIs — only ollama_client.
+"""
+import json
+import logging
+from typing import Optional
+
+from services.ai_reasoning.ollama_client import OllamaClient, OllamaConnectionError, ollama
+from services.ai_reasoning.prompts.attack_vector_template import (
+    ATTACK_VECTOR_SYSTEM_PROMPT,
+    ATTACK_VECTOR_TEMPLATE,
+)
+
+logger = logging.getLogger(__name__)
+
+_FALLBACK = {
+    "msf_module": "manual_review_required",
+    "msf_payload": "N/A",
+    "rationale": "LLM unavailable or invalid response — manual review required",
+    "ens_article": "op.exp.2",
+    "confidence": "bajo",
+}
+
+_REQUIRED_KEYS = {"msf_module", "msf_payload", "rationale", "ens_article", "confidence"}
+
+class AttackVectorAgent:
+    """
+    US-4.7 — Agente de razonamiento de vectores de ataque.
+    100% local: LangChain + Ollama (Mistral). ENS mp.info.3 compliant.
+    """
+
+    def __init__(self, ollama_client: Optional[OllamaClient] = None) -> None:
+        self._client = ollama_client or ollama
+
+    async def suggest_attack_vector(self, ficha_unica: dict) -> dict:
+        """
+        Given a Ficha Única dict with keys:
+          os, services (list), cves (list), criticality, ens_measures (list)
+        Returns a dict with:
+          msf_module, msf_payload, rationale, ens_article, confidence
+        Falls back to a safe default dict if LLM is unavailable or returns
+        invalid JSON.
+        """
+        prompt = ATTACK_VECTOR_TEMPLATE.format(
+            os=ficha_unica.get("os", "Unknown"),
+            services=", ".join(ficha_unica.get("services", [])),
+            cves=", ".join(ficha_unica.get("cves", [])),
+            criticality=ficha_unica.get("criticality", "MEDIA"),
+            ens_measures=", ".join(ficha_unica.get("ens_measures", [])),
+        )
+
+        try:
+            response_text = await self._client.analyze(
+                prompt,
+                system_prompt=ATTACK_VECTOR_SYSTEM_PROMPT,
+                temperature=0.2,
+                top_p=0.9,
+            )
+
+            if not response_text:
+                logger.warning("AttackVectorAgent — empty LLM response, using fallback")
+                return dict(_FALLBACK)
+
+            # Strip markdown fences (same pattern as prioritizer.py)
+            clean = response_text.strip()
+            if "```json" in clean:
+                clean = clean.split("```json")[1].split("```")[0].strip()
+            elif "```" in clean:
+                clean = clean.split("```")[1].strip()
+            if clean.startswith("'") and clean.endswith("'"):
+                clean = clean[1:-1].strip()
+            if not clean.startswith("{") and "{" in clean:
+                clean = clean[clean.index("{"):]
+            if not clean.endswith("}") and "}" in clean:
+                clean = clean[:clean.rindex("}") + 1]
+
+            result = json.loads(clean)
+
+            if not _REQUIRED_KEYS.issubset(result.keys()):
+                missing = _REQUIRED_KEYS - result.keys()
+                logger.warning("AttackVectorAgent — missing keys %s, using fallback", missing)
+                return dict(_FALLBACK)
+
+            return result
+
+        except (json.JSONDecodeError, OllamaConnectionError) as exc:
+            logger.error("AttackVectorAgent — %s: %s", type(exc).__name__, exc)
+            return dict(_FALLBACK)
+        except Exception as exc:
+            logger.error("AttackVectorAgent — unexpected error: %s", exc)
+            return dict(_FALLBACK)
+
+async def suggest_attack_vector_for_finding(ficha_unica: dict) -> dict:
+    """Module-level convenience function used by Celery task and API endpoint."""
+    agent = AttackVectorAgent(ollama_client=ollama)
+    return await agent.suggest_attack_vector(ficha_unica)
+
+# Global instance
+attack_vector_agent = AttackVectorAgent()
 FILE:services\ai_reasoning\prioritizer.py
 import logging
 import json
@@ -16031,6 +15876,17 @@ class RAGEngine:
 
     def __init__(self, ollama_client: OllamaClient):
         self.ollama_client = ollama_client
+        self._mapping = self._load_mapping()
+
+    def _load_mapping(self) -> dict:
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            mapping_path = os.path.join(base_dir, "rag_data", "vulnerability_mapping.json")
+            with open(mapping_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading vulnerability_mapping.json: {e}")
+            return {"vulnerability_patterns": [], "direct_cve_mappings": {}}
 
     async def get_ens_context(self, query: str) -> str:
         """
@@ -16081,10 +15937,7 @@ class RAGEngine:
         Priority: 1) direct CVE match, 2) keyword pattern match
         """
         try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            mapping_path = os.path.join(base_dir, "rag_data", "vulnerability_mapping.json")
-            with open(mapping_path, "r", encoding="utf-8") as f:
-                mapping = json.load(f)
+            mapping = self._mapping
 
             # Priority 1: direct CVE match
             direct = mapping.get("direct_cve_mappings", {}).get(cve_id)
@@ -16785,6 +16638,16 @@ def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
         logger.error(f"Error en suggest_attack_vector_task: {exc}")
         self.retry(countdown=60, exc=exc)
 
+@celery_app.task(name="suggest_attack_vector_task")
+def suggest_attack_vector_pentestgpt_task(ficha_unica: dict) -> dict:
+    """
+    US-4.7 — Attack vector reasoning via AttackVectorAgent (pentestgpt_integration).
+    Replaces OpenAI-dependent PentestGPT with 100% local Ollama inference.
+    ENS mp.info.3 compliant.
+    """
+    from services.ai_reasoning.pentestgpt_integration import suggest_attack_vector_for_finding
+    return asyncio.run(suggest_attack_vector_for_finding(ficha_unica))
+
 @celery_app.task(queue='ai_reasoning', bind=True, max_retries=1)
 def generate_preliminary_report_task(self, hallazgos: list, activos: list, fecha_ciclo: str, fecha_sabado: str) -> str:
     """
@@ -16988,6 +16851,36 @@ fi
 
 # Mantener el proceso principal activo
 wait $OLLAMA_PID
+FILE:services\ai_reasoning\prompts\attack_vector_template.py
+ATTACK_VECTOR_SYSTEM_PROMPT = """Eres un experto en pentesting con
+certificación ENS Alto. Tu única función es analizar el contexto de un
+activo auditado y sugerir el vector de ataque más probable junto con el
+módulo exacto de Metasploit para validarlo en un entorno controlado.
+Nunca sugieras ataques destructivos. El resultado será revisado por un
+humano antes de ejecutarse."""
+
+ATTACK_VECTOR_TEMPLATE = """
+Analiza el siguiente contexto de activo y sugiere el vector de ataque
+más probable y el módulo exacto de Metasploit para validarlo.
+
+ACTIVO:
+- Sistema Operativo: {os}
+- Servicios expuestos: {services}
+- CVEs críticos detectados: {cves}
+- Criticidad del activo (ENS): {criticality}
+- Medidas ENS aplicables: {ens_measures}
+
+Responde ÚNICAMENTE con JSON válido, sin texto antes ni después, sin markdown.
+
+SCHEMA EXACTO:
+{{
+  "msf_module": "exploit/...",
+  "msf_payload": "linux/... o windows/...",
+  "rationale": "explicación de 2-3 líneas",
+  "ens_article": "op.exp.2 (u otro artículo aplicable)",
+  "confidence": "alto|medio|bajo"
+}}
+"""
 FILE:services\ai_reasoning\prompts\system_attack_vector.yaml
 name: attack_vector_suggester
 version: "2.5"
@@ -17395,6 +17288,8 @@ import pytest
 import json
 from unittest.mock import AsyncMock, patch
 from services.ai_reasoning.attack_vector import suggest_attack_vector
+from services.ai_reasoning.pentestgpt_integration import AttackVectorAgent
+from services.ai_reasoning.ollama_client import OllamaConnectionError
 
 class TestAttackVectorUnit:
     """Tests unitarios para Attack Vector Suggester"""
@@ -17485,6 +17380,91 @@ class TestAttackVectorIntegration:
 
         assert "msf_module" in result
         assert result["status"] == "pending_human_approval"
+
+# ---------------------------------------------------------------------------
+# TestAttackVectorAgent — US-4.7 pentestgpt_integration tests
+# ---------------------------------------------------------------------------
+
+SAMPLE_FICHA = {
+    "os": "Ubuntu 22.04",
+    "services": ["22/ssh", "80/http", "443/https"],
+    "cves": ["CVE-2021-44228", "CVE-2022-0847"],
+    "criticality": "CRITICA",
+    "ens_measures": ["op.exp.2", "op.acc.1"],
+}
+
+VALID_LLM_RESPONSE = json.dumps({
+    "msf_module": "exploit/multi/handler",
+    "msf_payload": "linux/x64/meterpreter/reverse_tcp",
+    "rationale": "SSH + Log4Shell combo permite RCE inicial.",
+    "ens_article": "op.exp.2",
+    "confidence": "alto",
+})
+
+class TestAttackVectorAgent:
+    """Tests unitarios para AttackVectorAgent (US-4.7 — pentestgpt_integration)."""
+
+    @pytest.mark.asyncio
+    async def test_suggest_attack_vector_valid_response(self):
+        """Successful LLM response returns all 5 required keys."""
+        mock_client = AsyncMock()
+        mock_client.analyze = AsyncMock(return_value=VALID_LLM_RESPONSE)
+        agent = AttackVectorAgent(ollama_client=mock_client)
+        result = await agent.suggest_attack_vector(SAMPLE_FICHA)
+        assert all(k in result for k in ("msf_module", "msf_payload", "rationale", "ens_article", "confidence"))
+        assert result["confidence"] == "alto"
+        assert result["msf_module"] != "manual_review_required"
+
+    @pytest.mark.asyncio
+    async def test_suggest_attack_vector_invalid_json_returns_fallback(self):
+        """Malformed JSON response returns fallback dict without raising."""
+        mock_client = AsyncMock()
+        mock_client.analyze = AsyncMock(return_value="not valid json {{{")
+        agent = AttackVectorAgent(ollama_client=mock_client)
+        result = await agent.suggest_attack_vector(SAMPLE_FICHA)
+        assert result["msf_module"] == "manual_review_required"
+        assert result["confidence"] == "bajo"
+
+    @pytest.mark.asyncio
+    async def test_suggest_attack_vector_ollama_unavailable_returns_fallback(self):
+        """OllamaConnectionError returns fallback dict without raising."""
+        mock_client = AsyncMock()
+        mock_client.analyze = AsyncMock(side_effect=OllamaConnectionError())
+        agent = AttackVectorAgent(ollama_client=mock_client)
+        result = await agent.suggest_attack_vector(SAMPLE_FICHA)
+        assert result["msf_module"] == "manual_review_required"
+
+    @pytest.mark.asyncio
+    async def test_suggest_attack_vector_prompt_contains_cves(self):
+        """CVE IDs from ficha_unica appear verbatim in the prompt sent to the LLM."""
+        mock_client = AsyncMock()
+        captured: list[str] = []
+
+        async def capture_analyze(prompt, **kwargs):
+            captured.append(prompt)
+            return VALID_LLM_RESPONSE
+
+        mock_client.analyze = capture_analyze
+        agent = AttackVectorAgent(ollama_client=mock_client)
+        await agent.suggest_attack_vector(SAMPLE_FICHA)
+        assert len(captured) == 1
+        assert "CVE-2021-44228" in captured[0]
+
+    @pytest.mark.asyncio
+    async def test_suggest_attack_vector_missing_key_returns_fallback(self):
+        """JSON missing 'msf_payload' triggers fallback (key validation)."""
+        mock_client = AsyncMock()
+        partial = json.dumps({
+            "msf_module": "exploit/multi/handler",
+            "rationale": "Some reason",
+            "ens_article": "op.exp.2",
+            "confidence": "alto",
+            # "msf_payload" deliberately absent
+        })
+        mock_client.analyze = AsyncMock(return_value=partial)
+        agent = AttackVectorAgent(ollama_client=mock_client)
+        result = await agent.suggest_attack_vector(SAMPLE_FICHA)
+        assert result["msf_module"] == "manual_review_required"
 FILE:services\ai_reasoning\tests\test_ens_mapper.py
 # services/ai_reasoning/tests/test_ens_mapper.py
 
@@ -18329,6 +18309,17 @@ class TestOllamaClientUnit:
             collected.append(token)
 
         assert collected == ["Hola", " mundo"]
+
+    def test_default_model_is_mistral(self) -> None:
+        """Verifica que OllamaClient() sin argumentos usa mistral:latest como modelo."""
+        import os
+        env_backup = os.environ.pop("OLLAMA_MODEL", None)
+        try:
+            instance = OllamaClient()
+            assert instance.model == "mistral:latest"
+        finally:
+            if env_backup is not None:
+                os.environ["OLLAMA_MODEL"] = env_backup
 
 # ---------------------------------------------------------------------------
 # TestOllamaClientIntegration — Tests E2E (requieren Ollama real)
@@ -21986,14 +21977,15 @@ FILE:services\exploit_engine\__init__.py
 
 FILE:services\exploit_engine\alert_scheduler.py
 import logging
-from datetime import datetime, timedelta
-import time
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import os
+import smtplib
 import sys
+from datetime import datetime, timedelta, timezone
+from email.mime.text import MIMEText
 
-# Asegurar importaciones
+import psycopg2
+import requests
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from config import DB_CONFIG
@@ -22018,7 +22010,7 @@ class AlertScheduler:
         conn = self._get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute(query, (approval_id, alert_type, channel, datetime.now()))
+                cur.execute(query, (approval_id, alert_type, channel, datetime.now(timezone.utc)))
                 conn.commit()
         except Exception as e:
             logger.error(f"Error al registrar alerta: {e}")
@@ -22026,58 +22018,115 @@ class AlertScheduler:
             conn.close()
 
     def send_slack(self, message):
-        logger.info(f"[SLACK] {message}")
-        # Aquí iría la integración real con Slack API
+        webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+        if not webhook_url:
+            logger.warning("SLACK_WEBHOOK_URL not set — Slack alert skipped")
+            return
+        try:
+            response = requests.post(webhook_url, json={"text": message}, timeout=10)
+            response.raise_for_status()
+            logger.info(f"[SLACK] Alert sent: {message[:80]}")
+        except Exception as e:
+            logger.error(f"[SLACK] Failed to send alert: {e}")
 
     def send_email(self, user_email, subject, body):
-        logger.info(f"[EMAIL] Destinatario: {user_email} | Asunto: {subject} | Cuerpo: {body}")
-        # Aquí iría la integración real con SMTP o SendGrid
+        smtp_host = os.getenv("SMTP_HOST", "localhost")
+        smtp_user = os.getenv("SMTP_USER")
+        if smtp_host == "localhost" and not smtp_user:
+            logger.warning("SMTP not configured — email alert skipped")
+            return
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_password = os.getenv("SMTP_PASSWORD")
+        smtp_from = os.getenv("SMTP_FROM", "scanops@unuware.local")
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"] = smtp_from
+            msg["To"] = user_email
+            if smtp_port == 465:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as server:
+                    if smtp_user and smtp_password:
+                        server.login(smtp_user, smtp_password)
+                    server.sendmail(smtp_from, [user_email], msg.as_string())
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+                    if smtp_port == 587:
+                        server.starttls()
+                    if smtp_user and smtp_password:
+                        server.login(smtp_user, smtp_password)
+                    server.sendmail(smtp_from, [user_email], msg.as_string())
+            logger.info(f"[EMAIL] Alert sent to {user_email}: {subject}")
+        except Exception as e:
+            logger.error(f"[EMAIL] Failed to send alert: {e}")
 
     def send_sms(self, message):
         logger.info(f"[SMS] {message}")
-        # Aquí iría la integración real con Twilio
+        # Twilio integration pending
 
     def schedule_alerts(self, approval_id, exploit_time, user_email):
-        """
-        Simula el envío de alertas según la cadencia requerida.
-        En un entorno real, esto podría ser un proceso en segundo plano (Celery/Cron).
-        Para esta tarea, implementamos el método que será llamado por el orquestador.
-        """
-        now = datetime.now()
-        time_to_exploit = exploit_time - now
+        """Schedule M4 pre-execution alerts via Celery with precise countdown."""
+        from services.exploit_engine.alert_tasks import send_scheduled_alert
 
-        # Lista de alertas requeridas (minutos_antes, tipo, canales)
         cadence = [
-            (240, "4h", ["slack", "email"]),
-            (120, "2h", ["slack", "email"]),
-            (90, "1.5h", ["slack", "email"]),
-            (10, "10min", ["slack", "email", "sms"]),
-            (5, "5min", ["slack", "email"])
+            (240, "4h",    ["slack", "email"]),
+            (120, "2h",    ["slack", "email"]),
+            (90,  "1.5h",  ["slack", "email"]),
+            (10,  "10min", ["slack", "email", "sms"]),
+            (5,   "5min",  ["slack", "email"]),
         ]
 
         for minutes_before, label, channels in cadence:
             alert_time = exploit_time - timedelta(minutes=minutes_before)
+            message = f"M4 ejecutará en {label} ({exploit_time.strftime('%H:%M')})"
+            if label == "10min":
+                message += " - CLICK para cancelar"
+            elif label == "5min":
+                message = "⚠️ ÚLTIMA OPORTUNIDAD - 5 min para ejecución de M4"
 
-            # Si el tiempo de la alerta ya pasó pero es reciente (últimos 5 min), la enviamos
-            # En un orquestador real, esto se ejecutaría en un loop
-            if now >= alert_time and now < alert_time + timedelta(minutes=5):
-                message = f"M4 ejecutará en {label} ({exploit_time.strftime('%H:%M')})"
-                if label == "10min":
-                    message += " - CLICK para cancelar"
-                elif label == "5min":
-                    message = f"⚠️ ÚLTIMA OPORTUNIDAD - 5 min para ejecución de M4"
-
-                for channel in channels:
-                    if channel == "slack":
-                        self.send_slack(message)
-                    elif channel == "email":
-                        self.send_email(user_email, "Alerta de Ejecución M4", message)
-                    elif channel == "sms":
-                        self.send_sms(message)
-
-                    self.log_alert(approval_id, label, channel)
+            countdown = max(0, int((alert_time - datetime.now(timezone.utc)).total_seconds()))
+            send_scheduled_alert.apply_async(
+                args=[approval_id, label, channels, user_email, message],
+                countdown=countdown,
+            )
 
 alert_svc = AlertScheduler()
+FILE:services\exploit_engine\alert_tasks.py
+"""
+Celery tasks for M4 alert delivery.
+ENS: op.exp.4 (monitoring), op.acc.5 (approval gate)
+"""
+import logging
+
+from shared.celery_app import app
+
+logger = logging.getLogger(__name__)
+
+@app.task(
+    name="services.exploit_engine.alert_tasks.send_scheduled_alert",
+    bind=True,
+    max_retries=2,
+)
+def send_scheduled_alert(self, approval_id, alert_type, channels, user_email, message):
+    """Deliver a scheduled M4 pre-execution alert via all requested channels."""
+    try:
+        from services.exploit_engine.alert_scheduler import alert_svc
+
+        for channel in channels:
+            if channel == "slack":
+                alert_svc.send_slack(message)
+            elif channel == "email":
+                alert_svc.send_email(user_email, "Alerta de Ejecución M4", message)
+            elif channel == "sms":
+                alert_svc.send_sms(message)
+            alert_svc.log_alert(approval_id, alert_type, channel)
+
+        logger.info(
+            "[M4] Alert '%s' sent for approval %s via %s",
+            alert_type, approval_id, channels,
+        )
+    except Exception as e:
+        logger.error(f"[M4] Alert task failed: {e}")
+        raise self.retry(exc=e, countdown=60)
 FILE:services\exploit_engine\approval_service.py
 import pyotp
 import qrcode
@@ -22191,7 +22240,7 @@ class ApprovalService:
                     if request['status'] != 'PENDING':
                         return False, f"La solicitud ya está en estado {request['status']}"
 
-                    if datetime.now() > request['expires_at']:
+                    if datetime.now(timezone.utc) > request['expires_at']:
                         cur.execute(
                             "UPDATE m4_approvals SET status = 'EXPIRED' WHERE id = %s",
                             (approval_id,)
@@ -22208,7 +22257,7 @@ class ApprovalService:
 
                     cur.execute(
                         "UPDATE m4_approvals SET status = 'APPROVED', approved_at = %s WHERE id = %s",
-                        (datetime.now(), approval_id)
+                        (datetime.now(timezone.utc), approval_id)
                     )
                     logger.info(f"[ENS_EVIDENCE] Explotación APROBADA para solicitud {approval_id}")
                     return True, "Aprobado"
@@ -26730,11 +26779,66 @@ CREATE TABLE IF NOT EXISTS production_impact_logs (
     activated_by VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+FILE:services\exploit_engine\tests\test_alert_scheduler.py
+"""Tests for AlertScheduler — Slack, email, and Celery scheduling."""
+import os
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from services.exploit_engine.alert_scheduler import AlertScheduler
+
+@pytest.fixture
+def svc():
+    return AlertScheduler(db_config={})
+
+def test_send_slack_calls_webhook(svc):
+    """send_slack() POSTs to SLACK_WEBHOOK_URL with correct URL and payload."""
+    webhook_url = "https://hooks.slack.com/services/TEST/WEBHOOK/URL"
+    with patch.dict(os.environ, {"SLACK_WEBHOOK_URL": webhook_url}):
+        with patch("services.exploit_engine.alert_scheduler.requests.post") as mock_post:
+            mock_post.return_value.raise_for_status = MagicMock()
+            svc.send_slack("Test alert")
+            mock_post.assert_called_once_with(
+                webhook_url, json={"text": "Test alert"}, timeout=10
+            )
+
+def test_send_slack_no_webhook_graceful(svc):
+    """send_slack() does not raise and never calls requests.post when env var is absent."""
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("SLACK_WEBHOOK_URL", None)
+        with patch("services.exploit_engine.alert_scheduler.requests.post") as mock_post:
+            svc.send_slack("Test alert")
+            mock_post.assert_not_called()
+
+def test_send_email_no_smtp_graceful(svc):
+    """send_email() does not raise and skips SMTP when SMTP_USER is not configured."""
+    env_overrides = {"SMTP_HOST": "localhost"}
+    with patch.dict(os.environ, env_overrides, clear=False):
+        os.environ.pop("SMTP_USER", None)
+        with patch("smtplib.SMTP") as mock_smtp:
+            svc.send_email("user@example.com", "Subject", "Body")
+            mock_smtp.assert_not_called()
+
+def test_schedule_alerts_uses_celery(svc):
+    """schedule_alerts() calls send_scheduled_alert.apply_async 5 times with countdown >= 0."""
+    exploit_time = datetime.now(timezone.utc) + timedelta(hours=5)
+
+    with patch("services.exploit_engine.alert_tasks.send_scheduled_alert") as mock_task:
+        mock_apply_async = MagicMock()
+        mock_task.apply_async = mock_apply_async
+        svc.schedule_alerts(42, exploit_time, "operator@example.com")
+
+    assert mock_apply_async.call_count == 5
+    for call in mock_apply_async.call_args_list:
+        countdown = call.kwargs["countdown"]
+        assert countdown >= 0
 FILE:services\exploit_engine\tests\test_approval_service.py
 from passlib.hash import bcrypt
 import pytest
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pyotp
 import sys
 import os
@@ -26796,7 +26900,7 @@ def test_approve_exploitation_success(mock_conn_factory, approval_svc):
         'status': 'PENDING',
         'totp_secret': secret,
         'pin': bcrypt.hashpw('1234'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
-        'expires_at': datetime.now() + timedelta(hours=24)
+        'expires_at': datetime.now(timezone.utc) + timedelta(hours=24)
     }
     mock_conn_factory.return_value = mock_conn
 
@@ -26815,7 +26919,7 @@ def test_approve_exploitation_invalid_pin(mock_conn_factory, approval_svc):
         'id': 1,
         'status': 'PENDING',
         'pin': bcrypt.hashpw('1234'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
-        'expires_at': datetime.now() + timedelta(hours=24)
+        'expires_at': datetime.now(timezone.utc) + timedelta(hours=24)
     }
     mock_conn_factory.return_value = mock_conn
 
@@ -26831,7 +26935,7 @@ def test_approve_exploitation_expired(mock_conn_factory, approval_svc):
     mock_cur.fetchone.return_value = {
         'id': 1,
         'status': 'PENDING',
-        'expires_at': datetime.now() - timedelta(minutes=1)
+        'expires_at': datetime.now(timezone.utc) - timedelta(minutes=1)
     }
     mock_conn_factory.return_value = mock_conn
 
@@ -26965,6 +27069,31 @@ def test_create_approval_request_pin_is_hashed(mock_conn_factory, approval_svc):
     # Debe ser un hash bcrypt válido, no el PIN en claro
     assert pin_stored != '1234'
     assert bcrypt.checkpw('1234'.encode('utf-8'), pin_stored.encode('utf-8'))
+
+@patch('approval_service.ApprovalService._get_connection')
+def test_approve_exploitation_timezone_aware(mock_conn_factory, approval_svc):
+    """Verifica que approve_exploitation no lanza TypeError cuando expires_at
+    es un datetime timezone-aware (comportamiento real de PostgreSQL)."""
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    code = totp.now()
+
+    mock_conn = MagicMock()
+    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+    mock_cur.fetchone.return_value = {
+        'id': 1,
+        'status': 'PENDING',
+        'totp_secret': secret,
+        'pin': bcrypt.hashpw('1234'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'),
+        'expires_at': datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    mock_conn_factory.return_value = mock_conn
+
+    # Must not raise TypeError when comparing aware vs aware datetimes
+    success, message = approval_svc.approve_exploitation(1, code, '1234')
+
+    assert success is True
+    assert message == 'Aprobado'
 FILE:services\exploit_engine\tests\test_cancel_integration.py
 import pytest
 from unittest.mock import MagicMock, patch, ANY
@@ -37190,7 +37319,7 @@ logger = ScanLogger("siem_engine.correlation")
 router = APIRouter(tags=["US-6.5 Correlación IA"])
 
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:latest")
 INDEXER_URL = os.getenv("INDEXER_URL", "http://wazuh.indexer:9200")
 COWRIE_LOG = "/var/log/cowrie/cowrie.json"
 SURICATA_LOG = "/var/log/suricata/eve.json"
@@ -39550,6 +39679,7 @@ app = Celery(
         "services.scanner_engine.tasks.vuln_tasks",
         "services.ai_reasoning.tasks",
         "services.exploit_engine.tasks",
+        "services.exploit_engine.alert_tasks",
         "services.reporting_engine.tasks",
     ]
 )
@@ -40618,6 +40748,118 @@ def test_all_tasks_have_queues():
 
 def test_timezone_is_madrid():
     assert app.conf.timezone == 'Europe/Madrid'
+FILE:tests\test_m1_m2_m3.py
+"""
+Tests de validación funcional para M1, M2, M3.
+
+Verifica que los 3 microservicios están correctamente estructurados.
+"""
+
+import importlib
+
+import pytest
+
+@pytest.mark.parametrize("name,module,attr", [
+    ("M1 - Asset Manager Main", "services.asset_manager.main", "app"),
+    ("M1 - Asset Model", "services.asset_manager.models.asset", "Asset"),
+    ("M1 - Asset Router", "services.asset_manager.api.router", "router"),
+    ("M1 - Asset Service", "services.asset_manager.services.asset_service", None),
+    ("M2 - Recon Engine Main", "services.recon_engine.main", "app"),
+    ("M2 - Recon Model", "services.recon_engine.models.recon", "ReconFinding"),
+    ("M2 - Recon API", "services.recon_engine.api.recon_api", "router"),
+    ("M2 - Scanner Network", "services.recon_engine.services.scanner_network", None),
+    ("M3 - Scanner Engine Main", "services.scanner_engine.main", "app"),
+    ("M3 - Scan Endpoints", "services.scanner_engine.endpoints.scan", "router"),
+    ("M3 - OpenVAS Client", "services.scanner_engine.clients.openvas_client", "OpenVASClient"),
+    ("M3 - Nuclei Client", "services.scanner_engine.clients.nuclei_client", "NucleiClient"),
+    ("M3 - ZAP Client", "services.scanner_engine.clients.zap_client", "ZAPClient"),
+    ("M3 - Vulnerability Model", "services.scanner_engine.models.vulnerability", "VulnFinding"),
+])
+def test_imports(name, module, attr):
+    """Test 1: Verificar que todos los módulos se importan sin errores."""
+    mod = importlib.import_module(module)
+    if attr:
+        assert hasattr(mod, attr), f"{name}: atributo '{attr}' no encontrado en {module}"
+
+def test_database_models():
+    """Test 2: Verificar que los modelos de BD están definidos."""
+    from services.asset_manager.models.asset import Asset
+    assert len(Asset.__table__.columns) > 0
+
+    from services.recon_engine.models.recon import ReconFinding
+    assert len(ReconFinding.__table__.columns) > 0
+
+    from services.scanner_engine.models.vulnerability import VulnFinding
+    assert len(VulnFinding.__table__.columns) > 0
+
+@pytest.mark.parametrize("name,module_name,attr_name", [
+    ("M1 - Asset Manager", "services.asset_manager.main", "app"),
+    ("M2 - Recon Engine", "services.recon_engine.main", "app"),
+    ("M3 - Scanner Engine", "services.scanner_engine.main", "app"),
+])
+def test_fastapi_apps(name, module_name, attr_name):
+    """Test 3: Verificar que las apps FastAPI están correctamente configuradas."""
+    mod = importlib.import_module(module_name)
+    app = getattr(mod, attr_name)
+    assert hasattr(app, "openapi"), f"{name}: el objeto no es una FastAPI app"
+    assert len(app.routes) > 0, f"{name}: la app no tiene rutas registradas"
+
+def test_routers_m1():
+    """Test 4a: Verificar que M1 incluye rutas de assets."""
+    from services.asset_manager.main import app as m1_app
+    routes = [r.path for r in m1_app.routes]
+    assert any("/assets" in r or "/scan" in r for r in routes), \
+        f"M1 - No asset/scan endpoints found. Routes: {routes}"
+
+def test_routers_m2():
+    """Test 4b: Verificar que M2 incluye rutas de recon."""
+    from services.recon_engine.main import app as m2_app
+    all_routes = []
+    for r in m2_app.routes:
+        all_routes.append(r.path)
+        if hasattr(r, "app") and hasattr(r.app, "routes"):
+            for sr in r.app.routes:
+                all_routes.append(f"{r.path}{sr.path}")
+    assert any("/recon" in r or "/scan" in r for r in all_routes), \
+        f"M2 - No recon/scan endpoints found. Routes: {all_routes}"
+
+def test_routers_m3():
+    """Test 4c: Verificar que M3 incluye rutas de scan."""
+    from services.scanner_engine.main import app as m3_app
+    all_routes = []
+    for r in m3_app.routes:
+        all_routes.append(r.path)
+        if hasattr(r, "app") and hasattr(r.app, "routes"):
+            for sr in r.app.routes:
+                all_routes.append(f"{r.path}{sr.path}")
+    assert any("/scan" in r or "/status" in r for r in all_routes), \
+        f"M3 - No scan/status endpoints found. Routes: {all_routes}"
+
+@pytest.mark.integration
+@pytest.mark.parametrize("name,module_name,task_name", [
+    ("M1 - Discovery Task", "services.asset_manager.tasks.discovery", "run_network_discovery"),
+    ("M2 - Scan Tasks", "services.recon_engine.tasks.scan_tasks", "run_recon_complete"),
+    ("M3 - Parallel Scan", "services.scanner_engine.tasks.vuln_tasks", "scan_asset_parallel"),
+    ("M3 - Nuclei Task", "services.scanner_engine.tasks.vuln_tasks", "run_nuclei_task"),
+])
+def test_celery(name, module_name, task_name):
+    """Test 5: Verificar que Celery tasks están disponibles (requiere Redis)."""
+    mod = importlib.import_module(module_name)
+    assert hasattr(mod, task_name), f"{name}: tarea '{task_name}' no encontrada en {module_name}"
+
+@pytest.mark.integration
+@pytest.mark.parametrize("name,module_name,attrs", [
+    ("Database", "shared.database", ["engine", "get_db"]),
+    ("Vault Client", "shared.vault_client", ["vault_client"]),
+    ("Auth", "shared.auth", ["get_current_user"]),
+    ("Celery App", "shared.celery_app", ["app"]),
+    ("Logger", "shared.scan_logger", ["get_logger"]),
+])
+def test_vault_and_shared(name, module_name, attrs):
+    """Test 6: Verificar que dependencias compartidas existen (puede requerir servicios)."""
+    mod = importlib.import_module(module_name)
+    for attr in attrs:
+        assert hasattr(mod, attr), f"{name}: atributo '{attr}' no encontrado en {module_name}"
 FILE:tests\test_m3_complete.py
 import pytest
 
@@ -40970,7 +41212,7 @@ FILE:tests\test_vulnerability_mapping.py
 import pytest
 import json
 import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch, mock_open
 
 def test_mapping_file_exists():
     path = "services/ai_reasoning/rag_data/vulnerability_mapping.json"
@@ -41025,3 +41267,22 @@ def test_rag_engine_no_match_returns_none():
     engine = RAGEngine(MagicMock())
     result = engine.get_ens_context_from_mapping("CVE-0000-0000", "unknown generic issue xyz")
     assert result is None
+
+def test_rag_engine_mapping_loaded_once():
+    """open() must be called exactly once (during __init__), not on each lookup."""
+    import services.ai_reasoning.rag_engine as rag_module
+
+    mapping_data = json.dumps({
+        "vulnerability_patterns": [],
+        "direct_cve_mappings": {"CVE-2021-44228": {"measures": ["op.exp.2"], "primary": "op.exp.2"}},
+    })
+
+    with patch("builtins.open", mock_open(read_data=mapping_data)) as mocked_open:
+        from services.ai_reasoning.rag_engine import RAGEngine
+        engine = RAGEngine(MagicMock())
+
+        engine.get_ens_context_from_mapping("CVE-2021-44228", "log4j rce")
+        engine.get_ens_context_from_mapping("CVE-0000-0000", "something else")
+
+        # open() called once in __init__ via _load_mapping, not on each lookup
+        assert mocked_open.call_count == 1
