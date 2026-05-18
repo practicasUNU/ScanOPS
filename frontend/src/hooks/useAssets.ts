@@ -26,9 +26,10 @@ export interface VulnResult {
 
 export interface ScanTask {
   task_id: string;
-  status: string;
-  tool: string;
   asset_id: number;
+  status: string;
+  scan_types: string[];
+  created_at?: string;
 }
 
 function authHeaders(): HeadersInit {
@@ -77,11 +78,14 @@ export function useAssets() {
     return asset;
   }, []);
 
-  const scanAsset = useCallback(async (asset_id: number, ip: string): Promise<ScanTask> => {
-    const res = await fetch(`${M3_BASE}/scanner/nuclei`, {
+  const scanAsset = useCallback(async (
+    asset_id: number,
+    scan_types: string[] = ['nikto'],
+  ): Promise<ScanTask> => {
+    const res = await fetch(`${M3_BASE}/api/v1/scan/asset/${asset_id}`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ asset_id, ip }),
+      body: JSON.stringify({ scan_types }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -90,11 +94,42 @@ export function useAssets() {
     return res.json();
   }, []);
 
-  const getVulnResults = useCallback(async (asset_id: number): Promise<VulnResult[]> => {
-    const res = await fetch(`${M3_BASE}/scanner/results/${asset_id}`, { headers: authHeaders() });
-    if (!res.ok) return [];
+  const getScanStatus = useCallback(async (
+    task_id: string,
+  ): Promise<{ status: string; progress?: number }> => {
+    const res = await fetch(`${M3_BASE}/api/v1/scan/status/${task_id}`, { headers: authHeaders() });
+    if (!res.ok) return { status: 'UNKNOWN' };
     return res.json();
   }, []);
 
-  return { assets, loading, error, refetch: fetchAssets, createAsset, scanAsset, getVulnResults };
+  const getVulnResults = useCallback(async (asset_id: number): Promise<VulnResult[]> => {
+    const res = await fetch(`${M3_BASE}/api/v1/scan/results/${asset_id}`, { headers: authHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    if (Array.isArray(data)) return data;
+
+    if (data.findings_by_scanner) {
+      const results: VulnResult[] = [];
+      let idx = 0;
+      for (const [scanner, findings] of Object.entries(data.findings_by_scanner)) {
+        for (const f of findings as any[]) {
+          results.push({
+            id: idx++,
+            asset_id,
+            title: f.title ?? 'Unknown',
+            severity: f.severity ?? 'INFO',
+            tool_source: scanner,
+            cve_id: f.cve || null,
+            created_at: data.created_at ?? new Date().toISOString(),
+          });
+        }
+      }
+      return results;
+    }
+
+    return data.findings ?? data.results ?? [];
+  }, []);
+
+  return { assets, loading, error, refetch: fetchAssets, createAsset, scanAsset, getScanStatus, getVulnResults };
 }

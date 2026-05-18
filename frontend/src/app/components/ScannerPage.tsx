@@ -5,13 +5,15 @@ import { useState } from 'react';
 import { useAssets, type Asset, type VulnResult } from '../../hooks/useAssets';
 
 export function ScannerPage() {
-  const { assets, loading, error, refetch, createAsset, scanAsset, getVulnResults } = useAssets();
+  const { assets, loading, error, refetch, createAsset, scanAsset, getScanStatus, getVulnResults } = useAssets();
   const [newIP, setNewIP] = useState('');
   const [scanning, setScanning] = useState<Record<number, boolean>>({});
   const [vulns, setVulns] = useState<Record<number, VulnResult[]>>({});
   const [expanded, setExpanded] = useState<number | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [scanTypes, setScanTypes] = useState<Record<number, string[]>>({});
+  const [taskIds, setTaskIds] = useState<Record<number, string>>({});
 
   const handleAddAsset = async () => {
     if (!newIP.trim()) return;
@@ -34,13 +36,22 @@ export function ScannerPage() {
   };
 
   const handleScan = async (asset: Asset) => {
+    const types = scanTypes[asset.id] ?? ['nikto'];
     setScanning(prev => ({ ...prev, [asset.id]: true }));
     try {
-      await scanAsset(asset.id, asset.ip);
-      setTimeout(async () => {
-        const results = await getVulnResults(asset.id);
-        setVulns(prev => ({ ...prev, [asset.id]: results }));
-        setScanning(prev => ({ ...prev, [asset.id]: false }));
+      const task = await scanAsset(asset.id, types);
+      setTaskIds(prev => ({ ...prev, [asset.id]: task.task_id }));
+
+      let attempts = 0;
+      const poll = setInterval(async () => {
+        attempts++;
+        const statusRes = await getScanStatus(task.task_id);
+        if (statusRes.status === 'SUCCESS' || statusRes.status === 'FAILURE' || attempts >= 12) {
+          clearInterval(poll);
+          const results = await getVulnResults(asset.id);
+          setVulns(prev => ({ ...prev, [asset.id]: results }));
+          setScanning(prev => ({ ...prev, [asset.id]: false }));
+        }
       }, 10000);
     } catch {
       setScanning(prev => ({ ...prev, [asset.id]: false }));
@@ -155,6 +166,21 @@ export function ScannerPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {scanning[asset.id] && taskIds[asset.id] && (
+                        <span className="text-xs text-[#9ca3af] font-mono">
+                          task: {taskIds[asset.id].slice(0, 8)}…
+                        </span>
+                      )}
+                      <select
+                        value={(scanTypes[asset.id] ?? ['nikto']).join(',')}
+                        onChange={e => setScanTypes(prev => ({ ...prev, [asset.id]: e.target.value.split(',') }))}
+                        disabled={scanning[asset.id]}
+                        className="text-xs bg-[#0f1117] border border-[#1e2530] text-[#9ca3af] rounded px-2 py-1.5 focus:outline-none focus:border-[#00d4ff] disabled:opacity-50"
+                      >
+                        <option value="nikto">Nikto</option>
+                        <option value="nuclei">Nuclei</option>
+                        <option value="nikto,nuclei">Nikto + Nuclei</option>
+                      </select>
                       <button
                         onClick={() => handleScan(asset)}
                         disabled={scanning[asset.id]}
