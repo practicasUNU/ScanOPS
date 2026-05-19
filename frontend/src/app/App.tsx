@@ -8,6 +8,7 @@ import { AlertsPage } from './components/AlertsPage';
 import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AssetManagerPage } from './components/AssetManagerPage';
+import { AssetDetailPage } from './components/AssetDetailPage';
 import { AIReasoningPage } from './components/AIReasoningPage';
 import { ReportingPage } from './components/ReportingPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -46,6 +47,11 @@ export default function App() {
         } />
         <Route path="/surface" element={
           <ProtectedRoute><UnifiedScannerLayout /></ProtectedRoute>
+        } />
+        <Route path="/assets/:id" element={
+          <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
+            <AssetDetailPage />
+          </ProtectedRoute>
         } />
         <Route path="/assets" element={
           <ProtectedRoute><AssetManagerPage /></ProtectedRoute>
