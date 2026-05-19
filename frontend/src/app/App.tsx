@@ -11,6 +11,7 @@ import { AssetManagerPage } from './components/AssetManagerPage';
 import { AssetDetailPage } from './components/AssetDetailPage';
 import { AIReasoningPage } from './components/AIReasoningPage';
 import { ReportingPage } from './components/ReportingPage';
+import { SettingsPage } from './components/SettingsPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
@@ -43,6 +44,11 @@ export default function App() {
         <Route path="/audit-logs" element={
           <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
             <AuditLogsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/settings" element={
+          <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
+            <SettingsPage />
           </ProtectedRoute>
         } />
         <Route path="/surface" element={

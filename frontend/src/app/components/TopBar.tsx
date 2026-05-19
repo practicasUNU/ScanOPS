@@ -1,4 +1,5 @@
-import { Bell, Shield, LogOut } from 'lucide-react';
+// frontend/src/app/components/TopBar.tsx
+import { Bell, Shield, LogOut, Settings } from 'lucide-react'; // [NUEVO] Importamos Settings
 import { useNavigate } from 'react-router';
 import { getCycleState } from '../utils/cycleState';
 import type { DotColor } from '../utils/cycleState';
@@ -25,31 +26,19 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
   const dot = color === 'green' ? '●' : color === 'amber' ? '⏸' : color === 'red' ? '🔴' : '◌';
 
   const dotColorClass =
-    color === 'green'
-      ? 'text-[#22c55e]'
-      : color === 'amber'
-      ? 'text-[#f59e0b]'
-      : color === 'red'
-      ? 'text-[#ff3b3b]'
-      : 'text-[#6b7280]';
+    color === 'green' ? 'text-[#22c55e]' :
+    color === 'amber' ? 'text-[#f59e0b]' :
+    color === 'red' ? 'text-[#ff3b3b]' : 'text-[#6b7280]';
 
   const pillBorderClass =
-    color === 'green'
-      ? 'border-[#22c55e]/20 bg-[#22c55e]/5'
-      : color === 'amber'
-      ? 'border-[#f59e0b]/20 bg-[#f59e0b]/5'
-      : color === 'red'
-      ? 'border-[#ff3b3b]/20 bg-[#ff3b3b]/5'
-      : 'border-[#4b5563]/30 bg-[#374151]/10';
+    color === 'green' ? 'border-[#22c55e]/20 bg-[#22c55e]/5' :
+    color === 'amber' ? 'border-[#f59e0b]/20 bg-[#f59e0b]/5' :
+    color === 'red' ? 'border-[#ff3b3b]/20 bg-[#ff3b3b]/5' : 'border-[#4b5563]/30 bg-[#374151]/10';
 
   const pillTextClass =
-    color === 'green'
-      ? 'text-[#22c55e]'
-      : color === 'amber'
-      ? 'text-[#f59e0b]'
-      : color === 'red'
-      ? 'text-[#ff3b3b]'
-      : 'text-[#6b7280]';
+    color === 'green' ? 'text-[#22c55e]' :
+    color === 'amber' ? 'text-[#f59e0b]' :
+    color === 'red' ? 'text-[#ff3b3b]' : 'text-[#6b7280]';
 
   return (
     <header className="h-16 bg-[#1a1d27] border-b border-[#1e2530] flex items-center justify-between px-6">
@@ -71,7 +60,16 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
           <span className="text-xs text-[#22c55e] font-medium">MFA Activo</span>
         </div>
 
-        <button className="relative p-2 text-[#9ca3af] hover:text-white hover:bg-[#1e2530] rounded-lg transition-colors">
+        {/* [NUEVO] Botón de Ajustes/Configuración */}
+        <button 
+          onClick={() => navigate('/settings')}
+          className="p-2 text-[#9ca3af] hover:text-white hover:bg-[#1e2530] rounded-lg transition-colors cursor-pointer"
+          title="Configuración"
+        >
+          <Settings className="w-5 h-5" />
+        </button>
+
+        <button className="relative p-2 text-[#9ca3af] hover:text-white hover:bg-[#1e2530] rounded-lg transition-colors cursor-pointer" title="Notificaciones">
           <Bell className="w-5 h-5" />
           <span className="absolute top-1 right-1 w-2 h-2 bg-[#ff3b3b] rounded-full"></span>
         </button>
@@ -88,7 +86,7 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
 
         <button
           onClick={handleLogout}
-          className="p-2 text-[#9ca3af] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded-lg transition-colors"
+          className="p-2 text-[#9ca3af] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded-lg transition-colors cursor-pointer"
           title="Cerrar sesión"
         >
           <LogOut className="w-4 h-4" />
