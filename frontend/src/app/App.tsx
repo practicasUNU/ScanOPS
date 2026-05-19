@@ -39,9 +39,6 @@ export default function App() {
             <CompliancePage />
           </ProtectedRoute>
         } />
-        <Route path="/alerts" element={
-          <ProtectedRoute><AlertsPage /></ProtectedRoute>
-        } />
         <Route path="/audit-logs" element={
           <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
             <AuditLogsPage />
@@ -77,7 +74,6 @@ export default function App() {
             <AlertsPage />
           </ProtectedRoute>
         } />
-        
       </Routes>
     </BrowserRouter>
   );

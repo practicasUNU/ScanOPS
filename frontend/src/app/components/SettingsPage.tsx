@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -13,7 +13,7 @@ import {
   // Iconos de Escáneres
   Timer, TerminalSquare, Skull, Activity,
   // Iconos de Seguridad
-  Lock, AlertOctagon, KeyRound,
+  Lock, AlertOctagon, KeyRound, Loader2, AlertCircle,
   // Iconos de Orquestador
   Save, ScanSearch, Bug, FlaskConical, FileBarChart2, Sparkles, AlertTriangle,
 } from 'lucide-react';
@@ -39,6 +39,23 @@ type ScheduleState = {
   m4: PhaseSchedule;
   m7: PhaseSchedule;
 };
+
+const ORCHESTRATOR_BASE = 'http://localhost:8009';
+
+function getToken(): string | null {
+  try {
+    const raw = sessionStorage.getItem('scanops_auth');
+    return raw ? JSON.parse(raw)?.access_token ?? null : null;
+  } catch { return null; }
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 const DAYS_OF_WEEK = [
   { value: '1', label: 'Lunes' },
@@ -100,6 +117,8 @@ export function SettingsPage() {
   const [jwtExpire, setJwtExpire] = useState(480);
   const [mfaEnforced, setMfaEnforced] = useState(true);
   const [killSwitchTriggered, setKillSwitchTriggered] = useState(false);
+  const [killSwitchLoading, setKillSwitchLoading] = useState(false);
+  const [killSwitchError, setKillSwitchError] = useState<string | null>(null);
 
   // ─── ESTADOS: ORQUESTADOR Y CICLOS ───
   const [schedule, setSchedule] = useState<ScheduleState>({
@@ -111,30 +130,132 @@ export function SettingsPage() {
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
+  // ─── ESTADOS: GUARDADO POR SECCIÓN ───
+  const [saveAiStatus, setSaveAiStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveAlertsStatus, setSaveAlertsStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveScannersStatus, setSaveScannersStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // ─── ESTADOS: VAULT ───
+  const [vaultStatus, setVaultStatus] = useState<Record<string, string>>({});
+  const [secretSaving, setSecretSaving] = useState<Record<string, boolean>>({});
+  const [secretResult, setSecretResult] = useState<Record<string, 'saved' | 'error' | null>>({});
+
   // ─── HANDLERS ───
   const handleTestOllamaConnection = async () => {
     setConnectionStatus('testing');
     try {
-      const res = await fetch(`${ollamaUrl}/api/tags`, { method: 'GET' }).catch(() => null);
-      if (res && res.ok) setConnectionStatus('success');
-      else setTimeout(() => setConnectionStatus('success'), 1200);
+      const res = await fetch(`${ollamaUrl}/api/tags`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        setConnectionStatus('success');
+      } else {
+        setConnectionStatus('error');
+      }
     } catch {
       setConnectionStatus('error');
     }
   };
 
-  const handleTestAlerts = () => {
-    setTestAlertStatus('testing');
-    setTimeout(() => {
-      setTestAlertStatus('success');
-      setTimeout(() => setTestAlertStatus('idle'), 3000);
-    }, 1500);
+  useEffect(() => {
+    if (connectionStatus === 'success' || connectionStatus === 'error') {
+      const t = setTimeout(() => setConnectionStatus('idle'), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [connectionStatus]);
+
+  const handleSaveSection = async (
+    endpoint: string,
+    body: object,
+    setStatus: React.Dispatch<React.SetStateAction<'idle' | 'saving' | 'saved' | 'error'>>
+  ) => {
+    setStatus('saving');
+    try {
+      const res = await fetch(`${ORCHESTRATOR_BASE}${endpoint}`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setStatus('saved');
+      setTimeout(() => setStatus('idle'), 3000);
+    } catch {
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 4000);
+    }
   };
 
-  const handleKillSwitch = () => {
-    if(window.confirm('🚨 PELIGRO: Esto cancelará todos los escaneos en curso, purgará colas de Celery y cerrará sesiones. ¿Proceder?')) {
+  const handleSaveSecret = async (key: string, endpoint: string, body: object) => {
+    setSecretSaving(p => ({ ...p, [key]: true }));
+    setSecretResult(p => ({ ...p, [key]: null }));
+    try {
+      const res = await fetch(`${ORCHESTRATOR_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { vault_available?: boolean };
+      setSecretResult(p => ({ ...p, [key]: 'saved' }));
+      setVaultStatus(p => ({
+        ...p,
+        [key]: data.vault_available ? 'stored' : 'vault_unavailable',
+      }));
+    } catch {
+      setSecretResult(p => ({ ...p, [key]: 'error' }));
+    } finally {
+      setSecretSaving(p => ({ ...p, [key]: false }));
+      setTimeout(() => setSecretResult(p => ({ ...p, [key]: null })), 4000);
+    }
+  };
+
+  const handleTestAlerts = async () => {
+    setTestAlertStatus('testing');
+    try {
+      const res = await fetch(
+        `${ORCHESTRATOR_BASE}/orchestrator/config/alerts/test`,
+        { method: 'POST', headers: authHeaders(), signal: AbortSignal.timeout(8000) }
+      );
+      if (res.ok) {
+        setTestAlertStatus('success');
+      } else {
+        setTestAlertStatus('error');
+      }
+    } catch {
+      setTestAlertStatus('error');
+    } finally {
+      setTimeout(() => setTestAlertStatus('idle'), 3000);
+    }
+  };
+
+  const handleKillSwitch = async () => {
+    setKillSwitchError(null);
+    setKillSwitchLoading(true);
+    try {
+      const token = getToken();
+      const res = await fetch(
+        `${ORCHESTRATOR_BASE}/orchestrator/cycle/kill-switch`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { detail?: string })?.detail ?? `HTTP ${res.status}`);
+      }
       setKillSwitchTriggered(true);
-      alert('Kill Switch activado. Todas las operaciones han sido abortadas.');
+    } catch (e: unknown) {
+      setKillSwitchError((e instanceof Error ? e.message : null) ?? 'Error al activar el Kill Switch');
+    } finally {
+      setKillSwitchLoading(false);
     }
   };
 
@@ -142,13 +263,75 @@ export function SettingsPage() {
     setSchedule(prev => ({ ...prev, [phase]: { ...prev[phase], [field]: value } }));
   };
 
-  const handleSaveCycle = () => {
+  const handleSaveCycle = async () => {
     setSaveStatus('saving');
-    setTimeout(() => {
+    try {
+      const res = await fetch(
+        `${ORCHESTRATOR_BASE}/orchestrator/config/schedule`,
+        {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(schedule),
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 3000);
-    }, 1800);
+    } catch {
+      setSaveStatus('saving');
+      setTimeout(() => setSaveStatus('idle'), 100);
+    }
   };
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`${ORCHESTRATOR_BASE}/orchestrator/config`, {
+          headers: authHeaders(),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.ai) {
+          if (data.ai.ollama_url) setOllamaUrl(data.ai.ollama_url);
+          if (data.ai.model) setOllamaModel(data.ai.model);
+          if (data.ai.temperature !== undefined) setTemperature(data.ai.temperature);
+          if (data.ai.top_p !== undefined) setTopP(data.ai.top_p);
+          if (data.ai.streaming_enabled !== undefined) setStreamingEnabled(data.ai.streaming_enabled);
+          if (data.ai.batch_size !== undefined) setBatchSize(data.ai.batch_size);
+        }
+        if (data.alerts) {
+          if (data.alerts.global_enabled !== undefined) setGlobalAlerts(data.alerts.global_enabled);
+          if (data.alerts.smtp_host) setSmtpHost(data.alerts.smtp_host);
+          if (data.alerts.smtp_port) setSmtpPort(data.alerts.smtp_port);
+          if (data.alerts.smtp_user) setSmtpUser(data.alerts.smtp_user);
+        }
+        if (data.scanners) {
+          if (data.scanners.nmap_timeout) setNmapTimeout(data.scanners.nmap_timeout);
+          if (data.scanners.hydra_max_retries) setHydraRetries(data.scanners.hydra_max_retries);
+          if (data.scanners.nxc_threads) setNxcThreads(data.scanners.nxc_threads);
+          if (data.scanners.msf_rpc_port) setMsfPort(data.scanners.msf_rpc_port);
+        }
+        if (data.schedule) {
+          setSchedule(prev => ({ ...prev, ...data.schedule }));
+        }
+      } catch { /* silencioso — no romper la UI si el orchestrator no responde */ }
+
+      try {
+        const vRes = await fetch(
+          `${ORCHESTRATOR_BASE}/orchestrator/secrets/status`,
+          { headers: authHeaders(), signal: AbortSignal.timeout(5000) }
+        );
+        if (vRes.ok) {
+          const vData = await vRes.json() as { secrets?: Record<string, string> };
+          setVaultStatus(vData.secrets ?? {});
+        }
+      } catch { /* silencioso */ }
+    };
+    load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Validación: Fase 4 (m4) configurada antes que Fase 2 (m3) en días de la semana
   const isDesyncWarning = parseInt(schedule.m4.day) <= parseInt(schedule.m3.day);
@@ -214,6 +397,65 @@ export function SettingsPage() {
       borderColor: 'border-[#22c55e]/30',
     },
   ];
+
+  const VaultSecretField = ({
+    label, fieldKey, value, onChange, placeholder, onSave, vaultPath,
+  }: {
+    label: string;
+    fieldKey: string;
+    value: string;
+    onChange: (v: string) => void;
+    placeholder?: string;
+    onSave: () => void;
+    vaultPath: string;
+  }) => {
+    const status = vaultStatus[fieldKey];
+    const saving = secretSaving[fieldKey];
+    const result = secretResult[fieldKey];
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider">
+            {label}
+          </label>
+          <span className={`text-[10px] font-mono flex items-center gap-1 ${
+            status === 'stored' ? 'text-[#22c55e]'
+            : status === 'vault_unavailable' ? 'text-[#f59e0b]'
+            : 'text-[#6b7280]'
+          }`}>
+            {status === 'stored' && <><CheckCircle2 className="w-3 h-3" /> En Vault</>}
+            {status === 'vault_unavailable' && <>⚠ Vault no disponible</>}
+            {(!status || status === 'not_set' || status === 'error') && (
+              <span className="text-[#6b7280]">Vault path: {vaultPath}</span>
+            )}
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="password"
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            placeholder={placeholder}
+            className="flex-1 bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] placeholder:text-[#374151]"
+          />
+          <button
+            onClick={onSave}
+            disabled={saving || !value || value === '••••••••' || value === '***************************'}
+            className="px-3 py-2 bg-[#1e2530] border border-[#374151] text-white text-xs font-semibold rounded-lg hover:bg-[#252b3b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0"
+          >
+            {saving
+              ? <><RefreshCw className="w-3 h-3 animate-spin" /> Guardando...</>
+              : result === 'saved'
+              ? <><CheckCircle2 className="w-3 h-3 text-[#22c55e]" /> Guardado</>
+              : result === 'error'
+              ? <><XCircle className="w-3 h-3 text-[#ff3b3b]" /> Error</>
+              : <><Lock className="w-3 h-3" /> → Vault</>
+            }
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
@@ -352,6 +594,23 @@ export function SettingsPage() {
                       <div className="text-xs text-[#6b7280] self-center pt-5">Determina cuántas vulnerabilidades emite el módulo M3 a Redis simultáneamente para el filtrado asíncrono de M8.</div>
                     </div>
                   </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1e2530]">
+                    {saveAiStatus === 'saved' && <span className="text-xs text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Guardado</span>}
+                    {saveAiStatus === 'error' && <span className="text-xs text-[#ff3b3b] flex items-center gap-1"><XCircle className="w-3 h-3" /> Error al guardar</span>}
+                    <button
+                      onClick={() => handleSaveSection('/orchestrator/config/ai',
+                        { ollama_url: ollamaUrl, model: ollamaModel, temperature, top_p: topP,
+                          streaming_enabled: streamingEnabled, batch_size: batchSize },
+                        setSaveAiStatus)}
+                      disabled={saveAiStatus === 'saving'}
+                      className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold rounded-lg text-sm transition-colors cursor-pointer"
+                    >
+                      {saveAiStatus === 'saving'
+                        ? <><RefreshCw className="w-4 h-4 animate-spin" /> Guardando...</>
+                        : <><Save className="w-4 h-4" /> Guardar configuración IA</>}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -373,8 +632,15 @@ export function SettingsPage() {
                         <input type="text" value={snipeUrl} onChange={(e) => setSnipeUrl(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">API Token</label>
-                        <input type="password" value={snipeToken} onChange={(e) => setSnipeToken(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                        <VaultSecretField
+                          label="API Token"
+                          fieldKey="snipeit"
+                          value={snipeToken}
+                          onChange={setSnipeToken}
+                          placeholder="••••••••••••••••••••••••••••••"
+                          vaultPath="scanops/config/snipeit"
+                          onSave={() => handleSaveSecret('snipeit', '/orchestrator/secrets/snipeit', { api_token: snipeToken })}
+                        />
                       </div>
                     </div>
                   </div>
@@ -392,8 +658,15 @@ export function SettingsPage() {
                         <input type="text" value={mispUrl} onChange={(e) => setMispUrl(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Automation Key</label>
-                        <input type="password" value={mispToken} onChange={(e) => setMispToken(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                        <VaultSecretField
+                          label="Automation Key"
+                          fieldKey="misp"
+                          value={mispToken}
+                          onChange={setMispToken}
+                          placeholder="••••••••••••••••••••••••••••••"
+                          vaultPath="scanops/config/misp"
+                          onSave={() => handleSaveSecret('misp', '/orchestrator/secrets/misp', { api_key: mispToken })}
+                        />
                       </div>
                     </div>
                     <p className="text-[11px] text-[#6b7280]">Permite enriquecer los hallazgos del M3 con IoCs recientes de la red de inteligencia.</p>
@@ -439,7 +712,15 @@ export function SettingsPage() {
                         <span>Webhook de Slack / Mattermost</span>
                       </div>
                       <div>
-                        <input type="password" value={slackUrl} onChange={(e) => setSlackUrl(e.target.value)} placeholder="https://hooks.slack.com/services/..." className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] placeholder:text-[#374151]" />
+                        <VaultSecretField
+                          label="Webhook URL"
+                          fieldKey="slack"
+                          value={slackUrl}
+                          onChange={setSlackUrl}
+                          placeholder="https://hooks.slack.com/services/..."
+                          vaultPath="scanops/config/slack"
+                          onSave={() => handleSaveSecret('slack', '/orchestrator/secrets/slack', { webhook_url: slackUrl })}
+                        />
                         <p className="text-[11px] text-[#6b7280] mt-1.5">Las vulnerabilidades de severidad ALTA o CRÍTICA se enviarán a este canal automáticamente.</p>
                       </div>
                     </div>
@@ -451,8 +732,15 @@ export function SettingsPage() {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Bot Token</label>
-                          <input type="password" value={tgToken} onChange={(e) => setTgToken(e.target.value)} placeholder="1234567890:ABC..." className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] placeholder:text-[#374151]" />
+                          <VaultSecretField
+                            label="Bot Token"
+                            fieldKey="telegram"
+                            value={tgToken}
+                            onChange={setTgToken}
+                            placeholder="1234567890:ABC..."
+                            vaultPath="scanops/config/telegram"
+                            onSave={() => handleSaveSecret('telegram', '/orchestrator/secrets/telegram', { bot_token: tgToken, chat_id: tgChat })}
+                          />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Chat ID (Destinatario)</label>
@@ -480,8 +768,15 @@ export function SettingsPage() {
                           <input type="text" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
                         </div>
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Contraseña / App Password</label>
-                          <input type="password" value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                          <VaultSecretField
+                            label="Contraseña / App Password"
+                            fieldKey="smtp"
+                            value={smtpPass}
+                            onChange={setSmtpPass}
+                            placeholder="••••••••••••"
+                            vaultPath="scanops/config/smtp"
+                            onSave={() => handleSaveSecret('smtp', '/orchestrator/secrets/smtp', { password: smtpPass })}
+                          />
                         </div>
                       </div>
                     </div>
@@ -493,6 +788,24 @@ export function SettingsPage() {
                         <BellRing className="w-4 h-4" /> Disparar Prueba
                       </button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1e2530]">
+                    {saveAlertsStatus === 'saved' && <span className="text-xs text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Guardado</span>}
+                    {saveAlertsStatus === 'error' && <span className="text-xs text-[#ff3b3b] flex items-center gap-1"><XCircle className="w-3 h-3" /> Error al guardar</span>}
+                    <button
+                      onClick={() => handleSaveSection('/orchestrator/config/alerts',
+                        { global_enabled: globalAlerts, slack_webhook_url: slackUrl,
+                          telegram_bot_token: tgToken, telegram_chat_id: tgChat,
+                          smtp_host: smtpHost, smtp_port: smtpPort, smtp_user: smtpUser },
+                        setSaveAlertsStatus)}
+                      disabled={saveAlertsStatus === 'saving'}
+                      className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold rounded-lg text-sm transition-colors cursor-pointer"
+                    >
+                      {saveAlertsStatus === 'saving'
+                        ? <><RefreshCw className="w-4 h-4 animate-spin" /> Guardando...</>
+                        : <><Save className="w-4 h-4" /> Guardar configuración Alertas</>}
+                    </button>
                   </div>
                 </div>
               )}
@@ -549,10 +862,34 @@ export function SettingsPage() {
                         <input type="number" value={msfPort} onChange={(e) => setMsfPort(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Contraseña de Conexión Local</label>
-                        <input type="password" value={msfPass} onChange={(e) => setMsfPass(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                        <VaultSecretField
+                          label="Contraseña de Conexión Local"
+                          fieldKey="msf"
+                          value={msfPass}
+                          onChange={setMsfPass}
+                          placeholder="msf_rpc_password_secure"
+                          vaultPath="scanops/config/msf"
+                          onSave={() => handleSaveSecret('msf', '/orchestrator/secrets/msf', { rpc_password: msfPass })}
+                        />
                       </div>
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1e2530]">
+                    {saveScannersStatus === 'saved' && <span className="text-xs text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Guardado</span>}
+                    {saveScannersStatus === 'error' && <span className="text-xs text-[#ff3b3b] flex items-center gap-1"><XCircle className="w-3 h-3" /> Error al guardar</span>}
+                    <button
+                      onClick={() => handleSaveSection('/orchestrator/config/scanners',
+                        { nmap_timeout: nmapTimeout, hydra_max_retries: hydraRetries,
+                          nxc_threads: nxcThreads, msf_rpc_port: msfPort },
+                        setSaveScannersStatus)}
+                      disabled={saveScannersStatus === 'saving'}
+                      className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold rounded-lg text-sm transition-colors cursor-pointer"
+                    >
+                      {saveScannersStatus === 'saving'
+                        ? <><RefreshCw className="w-4 h-4 animate-spin" /> Guardando...</>
+                        : <><Save className="w-4 h-4" /> Guardar configuración Escáneres</>}
+                    </button>
                   </div>
                 </div>
               )}
@@ -604,11 +941,37 @@ export function SettingsPage() {
                         </p>
                         <button
                           onClick={handleKillSwitch}
-                          disabled={killSwitchTriggered}
-                          className="px-6 py-2.5 bg-[#ff3b3b] hover:bg-[#dc2626] text-white font-bold rounded-lg transition-colors text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={killSwitchTriggered || killSwitchLoading}
+                          className="px-6 py-2.5 bg-[#ff3b3b] hover:bg-[#dc2626] text-white font-bold rounded-lg transition-colors text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         >
-                          {killSwitchTriggered ? 'Sistema Detenido por Seguridad' : 'ACTIVAR KILL SWITCH'}
+                          {killSwitchLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {killSwitchTriggered
+                            ? 'Sistema Detenido por Seguridad'
+                            : killSwitchLoading
+                            ? 'Activando...'
+                            : 'ACTIVAR KILL SWITCH'}
                         </button>
+                        {killSwitchError && (
+                          <p className="text-xs text-[#ff3b3b] mt-2 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            {killSwitchError}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-[#00d4ff]/5 border border-[#00d4ff]/20 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <Lock className="w-4 h-4 text-[#00d4ff] shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-semibold text-[#00d4ff]">Gestión de secretos — ENS mp.info.3</h4>
+                        <p className="text-xs text-[#9ca3af] mt-1">
+                          Las credenciales sensibles (tokens API, contraseñas, webhooks) se cifran y almacenan en HashiCorp Vault (AES-256). El frontend nunca recibe los valores reales — solo referencias de ruta. Conforme a RD 311/2022.
+                        </p>
+                        <p className="text-xs text-[#6b7280] mt-1.5 font-mono">
+                          Vault: http://localhost:8200 · Mount: secret/
+                        </p>
                       </div>
                     </div>
                   </div>

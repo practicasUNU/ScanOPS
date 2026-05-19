@@ -11,6 +11,7 @@ import {
   Boxes,
   Brain,
   FileText,
+  Settings,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useState, useEffect } from 'react';
@@ -87,6 +88,7 @@ export function Sidebar() {
         { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
         { icon: FileCheck, label: 'Cumplimiento', path: '/compliance' },
         { icon: ScrollText, label: 'Logs Auditoría', path: '/audit-logs' },
+        { icon: Settings, label: 'Configuración', path: '/settings' },
       ]
     }
   ];
