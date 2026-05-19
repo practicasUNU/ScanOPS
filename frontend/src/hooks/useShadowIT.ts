@@ -20,6 +20,8 @@ export interface M2Snapshot {
   services_detected?: number;
   os_family?: string | null;
   ports?: M2Port[];
+  isBlacklisted?: boolean;
+  registeredStatus?: string;
 }
 
 const MOCK_SNAPSHOTS: M2Snapshot[] = [
@@ -68,8 +70,8 @@ function authHeaders(): HeadersInit {
     : { 'Content-Type': 'application/json' };
 }
 
-export function useShadowIT() {
-  const [snapshots, setSnapshots] = useState<M2Snapshot[]>([]);
+export function useShadowIT(registeredAssets: { ip: string; status: string }[] = []) {
+  const [allSnapshots, setAllSnapshots] = useState<M2Snapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,10 +112,10 @@ export function useShadowIT() {
         }),
       );
 
-      setSnapshots(enriched);
+      setAllSnapshots(enriched);
       setError(null);
     } catch {
-      setSnapshots(MOCK_SNAPSHOTS);
+      setAllSnapshots(MOCK_SNAPSHOTS);
       setError('M2 no disponible');
     } finally {
       setLoading(false);
@@ -122,5 +124,14 @@ export function useShadowIT() {
 
   useEffect(() => { fetchSnapshots(); }, [fetchSnapshots]);
 
-  return { snapshots, loading, error, refetch: fetchSnapshots };
+  const registeredIPs = new Set(registeredAssets.map(a => a.ip));
+  const snapshots = allSnapshots.filter(s => !registeredIPs.has(s.target));
+  const alreadyRegistered = allSnapshots
+    .filter(s => registeredIPs.has(s.target))
+    .map(s => {
+      const reg = registeredAssets.find(a => a.ip === s.target);
+      return { ...s, isBlacklisted: reg?.status === 'BLOQUEADA', registeredStatus: reg?.status };
+    });
+
+  return { snapshots, alreadyRegistered, loading, error, refetch: fetchSnapshots };
 }

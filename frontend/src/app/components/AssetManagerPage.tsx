@@ -4,8 +4,8 @@ import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   Server, ShieldAlert, KeyRound, Plus, RefreshCw, AlertCircle,
-  Play, Loader2, Eye, Info, Terminal, Monitor, HelpCircle, ChevronDown, ChevronRight,
-  Copy, Check, Lock, Pencil, Save, Trash2, Maximize2,
+  Play, Loader2, Eye, Info, Terminal, Monitor, HelpCircle, ChevronDown, ChevronRight, ExternalLink,
+  Copy, Check, Lock, Pencil, Save, Trash2, Maximize2, ShieldX,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
@@ -74,12 +74,20 @@ const vulnSeverityClass = (sev: string) => {
 
 interface ShadowITTabProps {
   onRegisterAsset: (ip: string) => void;
+  registeredAssets: { ip: string; status: string }[];
 }
 
-function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
-  const { snapshots, loading, error, refetch } = useShadowIT();
+function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
+  const { snapshots, alreadyRegistered, loading, error, refetch } = useShadowIT(registeredAssets);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [rescanState, setRescanState] = useState<Record<string, RowState>>({});
+  const [registeredExpanded, setRegisteredExpanded] = useState(false);
+  const [blacklistDialogOpen, setBlacklistDialogOpen] = useState(false);
+  const [blacklistTarget, setBlacklistTarget] = useState<string>('');
+  const [blacklistMotivo, setBlacklistMotivo] = useState('');
+  const [blacklistLoading, setBlacklistLoading] = useState(false);
+  const [blacklistError, setBlacklistError] = useState<string | null>(null);
+  const [blacklistSuccess, setBlacklistSuccess] = useState<string | null>(null);
 
   const handleRescan = async (snap: M2Snapshot) => {
     setRescanState(prev => ({ ...prev, [snap.snapshot_id]: { status: 'scanning' } }));
@@ -103,8 +111,72 @@ function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
 
   const toggleRow = (id: string) => setExpandedRow(prev => (prev === id ? null : id));
 
+  const handleBlacklistIP = async () => {
+    if (!blacklistMotivo.trim()) { setBlacklistError('El motivo es obligatorio'); return; }
+    const isValidIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(blacklistTarget) || /^[0-9a-fA-F:]+$/.test(blacklistTarget);
+    if (!isValidIP) {
+      setBlacklistError('M1 solo acepta direcciones IP. Para bloquear un dominio, registra su IP.');
+      return;
+    }
+    setBlacklistLoading(true);
+    setBlacklistError(null);
+    try {
+      const res = await fetch(`${M1_BASE}/assets`, {
+        method: 'POST',
+        headers: authHeader(),
+        body: JSON.stringify({
+          ip: blacklistTarget,
+          tipo: 'OTRO',
+          criticidad: 'ALTA',
+          status: 'BLOQUEADA',
+          responsable: 'sistema',
+          notas: `BLOQUEADA — ${blacklistMotivo}`,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const detail = (err as any).detail;
+        if (Array.isArray(detail)) {
+          throw { detail };
+        }
+        throw new Error(typeof detail === 'string' ? detail : `Error ${res.status}`);
+      }
+      setBlacklistDialogOpen(false);
+      setBlacklistMotivo('');
+      refetch();
+      setBlacklistSuccess(`IP ${blacklistTarget} añadida a lista negra`);
+      setTimeout(() => setBlacklistSuccess(null), 4000);
+    } catch (e: any) {
+      if (Array.isArray(e?.detail)) {
+        setBlacklistError(e.detail.map((d: any) => d.msg).join(' · '));
+      } else {
+        setBlacklistError(e?.message ?? e?.detail ?? 'Error al bloquear la IP');
+      }
+    } finally {
+      setBlacklistLoading(false);
+    }
+  };
+
+  const blockedCount = alreadyRegistered.filter(s => s.isBlacklisted).length;
+
   return (
     <div className="space-y-3">
+      {blockedCount > 0 && (
+        <div className="flex items-center gap-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg px-4 py-2.5">
+          <ShieldX className="w-4 h-4 text-[#ff3b3b] shrink-0" />
+          <span className="text-sm text-[#ff3b3b]">
+            {blockedCount} IP(s) en lista negra detectadas en la red
+          </span>
+        </div>
+      )}
+
+      {blacklistSuccess && (
+        <div className="flex items-center gap-2 bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-lg px-4 py-2.5">
+          <ShieldX className="w-4 h-4 text-[#22c55e] shrink-0" />
+          <span className="text-sm text-[#22c55e]">{blacklistSuccess}</span>
+        </div>
+      )}
+
       <div className="flex items-start gap-3 bg-[#00d4ff]/5 border border-[#00d4ff]/20 rounded-lg px-4 py-3 text-sm text-[#9ca3af]">
         <Info className="w-4 h-4 text-[#00d4ff] shrink-0 mt-0.5" />
         <span>
@@ -145,7 +217,7 @@ function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
             ) : snapshots.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-6 py-8 text-center text-[#6b7280] font-mono">
-                  No hay dispositivos descubiertos.
+                  No hay dispositivos descubiertos sin registrar.
                 </td>
               </tr>
             ) : (
@@ -258,6 +330,18 @@ function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
                               : <RefreshCw className="w-3.5 h-3.5" />}
                             Re-escanear
                           </button>
+                          <button
+                            onClick={() => {
+                              setBlacklistTarget(snap.target);
+                              setBlacklistMotivo('');
+                              setBlacklistError(null);
+                              setBlacklistDialogOpen(true);
+                            }}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 text-[#ff3b3b] rounded-lg hover:bg-[#ff3b3b]/20 transition-colors"
+                          >
+                            <ShieldX className="w-3.5 h-3.5" />
+                            Bloquear
+                          </button>
                         </div>
                         {rs.status === 'done' && rs.msg && (
                           <div className="mt-1 text-xs text-[#22c55e] font-mono">{rs.msg}</div>
@@ -316,6 +400,112 @@ function ShadowITTab({ onRegisterAsset }: ShadowITTabProps) {
           </tbody>
         </table>
       </div>
+
+      {alreadyRegistered.length > 0 && (
+        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+          <button
+            onClick={() => setRegisteredExpanded(prev => !prev)}
+            className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-[#1e2530]/40 transition-colors"
+          >
+            {registeredExpanded
+              ? <ChevronDown className="w-3.5 h-3.5 text-[#6b7280]" />
+              : <ChevronRight className="w-3.5 h-3.5 text-[#6b7280]" />}
+            <span className="text-xs text-[#6b7280]">
+              IPs descubiertas ya en inventario ({alreadyRegistered.length})
+            </span>
+          </button>
+          {registeredExpanded && (
+            <table className="w-full text-sm text-left border-t border-[#1e2530]">
+              <thead className="text-xs text-[#6b7280] uppercase bg-[#111318]">
+                <tr>
+                  <th className="px-4 py-2 font-semibold">IP</th>
+                  <th className="px-4 py-2 font-semibold">Estado</th>
+                  <th className="px-4 py-2 font-semibold">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1e2530]">
+                {alreadyRegistered.map(s => (
+                  <tr key={s.snapshot_id} className="hover:bg-[#1e2530]/40">
+                    <td className="px-4 py-2.5 font-mono text-white text-xs">{s.target}</td>
+                    <td className="px-4 py-2.5">
+                      {s.isBlacklisted ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] border-[#ff3b3b]/30 bg-[#ff3b3b]/10 text-[#ff3b3b]">
+                          <ShieldX className="w-3 h-3" />BLOQUEADA
+                        </span>
+                      ) : s.registeredStatus === 'ACTIVO' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] border-[#22c55e]/30 bg-[#22c55e]/10 text-[#22c55e]">
+                          ACTIVO
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] border-[#374151] bg-[#374151]/10 text-[#6b7280]">
+                          {s.registeredStatus ?? 'REGISTRADO'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <button
+                        onClick={() => onRegisterAsset(s.target)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Ver en inventario
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      <Dialog.Root
+        open={blacklistDialogOpen}
+        onOpenChange={(open) => { setBlacklistDialogOpen(open); if (!open) { setBlacklistMotivo(''); setBlacklistError(null); } }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1d27] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
+            <Dialog.Title className="text-base font-semibold text-white mb-2 flex items-center gap-2">
+              <ShieldX className="w-4 h-4 text-[#ff3b3b]" />
+              Añadir a lista negra
+            </Dialog.Title>
+            <Dialog.Description className="text-sm text-[#9ca3af] mb-4">
+              La IP <span className="font-mono text-white">{blacklistTarget}</span> será registrada como BLOQUEADA en el inventario.
+              Quedará registrada en los logs de auditoría (ENS op.exp.1).
+              Esta acción indica que la IP es sospechosa o no autorizada en la red.
+            </Dialog.Description>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-[#e5e7eb] mb-1.5">
+                Motivo del bloqueo <span className="text-[#ff3b3b]">*</span>
+              </label>
+              <input
+                type="text"
+                value={blacklistMotivo}
+                onChange={e => { setBlacklistMotivo(e.target.value); setBlacklistError(null); }}
+                className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#ff3b3b] transition-colors"
+                placeholder="ej. IP desconocida escaneando la red"
+              />
+              {blacklistError && <p className="text-xs text-[#ff3b3b] mt-1">{blacklistError}</p>}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleBlacklistIP}
+                disabled={blacklistLoading}
+                className="flex-1 flex items-center justify-center gap-2 py-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 text-[#ff3b3b] hover:bg-[#ff3b3b]/20 font-semibold rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+              >
+                {blacklistLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldX className="w-4 h-4" />}
+                Bloquear IP
+              </button>
+              <Dialog.Close asChild>
+                <button className="px-5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
+                  Cancelar
+                </button>
+              </Dialog.Close>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
@@ -912,7 +1102,10 @@ export function AssetManagerPage() {
             </TabsContent>
 
             <TabsContent value="shadow" className="mt-4">
-              <ShadowITTab onRegisterAsset={(ip) => handleOpenCreateDialog(ip)} />
+              <ShadowITTab
+                onRegisterAsset={(ip) => handleOpenCreateDialog(ip)}
+                registeredAssets={assets}
+              />
             </TabsContent>
             <TabsContent value="vault" className="mt-4">
               <VaultTab />
