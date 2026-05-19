@@ -1,0 +1,148 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { ScrollArea } from '@/app/components/ui/scroll-area';
+import { Wifi, WifiOff } from 'lucide-react';
+
+const WS_URL = 'ws://localhost:8000/ws/findings';
+const MAX_LINES = 200;
+
+/** Maps a JSON finding to a formatted terminal line. */
+function formatLine(entry) {
+  const ts = entry.timestamp
+    ? new Date(entry.timestamp).toLocaleTimeString('es-ES')
+    : new Date().toLocaleTimeString('es-ES');
+  const level = (entry.level ?? entry.severity ?? 'INFO').toUpperCase();
+  const msg = entry.message ?? entry.finding ?? JSON.stringify(entry);
+  return { ts, level, msg, raw: entry };
+}
+
+/** Returns the Tailwind color class for a log level/severity. */
+function levelColor(level) {
+  switch (level) {
+    case 'CRITICAL': return 'text-red-500';
+    case 'HIGH':     return 'text-red-400';
+    case 'ERROR':    return 'text-red-400';
+    case 'WARN':
+    case 'WARNING':
+    case 'MEDIUM':   return 'text-amber-400';
+    case 'SUCCESS':  return 'text-green-400';
+    case 'LOW':
+    case 'INFO':     return 'text-green-400';
+    default:         return 'text-slate-400';
+  }
+}
+
+/**
+ * LivePipelineTerminal — streams findings from M2/M3 over WebSocket.
+ * Falls back to a "connecting…" state with a reconnect button if the
+ * socket is unavailable.
+ */
+export function LivePipelineTerminal() {
+  const [lines, setLines] = useState([
+    { ts: '--:--:--', level: 'INFO', msg: 'Conectando con el pipeline…' },
+  ]);
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef(null);
+  const bottomRef = useRef(null);
+  const reconnectTimer = useRef(null);
+
+  /** Auto-scroll to bottom when new lines arrive. */
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [lines]);
+
+  const connect = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState < WebSocket.CLOSING) return;
+
+    const ws = new WebSocket(WS_URL);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+      setLines(prev => [
+        ...prev,
+        { ts: new Date().toLocaleTimeString('es-ES'), level: 'SUCCESS', msg: 'WebSocket conectado — escuchando hallazgos en tiempo real' },
+      ]);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const line = formatLine(payload);
+        setLines(prev => [...prev, line].slice(-MAX_LINES));
+      } catch {
+        // Ignore malformed frames
+      }
+    };
+
+    ws.onerror = () => {
+      setConnected(false);
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      setLines(prev => [
+        ...prev,
+        { ts: new Date().toLocaleTimeString('es-ES'), level: 'WARN', msg: 'WebSocket desconectado — reintentando en 5s…' },
+      ]);
+      // Auto-reconnect after 5s
+      reconnectTimer.current = setTimeout(connect, 5000);
+    };
+  }, []);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+    };
+  }, [connect]);
+
+  const handleClear = () => setLines([]);
+
+  return (
+    <div className="flex flex-col h-full bg-[#0a0c12] border border-[#1e2530] rounded-lg overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#1e2530] bg-[#111318]">
+        <div className="flex items-center gap-2">
+          <span className="text-[#9ca3af] text-xs font-mono">pipeline@scanops:~$</span>
+          <span className="text-[#4b5563] text-xs font-mono">ws/findings</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleClear}
+            className="text-[#4b5563] hover:text-[#9ca3af] text-xs font-mono transition-colors"
+          >
+            clear
+          </button>
+          <div className="flex items-center gap-1.5 text-xs font-mono">
+            {connected ? (
+              <>
+                <Wifi className="w-3 h-3 text-green-400" />
+                <span className="text-green-400">LIVE</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="w-3 h-3 text-[#6b7280]" />
+                <span className="text-[#6b7280]">OFFLINE</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Terminal body */}
+      <ScrollArea className="flex-1 h-[520px]">
+        <div className="p-4 font-mono text-xs space-y-0.5">
+          {lines.map((line, i) => (
+            <div key={i} className="flex gap-2 leading-5">
+              <span className="text-[#4b5563] shrink-0 select-none">{line.ts}</span>
+              <span className={`shrink-0 w-14 ${levelColor(line.level)}`}>{line.level}</span>
+              <span className="text-[#d1d5db] break-all">{line.msg}</span>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}

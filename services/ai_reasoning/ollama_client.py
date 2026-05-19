@@ -25,7 +25,7 @@ import os
 # Constantes por defecto
 # ---------------------------------------------------------------------------
 DEFAULT_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
+DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "mistral:latest")
 DEFAULT_EMBED_MODEL: str = "nomic-embed-text"
 DEFAULT_TEMPERATURE: float = 0.7
 DEFAULT_TOP_P: float = 0.9
@@ -458,7 +458,7 @@ class OllamaClient:
 # Instancia global
 # ---------------------------------------------------------------------------
 ollama = OllamaClient(
-    model=os.getenv("OLLAMA_MODEL", "qwen3.5:latest")
+    model=os.getenv("OLLAMA_MODEL", "mistral:latest")
 )
 """Instancia global de OllamaClient lista para importar.
 

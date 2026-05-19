@@ -1,10 +1,11 @@
+"""
+ScanOps Celery application — weekly automated security cycle.
+ENS Alto: op.exp.2 (vulnerability management), op.exp.3 (configuration management)
+"""
 from celery import Celery
+from celery.schedules import crontab
 from shared.config import settings
 
-# Asegúrate de que en tu .env o settings, redis_url sea:
-# redis://localhost:6380/0
-
-# shared/celery_app.py
 app = Celery(
     "scanops",
     broker=settings.redis_url,
@@ -13,7 +14,10 @@ app = Celery(
         "services.asset_manager.tasks.discovery",
         "services.recon_engine.tasks.scan_tasks",
         "services.scanner_engine.tasks.vuln_tasks",
-        "services.ai_reasoning.tasks"
+        "services.ai_reasoning.tasks",
+        "services.exploit_engine.tasks",
+        "services.exploit_engine.alert_tasks",
+        "services.reporting_engine.tasks",
     ]
 )
 
@@ -21,32 +25,94 @@ app.conf.update(
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
-    timezone='Europe/Madrid', # Ajustado a tu zona
+    timezone='Europe/Madrid',
     enable_utc=True,
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=10,
     task_acks_late=True,
-    task_time_limit=300,        # hard kill a los 5 min — evita workers zombi
-    task_soft_time_limit=270,   # SIGUSR1 a los 4.5 min para cleanup graceful
-    # ESTO CUMPLE LA US-2.7 (Programación automática)
+    task_time_limit=600,
+    task_soft_time_limit=570,
+    task_track_started=True,
+    result_extended=True,
+
+    # --- Weekly cycle Beat Schedule ---
+    # ENS op.exp.2: periodic vulnerability analysis
+    # ENS op.exp.3: automated configuration inventory
+    # Celery crontab day_of_week uses cron convention: 0=Sunday, 1=Monday, …, 6=Saturday
     beat_schedule={
-        'recon-lunes-madrugada': {
+
+        # PHASE 1 — Monday 02:00 Madrid
+        # M1: asset inventory sync
+        'phase1-asset-inventory-monday': {
+            'task': 'services.asset_manager.tasks.discovery.run_full_discovery',
+            'schedule': crontab(hour=2, minute=0, day_of_week='monday'),
+            'options': {'queue': 'discovery'},
+        },
+        # M2: full recon — starts 1h after M1 to allow asset inventory to complete
+        'phase1-recon-monday': {
             'task': 'services.recon_engine.tasks.scan_tasks.run_recon_complete',
-            'schedule': 604800.0, # Una vez a la semana (o usa crontab)
+            'schedule': crontab(hour=3, minute=0, day_of_week='monday'),
+            'options': {'queue': 'discovery'},
+        },
+
+        # PHASE 2 — Tuesday 00:00 Madrid
+        # M3: vulnerability scan
+        'phase2-vuln-scan-tuesday': {
+            'task': 'services.scanner_engine.tasks.vuln_tasks.run_full_vulnerability_scan',
+            'schedule': crontab(hour=0, minute=0, day_of_week='tuesday'),
+            'options': {'queue': 'vulnerabilities'},
+        },
+        # M8: AI analysis — starts 4h after M3 to allow scan results to populate
+        'phase2-ai-analysis-tuesday': {
+            'task': 'services.ai_reasoning.tasks.run_full_ai_pipeline',
+            'schedule': crontab(hour=4, minute=0, day_of_week='tuesday'),
+            'options': {'queue': 'ai_reasoning'},
+        },
+
+        # PHASE 3 — Thursday 09:00 Madrid
+        # Human approval gate — notifies security officer that M4 queue is ready
+        'phase3-human-approval-notification': {
+            'task': 'services.ai_reasoning.tasks.notify_human_approval_required',
+            'schedule': crontab(hour=9, minute=0, day_of_week='thursday'),
+            'options': {'queue': 'ai_reasoning'},
+        },
+
+        # PHASE 4 — Saturday 01:00 Madrid
+        # M4: exploit execution (only pre-approved requests)
+        'phase4-exploit-execution-saturday': {
+            'task': 'services.exploit_engine.tasks.run_approved_exploits',
+            'schedule': crontab(hour=1, minute=0, day_of_week='saturday'),
+            'options': {'queue': 'exploitation'},
+        },
+
+        # PHASE 5 — Sunday 08:00 Madrid
+        # M7: generate full audit report ZIP
+        'phase5-reporting-sunday': {
+            'task': 'services.reporting_engine.tasks.generate_weekly_report',
+            'schedule': crontab(hour=8, minute=0, day_of_week='sunday'),
+            'options': {'queue': 'reporting'},
         },
     },
-    # US-3.4: Definición de colas para paralelismo
-    task_queues = {
-        'discovery': {'routing_key': 'discovery'},
+
+    # --- Task queues ---
+    task_queues={
+        'discovery':       {'routing_key': 'discovery'},
         'vulnerabilities': {'routing_key': 'vulnerabilities'},
-        'heavy_scans': {'routing_key': 'heavy_scans'}, # Para OpenVAS
+        'heavy_scans':     {'routing_key': 'heavy_scans'},
+        'ai_reasoning':    {'routing_key': 'ai_reasoning'},
+        'exploitation':    {'routing_key': 'exploitation'},
+        'reporting':       {'routing_key': 'reporting'},
+        'celery':          {'routing_key': 'celery'},
     },
-    # Mapeo de tareas a colas
-    task_routes = {
-        'tasks.run_network_discovery': {'queue': 'discovery'},
-        'tasks.run_nuclei_vulnerability_scan': {'queue': 'vulnerabilities'},
-        'tasks.run_nikto_vulnerability_scan': {'queue': 'vulnerabilities'},
-        'run_recon_complete': {'queue': 'discovery'},
-        'scanner.openvas.scan_asset': {'queue': 'heavy_scans'},
-    }
+
+    # --- Task routing ---
+    task_routes={
+        'services.asset_manager.tasks.discovery.*':   {'queue': 'discovery'},
+        'services.recon_engine.tasks.scan_tasks.*':   {'queue': 'discovery'},
+        'services.scanner_engine.tasks.vuln_tasks.*': {'queue': 'vulnerabilities'},
+        'services.ai_reasoning.tasks.*':              {'queue': 'ai_reasoning'},
+        'services.exploit_engine.tasks.*':            {'queue': 'exploitation'},
+        'services.reporting_engine.tasks.*':          {'queue': 'reporting'},
+        'scanner.openvas.scan_asset':                 {'queue': 'heavy_scans'},
+    },
 )

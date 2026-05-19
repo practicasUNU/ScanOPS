@@ -1,1 +1,0 @@
-"""ZAP REST client — replaced by Nikto."""

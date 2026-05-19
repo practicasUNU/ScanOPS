@@ -45,6 +45,7 @@ class AssetStatusEnum(str, enum.Enum):
     BAJA = "BAJA"
     MANTENIMIENTO = "MANTENIMIENTO"
     PENDIENTE_ALTA = "PENDIENTE_ALTA"
+    BLOQUEADA = "BLOQUEADA"
 
 
 class AuditActionEnum(str, enum.Enum):

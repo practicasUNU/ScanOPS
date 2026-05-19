@@ -1,21 +1,22 @@
 """FastAPI endpoints for vulnerability scanning."""
 
 from datetime import datetime
-from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Depends, Response
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from shared.database import get_db
 import io
 import logging
 import httpx
 import os
+from shared.auth import create_access_token
+from enum import Enum  # Añade esto junto a los otros imports
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 M1_BASE_URL = os.getenv("M1_URL", "http://scanops-asset-manager:8001")
-M1_TOKEN = os.getenv("M1_TOKEN", "scanops_secret")
 
 async def get_asset_from_m1(asset_id: int) -> dict:
     """
@@ -24,9 +25,10 @@ async def get_asset_from_m1(asset_id: int) -> dict:
     """
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
+            _svc_token = create_access_token("scanops_service", "service")
             response = await client.get(
                 f"{M1_BASE_URL}/assets/{asset_id}",
-                headers={"Authorization": f"Bearer {M1_TOKEN}"}
+                headers={"Authorization": f"Bearer {_svc_token}", "Content-Type": "application/json"},
             )
             if response.status_code == 404:
                 raise HTTPException(
@@ -61,11 +63,18 @@ from services.scanner_engine.services.export_results import (
 # PYDANTIC MODELS
 # ============================================================================
 
+
+class ScannerTypeEnum(str, Enum):
+    nmap = "nmap"
+    nuclei = "nuclei"
+    nikto = "nikto"
+
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""
-    scan_types: List[str] = Field(
-        default=["nmap", "nuclei", "nikto"],
-        description="Scanners to run: nmap, nuclei, nikto"
+    # Al poner el Enum aquí, FastAPI genera el dropdown en Swagger
+    scan_types: List[ScannerTypeEnum] = Field(
+        default=[ScannerTypeEnum.nmap, ScannerTypeEnum.nuclei, ScannerTypeEnum.nikto],
+        description="Selecciona los escáneres que deseas lanzar contra el activo"
     )
     description: Optional[str] = None
 

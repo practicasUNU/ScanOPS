@@ -36,6 +36,9 @@ class ReconSnapshot(ReconBase):
     mac_vendor = Column(String(255), nullable=True)
     latency_ms = Column(Float, nullable=True)
 
+    # Web-Check results (JSONB — M2 escáner 4)
+    webcheck_data = Column(JSON, nullable=True)
+
     # Relaciones
     findings = relationship("ReconFinding", back_populates="snapshot",
                             foreign_keys="ReconFinding.snapshot_id",

@@ -10,8 +10,9 @@ services:
       POSTGRES_USER: scanops
       POSTGRES_PASSWORD: scanops
       POSTGRES_DB: scanops
-    ports:
-      - "5432:5432"
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
+  # ports:
+    #  - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -65,6 +66,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: "myroot"
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,7 +84,7 @@ services:
   celery-worker:
     build: .
     container_name: scanops-celery-worker
-    command: celery -A shared.celery_app worker --loglevel=info --pool=threads --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning
+    command: celery -A shared.celery_app worker --loglevel=info --pool=threads --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning,exploitation,reporting
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
@@ -90,6 +92,7 @@ services:
       ZAP_PORT: 8080
       OLLAMA_MODEL: "mistral:7b"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,6 +100,23 @@ services:
         condition: service_healthy
     networks:
       - scanops
+
+  celery-beat:
+    build: .
+    container_name: scanops-celery-beat
+    command: celery -A shared.celery_app beat --loglevel=info --scheduler celery.beat.PersistentScheduler
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+    restart: unless-stopped
 
   m2:
     build:
@@ -109,6 +129,7 @@ services:
       m1:
         condition: service_healthy
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       M2_PORT: 8003
       M1_URL: http://m1:8001
@@ -118,6 +139,27 @@ services:
     networks:
       - scanops
     restart: unless-stopped
+
+
+  # Web-Check — OSINT capa de aplicación (ENS local, sin API pública)
+  scanops-webcheck:
+    image: lissy93/web-check:latest
+    container_name: scanops-webcheck
+    ports:
+      - "3000:3000"
+    networks:
+      - scanops
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+
+
   # services/scanner_engine (M3)
   scanner-engine:
     build:
@@ -128,6 +170,7 @@ services:
       - "8002:8002"
     command: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       ZAP_HOST: scanops-zap
@@ -191,6 +234,7 @@ services:
       - "8004:8004"
     command: uvicorn services.exploit_engine.main:app --host 0.0.0.0 --port 8004
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       MSF_HOST: 10.202.15.199
@@ -223,6 +267,7 @@ services:
       - "8005:8005"
     command: uvicorn services.ai_reasoning.main:app --host 0.0.0.0 --port 8005
     environment:
+      JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
@@ -256,6 +301,7 @@ services:
     image: opensearchproject/opensearch:2.11.0
     container_name: scanops-opensearch
     environment:
+      
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
       - "bootstrap.memory_lock=true"
       - "discovery.type=single-node"
@@ -385,11 +431,17 @@ services:
     build: ./services/reporting_engine
     container_name: scanops-m7
     ports:
-      - "8008:8000"
+      - "8007:8000"
     volumes:
       - ./services/reporting_engine:/app
     environment:
       - SERVICE_NAME=M7-Reporting
+      - DATABASE_URL=postgresql://scanops:scanops@scanops-postgres:5432/scanops
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - scanops
 
 
 

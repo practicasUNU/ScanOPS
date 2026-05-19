@@ -36,6 +36,29 @@ async def map_to_ens(finding: Dict[str, Any], asset: Dict[str, Any]) -> Dict[str
     ens_criticality = asset.get("criticidad", "MEDIO")
     sensitive_data = "SÍ" if asset.get("sensitive_data") else "NO"
 
+    # PASO 0: Fast lookup en vulnerability_mapping.json (antes de llamar al LLM)
+    fast_result = rag_engine.get_ens_context_from_mapping(cve_id, impact_description)
+    if fast_result:
+        logger.info(f"[{finding_id}] Fast mapping hit: {fast_result['pattern_id']} → {fast_result['primary_measure']}")
+        if fast_result["source"] == "direct_cve_match":
+            return {
+                "asset_id": asset_id,
+                "finding_id": finding_id,
+                "medidas_ens": fast_result["ens_measures"],
+                "medida_principal": fast_result["primary_measure"],
+                "nivel_incumplimiento": "crítico",
+                "confianza_mapeo": "alta",
+                "descripcion_incumplimiento": f"Mapeo directo CVE conocido: {cve_id}",
+                "source": "direct_cve_match"
+            }
+        rag_context_supplement = (
+            f"\nMapeo previo detectado: {fast_result['pattern_id']} → "
+            f"medidas {', '.join(fast_result['ens_measures'])}. "
+            f"Nivel: {fast_result['incumplimiento']}."
+        )
+    else:
+        rag_context_supplement = ""
+
     # PASO 1: Obtener contexto RAG
     # Query construida según especificación: {cve_id} {vuln_type} {affected_service}
     query = f"{cve_id} {vuln_type} {affected_service}"
@@ -45,6 +68,8 @@ async def map_to_ens(finding: Dict[str, Any], asset: Dict[str, Any]) -> Dict[str
     except Exception as e:
         logger.error(f"[{finding_id}] Error obteniendo contexto RAG: {e}")
         # Fallback: rag_context vacío, el LLM usará su conocimiento base
+
+    rag_context = rag_context + rag_context_supplement
 
     # PASO 2: Cargar y construir System Prompt desde YAML
     try:
