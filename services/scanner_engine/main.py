@@ -5,11 +5,14 @@ FastAPI application for vulnerability scanning orchestration.
 Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
 """
  
+import asyncio
+import json
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import logging
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -52,6 +55,21 @@ async def lifespan(app: FastAPI):
         logger.error(f"✗ Shutdown error: {str(e)}", exc_info=True)
  
  
+# ─── In-memory event buffer for SSE stream ──────────────────
+_scan_events: deque = deque(maxlen=100)
+
+
+def _push_event(level: str, message: str, module: str = "M3"):
+    _scan_events.append({
+        "timestamp": datetime.utcnow().isoformat(),
+        "level": level,
+        "message": message,
+        "module": module,
+    })
+
+
+_push_event("INFO", "Scanner Engine (M3) iniciado — ENS op.exp.2")
+
 # ─── FastAPI Instance ──────────────────────────
 app = FastAPI(
     title="ScanOPS Scanner Engine (M3)",
@@ -66,7 +84,7 @@ app = FastAPI(
 # ─── CORS Middleware ──────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "https://localhost:5173", "http://localhost:3000", "https://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -251,6 +269,35 @@ async def get_scanners_status():
     }
  
  
+# ─── SSE Stream Endpoint ──────────────────────
+@app.get("/stream/findings")
+async def stream_findings():
+    """SSE endpoint — streams scan findings in real time."""
+    async def event_generator():
+        for event in list(_scan_events):
+            yield f"data: {json.dumps(event)}\n\n"
+        last_len = len(_scan_events)
+        while True:
+            await asyncio.sleep(1)
+            current_events = list(_scan_events)
+            if len(current_events) > last_len:
+                for event in current_events[last_len:]:
+                    yield f"data: {json.dumps(event)}\n\n"
+                last_len = len(current_events)
+            else:
+                yield f"data: {json.dumps({'type': 'ping', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
 # ─── Error Handlers ────────────────────────────
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc: HTTPException):

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ScrollArea } from '@/app/components/ui/scroll-area';
 import { Wifi, WifiOff } from 'lucide-react';
 
-const WS_URL = 'ws://localhost:8000/ws/findings';
+const SSE_URL = 'http://localhost:8002/stream/findings';
 const MAX_LINES = 200;
 
 /** Maps a JSON finding to a formatted terminal line. */
@@ -32,18 +32,16 @@ function levelColor(level) {
 }
 
 /**
- * LivePipelineTerminal — streams findings from M2/M3 over WebSocket.
- * Falls back to a "connecting…" state with a reconnect button if the
- * socket is unavailable.
+ * LivePipelineTerminal — streams findings from M3 over SSE (GET /stream/findings).
+ * Auto-reconnects every 5s on error.
  */
 export function LivePipelineTerminal() {
   const [lines, setLines] = useState([
     { ts: '--:--:--', level: 'INFO', msg: 'Conectando con el pipeline…' },
   ]);
   const [connected, setConnected] = useState(false);
-  const wsRef = useRef(null);
+  const esRef = useRef(null);
   const bottomRef = useRef(null);
-  const reconnectTimer = useRef(null);
 
   /** Auto-scroll to bottom when new lines arrive. */
   useEffect(() => {
@@ -51,22 +49,25 @@ export function LivePipelineTerminal() {
   }, [lines]);
 
   const connect = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState < WebSocket.CLOSING) return;
+    if (esRef.current) {
+      esRef.current.close();
+    }
 
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
+    const es = new EventSource(SSE_URL);
+    esRef.current = es;
 
-    ws.onopen = () => {
+    es.onopen = () => {
       setConnected(true);
       setLines(prev => [
         ...prev,
-        { ts: new Date().toLocaleTimeString('es-ES'), level: 'SUCCESS', msg: 'WebSocket conectado — escuchando hallazgos en tiempo real' },
+        { ts: new Date().toLocaleTimeString('es-ES'), level: 'SUCCESS', msg: 'SSE conectado — escuchando hallazgos en tiempo real' },
       ]);
     };
 
-    ws.onmessage = (event) => {
+    es.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
+        if (payload.type === 'ping') return;
         const line = formatLine(payload);
         setLines(prev => [...prev, line].slice(-MAX_LINES));
       } catch {
@@ -74,26 +75,21 @@ export function LivePipelineTerminal() {
       }
     };
 
-    ws.onerror = () => {
+    es.onerror = () => {
       setConnected(false);
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
+      es.close();
       setLines(prev => [
         ...prev,
-        { ts: new Date().toLocaleTimeString('es-ES'), level: 'WARN', msg: 'WebSocket desconectado — reintentando en 5s…' },
+        { ts: new Date().toLocaleTimeString('es-ES'), level: 'WARN', msg: 'SSE desconectado — reintentando en 5s…' },
       ]);
-      // Auto-reconnect after 5s
-      reconnectTimer.current = setTimeout(connect, 5000);
+      setTimeout(connect, 5000);
     };
   }, []);
 
   useEffect(() => {
     connect();
     return () => {
-      clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
+      esRef.current?.close();
     };
   }, [connect]);
 
@@ -105,7 +101,7 @@ export function LivePipelineTerminal() {
       <div className="flex items-center justify-between px-4 py-2 border-b border-[#1e2530] bg-[#111318]">
         <div className="flex items-center gap-2">
           <span className="text-[#9ca3af] text-xs font-mono">pipeline@scanops:~$</span>
-          <span className="text-[#4b5563] text-xs font-mono">ws/findings</span>
+          <span className="text-[#4b5563] text-xs font-mono">sse/findings</span>
         </div>
         <div className="flex items-center gap-3">
           <button

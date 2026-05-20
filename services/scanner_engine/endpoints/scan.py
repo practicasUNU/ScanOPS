@@ -16,6 +16,11 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+try:
+    from services.scanner_engine.main import _push_event
+except ImportError:
+    def _push_event(level, message, module="M3"): pass
+
 M1_BASE_URL = os.getenv("M1_URL", "http://scanops-asset-manager:8001")
 
 async def get_asset_from_m1(asset_id: int) -> dict:
@@ -160,6 +165,7 @@ async def start_asset_scan(
             asset_name=asset_domain,    # ✅ hostname real desde M1
             scan_types=request.scan_types,
         )
+        _push_event("INFO", f"Escaneo iniciado para activo {asset_id} ({asset_ip}) — herramientas: {request.scan_types}")
 
         return ScanResponse(
             task_id=task.id,

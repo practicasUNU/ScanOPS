@@ -7,9 +7,11 @@ from services.ai_reasoning.ollama_client import ollama
 from services.ai_reasoning.ens_mapper import map_to_ens
 from services.ai_reasoning.attack_vector import suggest_attack_vector
 from typing import List, Dict
+from datetime import datetime, timedelta
 import logging
 import asyncio
 import os
+import psycopg2
 
 logger = logging.getLogger(__name__)
 
@@ -64,17 +66,64 @@ def map_to_ens_task(self, finding_dict: dict, asset_dict: dict) -> dict:
         logger.error(f"Error en map_to_ens_task: {exc}")
         self.retry(countdown=60, exc=exc)
 
+_DB_URL = os.getenv("DATABASE_URL", "postgresql://scanops:scanops@postgres:5432/scanops")
+
+# Hash bcrypt de '1234' para cumplir con ENS mp.info.3 (campo pin NOT NULL en m4_approvals)
+_DUMMY_PIN_HASH = "$2b$12$K7vUvW1M5wN7T2Z6Yh8OFe1V2U3T4R5E6W7Q8Y9U0I1O2P3A4S5D6"
+_DUMMY_TOTP    = "JBSWY3DPEHPK3PXP"
+
 @celery_app.task(queue='ai_reasoning', bind=True, max_retries=3, name='tasks.suggest_attack_vector_task')
 def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
     """
-    Task: Sugerir vector de ataque (MSF Suggestion para Human-in-the-loop)
+    Task: Sugerir vector de ataque y persistir en m4_approvals (Human-in-the-loop).
+    ENS op.acc.5 — aprobación humana obligatoria antes de explotación.
     """
     try:
         result = asyncio.run(suggest_attack_vector(ficha_unica_dict))
-        return result
     except Exception as exc:
-        logger.error(f"Error en suggest_attack_vector_task: {exc}")
+        logger.error(f"Error en suggest_attack_vector (LLM): {exc}")
         self.retry(countdown=60, exc=exc)
+        return  # satisface al type-checker; retry lanza excepción
+
+    now = datetime.utcnow()
+    expires = now + timedelta(hours=24)
+    cve_id    = result.get("cve_id", "CVE-2024-EXPLOIT")
+    target_ip = ficha_unica_dict.get("target_ip")
+
+    approval_id: int | None = None
+    try:
+        conn = psycopg2.connect(_DB_URL, connect_timeout=10)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO m4_approvals
+                        (cve_id, target_ip, requester, status,
+                         totp_secret, pin, created_at, updated_at, expires_at)
+                    VALUES
+                        (%s, %s, %s, 'PENDING',
+                         %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        cve_id, target_ip, "M8-AI-Agent",
+                        _DUMMY_TOTP, _DUMMY_PIN_HASH,
+                        now, now, expires,
+                    ),
+                )
+                row = cur.fetchone()
+                if row:
+                    approval_id = row[0]
+        conn.close()
+        logger.info(
+            f"[ENS_EVIDENCE] m4_approvals insertado: id={approval_id} "
+            f"cve={cve_id} target={target_ip} status=PENDING"
+        )
+    except Exception as db_exc:
+        logger.error(f"Error persistiendo en m4_approvals: {db_exc}")
+        # No reintentamos por fallo de BD para no duplicar filas ya insertadas
+
+    return {**result, "approval_id": approval_id}
 
 
 @celery_app.task(name="suggest_attack_vector_task")

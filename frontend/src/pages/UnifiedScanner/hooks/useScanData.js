@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const SCAN_API_URL = 'http://localhost:8002/api/v1/scan/unified-report';
+const SCAN_API_URL = 'http://localhost:8002/api/v1/scan/results/10';
 const TOKEN_KEY = 'scanops_auth';
 
 /** Reads the stored JWT from sessionStorage (ENS mp.info.3). */

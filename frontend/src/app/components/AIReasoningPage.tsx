@@ -3,7 +3,8 @@ import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   Filter, ArrowUpDown, BookOpen, FileText, Crosshair, UserCheck,
-  Check, Terminal, XCircle,
+  Check, Terminal, XCircle, Loader2, RefreshCw, AlertCircle,
+  ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -49,11 +50,13 @@ const STEPS: Step[] = [
 const INITIAL_STATES: StepStatus[] = ['completed', 'completed', 'completed', 'completed', 'requires_review', 'pending'];
 
 const MSF_DATA = {
-  msf_module: 'exploit/multi/handler',
-  payload: 'linux/x86/meterpreter/reverse_tcp',
+  attack_module: 'exploit/multi/handler',
+  attack_payload: 'linux/x86/meterpreter/reverse_tcp',
   target_ip: '10.202.15.15',
-  port: '443',
   confidence: '0.72',
+  risk_level: 'ALTO',
+  attack_rationale: '',
+  ens_article: 'op.exp.2',
 };
 
 function OllamaWidget() {
@@ -126,11 +129,81 @@ function statusBadgeClass(status: StepStatus): string {
   }
 }
 
+const ASSET_ID = 10;
+const M3_BASE = 'http://localhost:8002';
+
 export function AIReasoningPage() {
   const [stepStates, setStepStates] = useState<StepStatus[]>(INITIAL_STATES);
   const [selectedStep, setSelectedStep] = useState(4);
   const [editingMsf, setEditingMsf] = useState(false);
-  const [msfInput, setMsfInput] = useState(MSF_DATA.msf_module);
+  const [msfInput, setMsfInput] = useState(MSF_DATA.attack_module);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+  const [liveResult, setLiveResult] = useState<{
+    attack_module: string; attack_payload: string;
+    target_ip: string; confidence: string;
+    risk_level: string; attack_rationale: string; ens_article: string;
+  } | null>(null);
+  const [showRationale, setShowRationale] = useState(false);
+
+  function getToken() {
+    try {
+      const r = sessionStorage.getItem('scanops_auth');
+      return r ? JSON.parse(r)?.access_token ?? null : null;
+    } catch { return null; }
+  }
+
+  const handleRegenerate = async () => {
+    setRegenerating(true); setRegenError(null); setLiveResult(null);
+    setStepStates(['active', 'pending', 'pending', 'pending', 'pending', 'pending']);
+    try {
+      const h: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      };
+      const launch = await fetch(
+        `${M3_BASE}/api/v1/scan/assets/${ASSET_ID}/attack-vector`,
+        { method: 'POST', headers: h, signal: AbortSignal.timeout(15000) },
+      );
+      if (!launch.ok) throw new Error(`HTTP ${launch.status}`);
+      const { task_id } = await launch.json();
+      for (let i = 0; i < 4; i++) {
+        await new Promise(r => setTimeout(r, 1800));
+        setStepStates(p => { const n = [...p]; n[i] = 'completed'; if (i + 1 < 5) n[i + 1] = 'active'; return n; });
+      }
+      for (let a = 0; a < 30; a++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const res = await fetch(
+          `${M3_BASE}/api/v1/scan/assets/${ASSET_ID}/attack-vector/result/${task_id}`,
+          { headers: h, signal: AbortSignal.timeout(8000) },
+        );
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data.status === 'FAILED') throw new Error('M8 falló al generar el vector');
+        if (data.status === 'SUCCESS' && data.result) {
+          const r = data.result;
+          setLiveResult({
+            attack_module: r.msf_module ?? r.attack_module ?? 'vector/generico',
+            attack_payload: r.msf_payload ?? r.attack_payload ?? 'shell/reverse_tcp',
+            target_ip: r.msf_options?.RHOSTS ?? '10.202.15.15',
+            confidence: String(r.confidence ?? '0.72'),
+            risk_level: r.risk_level ?? 'ALTO',
+            attack_rationale: r.attack_rationale ?? '',
+            ens_article: r.ens_article ?? 'op.exp.2',
+          });
+          setStepStates(['completed', 'completed', 'completed', 'completed', 'requires_review', 'pending']);
+          setSelectedStep(4);
+          return;
+        }
+      }
+      throw new Error('Timeout — Ollama tardó más de 90s');
+    } catch (e: any) {
+      setRegenError(e?.message ?? 'Error');
+      setStepStates(INITIAL_STATES);
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   // [5] UBICACIÓN EXACTA: La función se declara aquí dentro para que pueda leer y escribir usando setStepStates
   const handleRejectDecision = () => {
@@ -157,7 +230,23 @@ export function AIReasoningPage() {
               <h1 className="text-2xl font-semibold text-white mb-1">IA Reasoning (M8)</h1>
               <p className="text-[#9ca3af] text-sm">Cadena de razonamiento local — Ollama/Mistral · ENS op.exp.5</p>
             </div>
-            <OllamaWidget />
+            <div className="flex items-center gap-3">
+              <OllamaWidget />
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="flex items-center gap-2 px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs font-semibold hover:bg-[#00d4ff]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {regenerating
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</>
+                  : <><RefreshCw className="w-3.5 h-3.5" />Regenerar análisis</>}
+              </button>
+              {regenError && (
+                <span className="text-xs text-[#ff3b3b] flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />{regenError}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Stepper */}
@@ -217,42 +306,68 @@ export function AIReasoningPage() {
 
             <p className="text-sm text-[#9ca3af]">{step.description}</p>
 
-            {/* Step 5 — requires_review: MSF card */}
-            {selectedStep === 4 && stepStatus === 'requires_review' && (
-              <div className="space-y-3">
-                <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
-                    <Terminal className="w-4 h-4" />
-                    Vector sugerido por M8
+            {/* Step 5 — requires_review: attack vector card */}
+            {selectedStep === 4 && stepStatus === 'requires_review' && (() => {
+              const displayResult = liveResult ?? MSF_DATA;
+              const conf = parseFloat(displayResult.confidence);
+              return (
+                <div className="space-y-3">
+                  <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
+                      <Terminal className="w-4 h-4" />
+                      Vector sugerido por M8
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-[#6b7280]">Módulo de Ataque</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.attack_module}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">Payload</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.attack_payload}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">target_ip</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.target_ip}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">Nivel de riesgo</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.risk_level}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">confidence</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.confidence}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">ENS</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.ens_article}</div>
+                      </div>
+                    </div>
+                    {displayResult.attack_rationale && (
+                      <>
+                        <button
+                          onClick={() => setShowRationale(p => !p)}
+                          className="flex items-center gap-1 text-xs text-[#6b7280] hover:text-white mt-2"
+                        >
+                          {showRationale ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          Razonamiento de la IA
+                        </button>
+                        {showRationale && (
+                          <p className="text-xs text-[#9ca3af] mt-1 max-h-32 overflow-y-auto">
+                            {displayResult.attack_rationale}
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <span className="text-[#6b7280]">msf_module </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.msf_module}</div>
+                  {conf < 0.75 && (
+                    <div className="flex items-start gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-3 text-sm text-[#f59e0b]">
+                      ⚠ Confianza baja ({displayResult.confidence}) — requiere revisión manual antes de pasar a M4
                     </div>
-                    <div>
-                      <span className="text-[#6b7280]">payload </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.payload}</div>
-                    </div>
-                    <div>
-                      <span className="text-[#6b7280]">target_ip </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.target_ip}</div>
-                    </div>
-                    <div>
-                      <span className="text-[#6b7280]">port </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.port}</div>
-                    </div>
-                    <div>
-                      <span className="text-[#6b7280]">confidence </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.confidence}</div>
-                    </div>
-                  </div>
+                  )}
                 </div>
-                <div className="flex items-start gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-3 text-sm text-[#f59e0b]">
-                  ⚠ Confianza baja (0.72) — requiere revisión manual antes de pasar a M4
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Step 6 — human validation form */}
             {selectedStep === 5 && stepStatus === 'pending' && (

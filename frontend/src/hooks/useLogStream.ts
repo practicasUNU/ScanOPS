@@ -7,7 +7,7 @@ export interface LogEntry {
   message: string;
 }
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
+const ORCHESTRATOR_BASE = 'https://localhost:8009';
 const MAX_ENTRIES = 50;
 
 export function useLogStream() {

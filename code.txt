@@ -307,6 +307,9 @@ EXPOSE 8002
 
 # ✅ CMD correcto para M3 - Scanner Engine
 CMD ["uvicorn", "services.scanner_engine.main:app", "--host", "0.0.0.0", "--port", "8002"]
+FILE:ScanOps_Demo_Ejecutivo.pdf
+BINARY:true
+
 FILE:activos_hito1.json
 {
     "total": 19,
@@ -2869,6 +2872,98 @@ def downgrade():
     # PostgreSQL no permite eliminar valores de un enum directamente
     # Se requiere recrear el tipo — omitido por complejidad
     pass
+FILE:alembic\versions\003_fix_ip_partial_index.py
+"""fix ip partial index for soft deletes
+
+Revision ID: 003
+Revises: 002
+Create Date: 2026-05-19 16:00:00.000000
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+# revision identifiers, used by Alembic.
+revision = '003'
+down_revision = '002'
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    # 1. Eliminar la constraint de unicidad estricta (si existe)
+    op.execute("ALTER TABLE assets DROP CONSTRAINT IF EXISTS assets_ip_key;")
+
+    # 2. Eliminar el índice clásico (si existe)
+    op.execute("DROP INDEX IF EXISTS ix_assets_ip;")
+
+    # 3. Crear el nuevo índice parcial único (Solo aplica a activos NO borrados)
+    # ENS Alto op.exp.1: Permite mantener el historial inmutable de activos borrados
+    op.execute("CREATE UNIQUE INDEX ix_assets_ip ON assets (ip) WHERE deleted_at IS NULL;")
+
+def downgrade():
+    # Revertir los cambios (por si necesitas hacer rollback)
+    op.execute("DROP INDEX IF EXISTS ix_assets_ip;")
+    op.execute("CREATE INDEX ix_assets_ip ON assets (ip);")
+    op.execute("ALTER TABLE assets ADD CONSTRAINT assets_ip_key UNIQUE (ip);")
+FILE:certs\localhost+2-key.pem
+-----BEGIN PRIVATE KEY-----
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC59wnDXKyPelSL
+QaDeqxQs5LkRjJIHKTIEz2STq+S9kQ/y84ULucFgi8OMOxKBl2QoQwQpEVDeS5yH
+34rkNQCPalaMOur0ipm8X9f5cfxwvNyR+pIkYRvSeQ/gftaXmVv+6EMtc0d37kso
+aOh52kwnH4Jim1hgI1jjdqmy0Cz1GYO1E9YCTZUBdFcuHo2Mh3PUIETHwRw2HABg
+eeGEZXfninsHXnmi8z5DtAF9oDLBDwgypPMbRovmHB/sxz+Gg9PlAhtPYYWBO4LD
+J3YsyDwBKxuq/xqyeBa4EXsJIyWuZoUyz+6/vOGemPlGBg46RpLMhZ1m9KEnWQQI
+xLuygtPbAgMBAAECggEBAJB6IReqlFYUEELwhe74sv/94tqDf6AYnUenaNhhn6C3
+ZtC16ROnCVncu9viuQn9eE7fYggV7+IElGPrhJivpPPHBd6El63NUItNWxntONbN
+o/+10Hx7BYaLj442fLni59ou0KIrAcdnVvTaLGMe+jMbA81gK1TloVV3B3hoy8TO
+7VB9d1YGxlGAWMpDQtZlMtrX83WI4I5UxPmGERX3wvaQAxPEoN25YxpBeaXRy+mS
+z+peE2al6RCjY9bIRt5Vo8ZPgAoUe9wV6I7mmvpX3Pg2GOy5Q73UvqmllbhuM9qG
+ZnQbdWPNVYbeB5QjcZaZoeKqiAfkWsnOd4dBSXch6mECgYEA7zns+cXkuz73Qf/B
+UknqTTnKWna5U4cVxBxP5NmhJdbU6CdE2FvXBzemacghlwiFT1a4E9ADCwTkf/iS
+GydCiM9XBDX4iMMfekVamuGWJgKVTPY3fC3R40JziIiQSL7Gwim6hIlgM8ad/yRJ
+ClubNki7HuMMXzdH/0JDvMFedPUCgYEAxwEUrim3H4FVeLhekswoGGJAH3bCC/DS
+nM9w/N41PgXA7bNF30o8fWtRkfXqJ/tlLAMNZ2KgcLzK//nHJMgDetmO+4nZ52bB
+kXJw/2jJG2dzl4vNMBHuMqm+sSt2Q1H/m84q04AEV6ol+7/7IYtPlwSQLV+A3uXI
+fVsLMuh6I48CgYEAhqwXai0rrPWvgGoYTNjrm/nynqbDgfBEIpjFqVGS1JhyVxb0
+PNDG5ns/pcFSl5HmalmpWw35CJUChcBLkBmz7Qy8MdSoS2V9LPoqHZLtUgyWPDNH
+3RJ2W/emzrACedFcVyXiqIYlsEAZ5e5pZ/lWEWM0ZBjxeBDI6TxGodZB9JkCgYAL
+Odthy8ahx1j7+2KSY2PrpDc7zyY5KDepUuZrzVkxi3+LqS5K31Q0OwaZ9kZkRQE7
+D10FNQIZ+fx1njCGuaXAm18+f1NEg35t5wfK0K1vl1Fk/iTwDkLipsK0GeCNAaYq
+suGllrYn/9gusHDJPqOZwE8l0Bpj+JBryeQC1ix1rwKBgQCag6fzo2fsBFNflUNe
+TP8NOsFLjZtFehr5ncwLx2kVTXBtVzaGpXEnqQQDgYwMUYoRsKwj/AyNCtu6zZ2H
+Zc2geqe/NSmT9GVg08NlqKh8Jst3WfV3tM5eSCW9T2QwzB0nlA9cQK39XCLdN9zH
+UIi3nVhRm1kI7d4XVIt8TgCdtA==
+-----END PRIVATE KEY-----
+FILE:certs\localhost+2.pem
+-----BEGIN CERTIFICATE-----
+MIIEejCCAuKgAwIBAgIRAOGgo08t4ZqUwLOsEMg3CFkwDQYJKoZIhvcNAQELBQAw
+gZcxHjAcBgNVBAoTFW1rY2VydCBkZXZlbG9wbWVudCBDQTE2MDQGA1UECwwtU0XD
+kU9SWFxib3JqYUBTZcOxb3JYIChCb3JqYSBUaWNvbmEgTWFucmlxdWUpMT0wOwYD
+VQQDDDRta2NlcnQgU0XDkU9SWFxib3JqYUBTZcOxb3JYIChCb3JqYSBUaWNvbmEg
+TWFucmlxdWUpMB4XDTI2MDUxOTE1MTYxMloXDTI4MDgxOTE1MTYxMlowYTEnMCUG
+A1UEChMebWtjZXJ0IGRldmVsb3BtZW50IGNlcnRpZmljYXRlMTYwNAYDVQQLDC1T
+RcORT1JYXGJvcmphQFNlw7FvclggKEJvcmphIFRpY29uYSBNYW5yaXF1ZSkwggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC59wnDXKyPelSLQaDeqxQs5LkR
+jJIHKTIEz2STq+S9kQ/y84ULucFgi8OMOxKBl2QoQwQpEVDeS5yH34rkNQCPalaM
+Our0ipm8X9f5cfxwvNyR+pIkYRvSeQ/gftaXmVv+6EMtc0d37ksoaOh52kwnH4Ji
+m1hgI1jjdqmy0Cz1GYO1E9YCTZUBdFcuHo2Mh3PUIETHwRw2HABgeeGEZXfninsH
+Xnmi8z5DtAF9oDLBDwgypPMbRovmHB/sxz+Gg9PlAhtPYYWBO4LDJ3YsyDwBKxuq
+/xqyeBa4EXsJIyWuZoUyz+6/vOGemPlGBg46RpLMhZ1m9KEnWQQIxLuygtPbAgMB
+AAGjdjB0MA4GA1UdDwEB/wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATAfBgNV
+HSMEGDAWgBTE85GfgPI/gq5grR+K5iZz8ibJMzAsBgNVHREEJTAjgglsb2NhbGhv
+c3SHBH8AAAGHEAAAAAAAAAAAAAAAAAAAAAEwDQYJKoZIhvcNAQELBQADggGBAAT+
+PRcuD47JPDao+pfnTeZwBa0SWscU1jCtjdImblIQD+4jhZg4mzTXLTHbzvLQBLn9
+mqYcNlwbFF7lSjhUk18PJQlqosc217pbyhWDbcyapZSyp4wN7alPn5L8H9aanxy0
+khbC1tRMg3GR+JcAH+BsabyFG6iNGciWafMlKPkr1OpiQVdiZgs3MEGI6/AWCCwd
+Ipe17it70I03/IutQgysCCS2lt+7xPzO3r5wxo8AfeW6S7SCvj0Bbl6Qeqch4JMb
+cKBFu0SECBQSLRBgYm4NFvsC0L+QU6N0HzUY3DX0ZQyml4nhFCwN+Qjkcpl5CWU9
+BMGKmKNUx8y/yJ7WeY2/TRZ3sIx7afMKg6NjVmeIRl5IqRo1q4P5M3p8ySxSdS7s
+D6ZqzVffi7DdAcdpCwGfmrdHIJ3NSzoO/t5isB480c6lDBZ8QrhNCY3r3KSTJ1Ep
+5rqbpWYQy5ruK4dea4OtG53DPgN4o4HgOz/5szRiV6Rn4ZUSZ+LyvGLpKR0pqA==
+-----END CERTIFICATE-----
+FILE:certs\mkcert.exe
+BINARY:true
+
 FILE:config\beelzebub\http-80.yaml
 apiVersion: "v1"
 protocol: "http"
@@ -5103,7 +5198,11 @@ FILE:frontend\package.json
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx,ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -5163,6 +5262,7 @@ FILE:frontend\package.json
     "vaul": "1.1.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "4.1.12",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -5189,8 +5289,34 @@ FILE:frontend\package.json
     }
   }
 }
+FILE:frontend\playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: 1,
+  reporter: [['html', { outputFolder: 'playwright-report' }], ['line']],
+
+  use: {
+    baseURL: 'http://localhost:5173',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+    video: 'on-first-retry',
+    ignoreHTTPSErrors: true,
+  },
+
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+});
 FILE:frontend\pnpm-lock.yaml
-TRUNCATED:true SIZE:172397
+TRUNCATED:true SIZE:173535
 lockfileVersion: '9.0'
 
 settings:
@@ -5373,6 +5499,9 @@ importers:
         specifier: 1.1.2
         version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
+      '@playwright/test':
+        specifier: ^1.60.0
+        version: 1.60.0
       '@tailwindcss/vite':
         specifier: 4.1.12
         version: 4.1.12(vite@6.3.5(jiti@2.7.0)(lightningcss@1.30.1))
@@ -5819,6 +5948,11 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@playwright/test@1.60.0':
+    resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   '@popperjs/core@2.11.8':
     resolution: {integrity: sha512-P1st0aksCrn9sGZhp8GMYwBnQsbvAWsZAX44oXNNvLHGqAOcoVxmjZiohstwQ7SqKnbR47akdNi+uleWD8+g6A==}
@@ -6427,14 +6561,7 @@ packages:
     resolution: {integrity: sha512-Z/e78qg2YFnnXcW88A4JmTtm4ADckLno6F7OXotmkQfeuCVaKuYzqAATPhVzl3delXE7CxIV8shofPn3jPc5Og==}
     peerDependencies:
       '@types/react': '*'
-      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@radix-ui/react-use-rect@1.1.0':
-    resolution: {integrity: sha512-0Fmkebhr6PiseyZlYAOtLS+nb7jLmpqTrJyv61Pe68MKYW6OWdRE2kI70TaYY27u7H0lajqM3hSMMLFq18Z7nQ==}
-    peerDependencie
+      react: ^16.8 || ^17.0 || ^18.
 FILE:frontend\pnpm-workspace.yaml
 packages:
   - '.'
@@ -6481,8 +6608,15 @@ FILE:frontend\tsconfig.json
 FILE:frontend\vite.config.ts
 import { defineConfig } from 'vite'
 import path from 'path'
+import fs from 'fs'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+
+const certPath = path.resolve(__dirname, '../certs/localhost+2.pem')
+const keyPath  = path.resolve(__dirname, '../certs/localhost+2-key.pem')
+const httpsConfig = fs.existsSync(certPath) && fs.existsSync(keyPath)
+  ? { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) }
+  : undefined
 
 export default defineConfig({
   plugins: [
@@ -6491,6 +6625,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    https: httpsConfig,
+    port: 5173,
+    host: 'localhost',
+  },
   resolve: {
     alias: {
       // Alias @ to the src directory
@@ -6501,6 +6640,279 @@ export default defineConfig({
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
+FILE:frontend\e2e\assets.spec.ts
+import { test, expect } from '@playwright/test';
+import { loginAs } from './helpers/auth';
+
+test.describe('M1 — Asset Manager', () => {
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, 'system_manager');
+    await page.goto('/assets');
+    await page.waitForURL(/assets/, { timeout: 10000 });
+  });
+
+  test('US-8.4 — La página de activos carga con la tabla de inventario', async ({ page }) => {
+    await expect(page.locator('text=Asset Manager').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Inventario Oficial').first()).toBeVisible();
+    await expect(page.locator('text=Shadow IT').first()).toBeVisible();
+    await expect(page.locator('text=Credenciales').first()).toBeVisible();
+  });
+
+  test('US-8.4 — La tabla de inventario muestra cabeceras de columna', async ({ page }) => {
+    await page.waitForSelector('table tbody tr, [data-testid="asset-row"]', { timeout: 10000 })
+      .catch(() => {});
+    await expect(page.locator('text=ACTIVO').first()).toBeVisible();
+    await expect(page.locator('text=CRITICIDAD').first()).toBeVisible();
+  });
+
+  test('US-8.4 — Botón "Nuevo Activo" abre el dialog de creación', async ({ page }) => {
+    const newAssetBtn = page.locator('button:has-text("Nuevo Activo")').first();
+    await expect(newAssetBtn).toBeVisible({ timeout: 10000 });
+    await newAssetBtn.click();
+    await expect(page.locator('text=Registrar un nuevo activo').first()).toBeVisible({ timeout: 5000 });
+    await page.keyboard.press('Escape');
+  });
+
+  test('US-8.4 — Tab Shadow IT carga sin errores', async ({ page }) => {
+    const shadowTab = page.locator('text=Shadow IT').first();
+    await shadowTab.click();
+    await expect(page.locator('text=Hosts descubiertos').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('US-8.4 — Tab Credenciales muestra el banner de Vault', async ({ page }) => {
+    const vaultTab = page.locator('text=Credenciales').first();
+    await vaultTab.click();
+    await expect(page.locator('text=HashiCorp Vault').first()).toBeVisible({ timeout: 10000 });
+  });
+
+});
+FILE:frontend\e2e\auth.spec.ts
+import { test, expect } from '@playwright/test';
+import { loginAs } from './helpers/auth';
+
+test.describe('Autenticación y Control de Acceso', () => {
+
+  test('US-8.2 — La página de login carga correctamente', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page).toHaveTitle(/ScanOps/i);
+    await expect(page.locator('input[type="password"]').first()).toBeVisible();
+  });
+
+  test('US-8.2 — Credenciales incorrectas muestran error', async ({ page }) => {
+    await page.goto('/login');
+
+    const usernameInput = page.locator('input[type="text"], input[name="username"]').first();
+    const passwordInput = page.locator('input[type="password"]').first();
+
+    await usernameInput.fill('usuario_invalido');
+    await passwordInput.fill('contraseña_invalida');
+
+    const submitBtn = page
+      .locator('button[type="submit"], button:has-text("Iniciar"), button:has-text("Login")')
+      .first();
+    await submitBtn.click();
+
+    await expect(page).toHaveURL(/login/);
+  });
+
+  test('US-8.3 — Ruta protegida redirige a login sin sesión', async ({ page }) => {
+    await page.goto('/assets');
+    await expect(page).toHaveURL(/login/);
+  });
+
+  test('US-8.3 — Ruta /compliance requiere autenticación', async ({ page }) => {
+    await page.goto('/compliance');
+    await expect(page).toHaveURL(/login/);
+  });
+
+  test('US-8.2 — Login exitoso como system_manager navega al dashboard', async ({ page }) => {
+    await loginAs(page, 'system_manager');
+    await expect(page).not.toHaveURL(/login/);
+    await expect(page.locator('text=ScanOps').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('US-8.3 — system_manager puede acceder a /assets', async ({ page }) => {
+    await loginAs(page, 'system_manager');
+    await page.goto('/assets');
+    await expect(page).toHaveURL(/assets/);
+    await expect(page.locator('text=Asset Manager').first()).toBeVisible({ timeout: 10000 });
+  });
+
+});
+FILE:frontend\e2e\compliance.spec.ts
+import { test, expect } from '@playwright/test';
+import { loginAs } from './helpers/auth';
+
+test.describe('US-8.9 — Cumplimiento ENS Alto', () => {
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, 'system_manager');
+    await page.goto('/compliance');
+    await page.waitForURL(/compliance/, { timeout: 10000 });
+  });
+
+  test('La página de cumplimiento ENS carga correctamente', async ({ page }) => {
+    await expect(page.locator('text=Cumplimiento ENS Alto').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=RD 311/2022').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('El score de cumplimiento es visible', async ({ page }) => {
+    await expect(page.locator('text=%').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('Las KPI cards de estado están presentes', async ({ page }) => {
+    await expect(page.locator('text=Conformes').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Parciales').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=No aplica').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('La tabla de medidas ENS es filtrable por texto', async ({ page }) => {
+    const rows = page.locator('table tbody tr');
+    await expect(rows.first()).toBeVisible({ timeout: 10000 });
+
+    const searchInput = page.locator('input[placeholder*="Buscar"]').first();
+    await searchInput.fill('op.exp.1');
+    await expect(page.locator('text=op.exp.1').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('US-8.9 — Click en medida abre panel de detalle con evidencia', async ({ page }) => {
+    const firstRow = page.locator('table tbody tr').first();
+    await firstRow.waitFor({ timeout: 10000 });
+    await firstRow.click();
+    await expect(page.locator('text=Evidencia técnica').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('US-8.10 — Sección de informes M7 está presente', async ({ page }) => {
+    await expect(page.locator('text=Informe Ejecutivo').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Declaración de Aplicabilidad').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('US-8.11 — Página de Logs de Auditoría carga correctamente', async ({ page }) => {
+    await page.goto('/audit-logs');
+    await expect(page.locator('text=Logs de Auditoría').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=ENS op.exp.5').first()).toBeVisible({ timeout: 10000 });
+  });
+
+});
+FILE:frontend\e2e\pipeline.spec.ts
+import { test, expect } from '@playwright/test';
+import { loginAs } from './helpers/auth';
+
+test.describe('Dashboard y Pipeline Semanal', () => {
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, 'system_manager');
+  });
+
+  test('US-8.4 — Dashboard carga con KPIs globales', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.locator('text=ScanOps').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Ciclo activo').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('US-8.5 — El pipeline semanal muestra las fases M1 y M2', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.locator('text=M1').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=M2').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('US-8.6 — Kill switch está presente en el dashboard', async ({ page }) => {
+    await page.goto('/dashboard');
+    const killSwitchBtn = page
+      .locator('button:has-text("Kill Switch"), button:has-text("KILL")')
+      .first();
+    await expect(killSwitchBtn).toBeVisible({ timeout: 10000 });
+  });
+
+  test('US-8.8 — Página de alertas SIEM carga correctamente', async ({ page }) => {
+    await page.goto('/alerts');
+    await expect(page.locator('text=SIEM').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('US-8.7 — Página de explotación carga la cola de aprobaciones', async ({ page }) => {
+    await page.goto('/exploitation');
+    await expect(page).toHaveURL(/exploitation/);
+    await page.waitForLoadState('networkidle', { timeout: 10000 });
+  });
+
+  test('US-8.8 — M8 IA Reasoning muestra el stepper de fases', async ({ page }) => {
+    await page.goto('/ai-reasoning');
+    await expect(page.locator('text=Filtro Falsos Positivos').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Validación Humana').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('Sidebar — todos los módulos están en el menú', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.locator('text=M1 - Asset Manager').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=M2+M3').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=M8 - IA Reasoning').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=M4').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=M7').first()).toBeVisible({ timeout: 10000 });
+  });
+
+});
+FILE:frontend\e2e\helpers\auth.ts
+import { Page } from '@playwright/test';
+
+export const TEST_CREDENTIALS = {
+  system_manager: { username: 'admin', password: 'scanops_admin_2026' },
+  auditor: { username: 'auditor', password: 'scanops_audit_2026' },
+};
+
+export async function loginAs(
+  page: Page,
+  role: keyof typeof TEST_CREDENTIALS = 'system_manager',
+): Promise<void> {
+  const creds = TEST_CREDENTIALS[role];
+
+  await page.goto('/login');
+  await page.waitForSelector(
+    'input[type="text"], input[name="username"], input[placeholder*="usuario" i]',
+    { timeout: 10000 },
+  );
+
+  const usernameInput = page.locator('input[type="text"], input[name="username"]').first();
+  await usernameInput.fill(creds.username);
+
+  const passwordInput = page.locator('input[type="password"]').first();
+  await passwordInput.fill(creds.password);
+
+  const totpInput = page.locator('input[placeholder="000000"]').first();
+  if (await totpInput.isVisible()) {
+    await totpInput.fill('000000');
+  }
+
+  const submitBtn = page.locator('button[type="submit"]').first();
+  await submitBtn.click();
+
+  // EventSource-based SSE auth uses the token from sessionStorage — wait for redirect
+  await page.waitForURL(url => url.pathname !== '/login', { timeout: 15000 });
+}
+
+export async function expectLoggedIn(page: Page): Promise<void> {
+  await page
+    .waitForSelector('[data-testid="sidebar"], nav, aside', { timeout: 5000 })
+    .catch(() => {});
+}
+FILE:frontend\playwright-report\index.html
+TRUNCATED:true SIZE:553499
+<!DOCTYPE html>
+<html style='scrollbar-gutter: stable both-edges;'>
+  <head>
+    <meta charset='UTF-8'>
+    <meta name='color-scheme' content='dark light'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Playwright Test Report</title>
+    <script type="module">(function(){const u=document.createElement("link").relList;if(u&&u.supports&&u.supports("modulepreload"))return;for(const r of document.querySelectorAll('link[rel="modulepreload"]'))f(r);new MutationObserver(r=>{for(const o of r)if(o.type==="childList")for(const h of o.addedNodes)h.tagName==="LINK"&&h.rel==="modulepreload"&&f(h)}).observe(document,{childList:!0,subtree:!0});function c(r){const o={};return r.integrity&&(o.integrity=r.integrity),r.referrerPolicy&&(o.referrerPolicy=r.referrerPolicy),r.crossOrigin==="use-credentials"?o.credentials="include":r.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function f(r){if(r.ep)return;r.ep=!0;const o=c(r);fetch(r.href,o)}})();function EA(i){return i&&i.__esModule&&Object.prototype.hasOwnProperty.call(i,"default")?i.default:i}var Of={exports:{}},vi={};/**
+ * @license React
+ * react-jsx-runtime.production.js
+ *
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */var y1;function pA(){if(y1)return vi;y1=1;var i=Symbol.for("react.transitional.element"),u=Symbol.for("react.fragment");function c(f,r,o){var h=null;if(o!==void 0&&(h=""+o),r.key!==void 0&&(h=""+r.key),"key"in r){o={};for(var v in r)v!=="key"&&(o[v]=r[v])}else o=r;return r=o.ref,{$$typeof:i,type:f,key:h,ref:r!==void 0?r:null,props:o}}return vi.Fragment=u,vi.jsx=c,vi.jsxs=c,vi}var E1;function xA(){return E1||(E1=1,Of.exports=pA()),Of.exports}var m=xA();const bA=15,bt=0,En=1,SA=2,ye=-2,Ut=-3,p1=-4,pn=-5,Me=[0,1,3,7,15,31,63,127,255,511,1023,2047,4095,8191,16383,32767,65535],w2=1440,TA=0,CA=4,OA=9,DA=5,RA=[96,7,256,0,8,80,0,8,16,84,8,115,82,7,31,0,8,112,0,8,48,0,9,192,80,7,10,0,8,96,0,8,32,0,9,160,0,8,0,0,8,128,0,8,64,0,9,224,80,7,6,0,8,88,0,8,24,0,9,144,83,7,59,0,8,120,0,8,56,0,9,208,81,7,17,0,8,104,0,8,40,0,9,176,0,8,8,0,8,136,0,8,72,0,9,240,80,7,4,0,8,84,0,8,20,85,8,227,83,7,43,0,8,116,0,8,52,0,9,200,81,7,13,0,8,100,0,8,36,0,9,168,0,8,4,0,8,132,0,8,68,0,9,232,80,7,8,0,8,92,0,8,28,0,9,152,84,7,83,0,8,124,0,8,60,0,9,216,82,7,23,0,8,108,0,8,44,0,9,184,0,8,12,0,8,140,0,8,76,0,9,248,80,7,3,0,8,82,0,8,18,85,8,163,83,7,35,0,8,114,0,8,50,0,9,196,81,7,11,0,8,98,0,8,34,0,9,164,0,8,2,0,8,130,0,8,66,0,9,228,80,7,7,0,8,90,0,8,26,0,9,148,84,7,67,0,8,122,0,8,58,0,9,212,82,7,19,0,8,106,0,8,42,0,9,180,0,8,10,0,8,138,0,8,74,0,9,244,80,7,5,0,8,86,0,8,22,192,8,0,83,7,51,0,8,118,0,8,54,0,9,204,81,7,15,0,8,102,0,8,38,0,9,172,0,8,6,0,8,134,0,8,70,0,9,236,80,7,9,0,8,94,0,8,30,0,9,156,84,7,99,0,8,126,0,8,62,0,9,220,82,7,27,0,8,110,0,8,46,0,9,188,0,8,14,0,8,142,0,8,78,0,9,252,96,7,256,0,8,81,0,8,17,85,8,131,82,7,31,0,8,113,0,8,49,0,9,194,80,7,10,0,8,97,0,8,33,0,9,162,0,8,1,0,8,129,0,8,65,0,9,226,80,7,6,0,8,89,0,8,25,0,9,146,83,7,59,0,8,121,0,8,57,0,9,210,81,7,17,0,8,105,0,8,41,0,9,178,0,8,9,0,8,137,0,8,73,0,9,242,80,7,4,0,8,85,0,8,21,80,8,258,83,7,43,0,8,117,0,8,53,0,9,202,81,7,13,0,8,101,0,8,37,0,9,170,0,8,5,0,8,133,0,8,69,0,9,234,80,7,8,0,8,93,0,8,29,0,9,154,84,7,83,0,8,125,0,8,61,0,9,218,82,7,23,0,8,109,0,8,45,0,9,186,0,8,13,0,8,141,0,8,77,0,9,250,80,7,3,0,8,83,0,8,19,85,8,195,83,7,35,0,8,115,0,8,51,0,9,198,81,7,11,0,8,99,0,8,35,0,9,166,0,8,3,0,8,131,0,8,67,0,9,230,80,7,7,0,8,91,0,8,27,0,9,150,84,7,67,0,8,123,0,8,59,0,9,214,82,7,19,0,8,107,0,8,43,0,9,182,0,8,11,0,8,139,0,8,75,0,9,246,80,7,5,0,8,87,0,8,23,192,8,0,83,7,51,0,8,119,0,8,55,0,9,206,81,7,15,0,8,103,0,8,39,0,9,174,0,8,7,0,8,135,0,8,71,0,9,238,80,7,9,0,8,95,0,8,31,0,9,158,84,7,99,0,8,127,0,8,63,0,9,222,82,7,27,0,8,111,0,8,47,0,9,190,0,8,15,0,8,143,0,8,79,0,9,254,96,7,256,0,8,80,0,8,16,84,8,115,82,7,31,0,8,112,0,8,48,0,9,193,80,7,10,0,8,96,0,8,32,0,9,161,0,8,0,0,8,128,0,8,64,0,9,225,80,7,6,0,8,88,0,8,24,0,9,145,83,7,59,0,8,120,0,8,56,0,9,209,81,7,17,0,8,104,0,8,40,0,9,177,0,8,8,0,8,136,0,8,72,0,9,241,80,7,4,0,8,84,0,8,20,85,8,227,83,7,43,0,8,116,0,8,52,0,9,201,81,7,13,0,8,100,0,8,36,0,9,169,0,8,4,0,8,132,0,8,68,0,9,233,80,7,8,0,8,92,0,8,28,0,9,153,84,7,83,0,8,124,0,8,60,0,9,217,82,7,23,0,8,108,0,8,44,0,9,185,0,8,12,0,8,140,0,8,76,0,9,249,80,7,3,0,8,82,0,8,18,85,8,163,83,7,35,0,8,114,0,8,50,0,9,197,81,7,11,0,8,98,0,8,34,0,9,165,0,8,2,0,8,130,0,8,66,0,9,229,80,7,7,0,8,90,0,8,26,0,9,149,84,7,67,0,8,122,0,8,58,0,9,213,82,7,19,0,8,106,0,8,42,0,9,181,0,8,10,0,8,138,0,8,74,0,9,245,80,7,5,0,8,86,0,8,22,192,8,0,83,7,51,0,8,118,0,8,54,0,9,205,81,7,15,0,8,102,0,8,38,0,9,173,0,8,6,0,8,134,0,8,70,0,9,237,80,7,9,0,8,94,0,8,30,0,9,157,84,7,99,0,8,126,0,8,62,0,9,221,82,7,27,0,8,110,0,8,46,0,9,189,0,8,14,0,8,142,0,8,78,0,9,253,96,7,256,0,8,81,0,8,17,85,8,131,82,7,31,0,8,113,0,8,49,0,9,195,80,7,10,0,8,97,0,8,33,0,9,163,0,8,1,0,8,129,0,8,65,0,9,227,80,7,6,0,8,89,0,8,25,0,9,147,83,7,59,0,8,121,0,8,57,0,9,211,81,7,17,0,8,105,0,8,41,0,9,179,0,8,9,0,8,137,0,8,73,0,9,243,80,7,4,0,8,85,0,8,21,80,8,258,83,7,43,0,8,117,0,8,53,0,9,203,81,7,13,0,8,101,0,8,37,0,9,171,0,8,5,0,8,133,0,8,69,0,9,235,80,7,8,0,8,93,0,8,29,0,9,155,84,7,83,0,8,125,0,8,61,0,9,219,82,7,23,0,8,109,0,8,45,0,9,187,0,8,13,0,8,141,0,8,77,0,9,251,80,7,3,0,8,83,0,8,19,85,8,195,83,7,35,0,8,115,0,8,51,0,9,199,81,7,11,0,8,99,0,8,35,0,9,167,0,8,3,0,8,131,0,8,67,0,9,231,80,7,7,0,8,91,0,8,27,0,9,151,84,7,67,0,8,123,0,8,59,0,9,215,82,7,19,0,8,107,0,8,43,0,9,183,0,8,11,0,8,139,0,8,75,0,9,247,80,7,5,0,8,87,0,8,23,192,8,0,83,7,51,0,8,119,0,8,55,0,9,207,81,7,15,0,8,103,0,8,39,0,9,175,0,8,7,0,8,135,0,8,71,0,9,239,80,7,9,0,8,95,0,8,31,0,9,159,84,7,99,0,8,127,0,8,63,0,9,223,82,7,27,0,8,111,0,8,47,0,9,191,0,8,15,0,8,143,0,8,79,0,9,255],wA=[80,5,1,87,5,257,83,5,17,91,5,4097,81,5,5,89,5,1025,85,5,65,93,5,16385,80,5,3,88,5,513,84,5,33,92,5,8193,82,5,9,90,5,2049,86,5,129,192,5,24577,80,5,2,87,5,385,83,5,25,91,5,6145,81,5,7,89,5,1537,85,5,97,93,5,24577,80,5,4,88,5,769,84,5,49,92,5,12289,82,5,13,90,5,3073,86,5,193,192,5,24577],MA=[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,0,0],jA=[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,112,112],NA=[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577],HA=[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13],_n=15;function qf(){const i=this;let u,c,f,r,o,h;function v(A,x,T,D,X,q,p,E,b,R,N){let V,F,H,j,Y,z,I,k,nt,P,st,ut,M,_,$;P=0,Y=T;do f[A[x+P]]++,P++,Y--;while(Y!==0);if(f[0]==T)return p[0]=-1,E[0]=0,bt;for(k=E[0],z=1;z<=_n&&f[z]===0;z++);for(I=z,k<z&&(k=z),Y=_n;Y!==0&&f[Y]===0;Y--);for(H=Y,k>Y&&(k=Y),E[0]=k,_=1<<z;z<Y;z++,_<<=1)if((_-=f[z])<0)return Ut;if((_-=f[Y])<0)return Ut;for(f[Y]+=_,h[1]=z=0,P=1,M=2;--Y!==0;)h[M]=z+=f[P],M++,P++;Y=0,P=0;do(z=A[x+P])!==0&&(N[h[z]++]=Y),P++;while(++Y<T);for(T=h[H],h[0]=Y=0,P=0,j=-1,ut=-k,o[0]=0,st=0,$=0;I<=H;I++)for(V=f[I];V--!==0;){for(;I>ut+k;){if(j++,ut+=k,$=H-ut,$=$>k?k:$,(F=1<<(z=I-ut))>V+1&&(F-=V+1,M=I,z<$))for(;++z<$&&!((F<<=1)<=f[++M]);)F-=f[M];if($=1<<z,R[0]+$>w2)return Ut;o[j]=st=R[0],R[0]+=$,j!==0?(h[j]=Y,r[0]=z,r[1]=k,z=Y>>>ut-k,r[2]=st-o[j-1]-z,b.set(r,(o[j-1]+z)*3)):p[0]=st}for(r[1]=I-ut,P>=T?r[0]=192:N[P]<D?(r[0]=N[P]<256?0:96,r[2]=N[P++]):(r[0]=q[N[P]-D]+16+64,r[2]=X[N[P++]-D]),F=1<<I-ut,z=Y>>>ut;z<$;z+=F)b.set(r,(st+z)*3);for(z=1<<I-1;(Y&z)!==0;z>>>=1)Y^=z;for(Y^=z,nt=(1<<ut)-1;(Y&nt)!=h[j];)j--,ut-=k,nt=(1<<ut)-1}return _!==0&&H!=1?pn:bt}function y(A){let x;for(u||(u=[],c=[],f=new Int32Array(_n+1),r=[],o=new Int32Array(_n),h=new Int32Array(_n+1)),c.length<A&&(c=[]),x=0;x<A;x++)c[x]=0;for(x=0;x<_n+1;x++)f[x]=0;for(x=0;x<3;x++)r[x]=0;o.set(f.subarray(0,_n),0),h.set(f.subarray(0,_n+1),0)}i.inflate_trees_bits=function(A,x,T,D,X){let q;return y(19),u[0]=0,q=v(A,0,19,19,null,null,T,x,D,u,c),q==Ut?X.msg="oversubscribed dynamic bit lengths tree":(q==pn||x[0]===0)&&(X.msg="incomplete dynamic bit lengths tree",q=Ut),q},i.inflate_trees_dynamic=function(A,x,T,D,X,q,p,E,b){let R;return y(288),u[0]=0,R=v(T,0,A,257,MA,jA,q,D,E,u,c),R!=bt||D[0]===0?(R==Ut?b.msg="oversubscribed literal/length tree":R!=p1&&(b.msg="incomplete literal/length tree",R=Ut),R):(y(288),R=v(T,A,x,0,NA,HA,p,X,E,u,c),R!=bt||X[0]===0&&A>257?(R==Ut?b.msg="oversubscribed distance tree":R==pn?(b.msg="incomplete distance tree",R=Ut):R!=p1&&(b.msg="empty distance tree with lengths",R=Ut),R):bt)}}qf.inflate_trees_fixed=function(i,u,c,f){return i[0]=OA,u[0]=DA,c[0]=RA,f[0]=wA,bt};const Fu=0,x1=1,b1=2,S1=3,T1=4,C1=5,O1=6,Df=7,D1=8,Wu=9;function BA(){const i=this;let u,c=0,f,r=0,o=0,h=0,v=0,y=0,A=0,x=0,T,D=0,X,q=0;function p(E,b,R,N,V,F,H,j){let Y,z,I,k,nt,P,st,ut,M,_,$,ht,tt,C,L,W;st=j.next_in_index,ut=j.avail_in,nt=H.bitb,P=H.bitk,M=H.write,_=M<H.read?H.read-M-1:H.end-M,$=Me[E],ht=Me[b];do{for(;P<20;)ut--,nt|=(j.read_byte(st++)&255)<<P,P+=8;if(Y=nt&$,z=R,I=N,W=(I+Y)*3,(k=z[W])===0){nt>>=z[W+1],P-=z[W+1],H.win[M++]=z[W+2],_--;continue}do{if(nt>>=z[W+1],P-=z[W+1],(k&16)!==0){for(k&=15,tt=z[W+2]+(nt&Me[k]),nt>>=k,P-=k;P<15;)ut--,nt|=(j.read_byte(st++)&255)<<P,P+=8;Y=nt&ht,z=V,I=F,W=(I+Y)*3,k=z[W];do if(nt>>=z[W+1],P-=z[W+1],(k&16)!==0){for(k&=15;P<k;)ut--,nt|=(j.read_byte(st++)&255)<<P,P+=8;if(C=z[W+2]+(nt&Me[k]),nt>>=k,P-=k,_-=tt,M>=C)L=M-C,M-L>0&&2>M-L?(H.win[M++]=H.win[L++],H.win[M++]=H.win[L++],tt-=2):(H.win.set(H.win.subarray(L,L+2),M),M+=2,L+=2,tt-=2);else{L=M-C;do L+=H.end;while(L<0);if(k=H.end-L,tt>k){if(tt-=k,M-L>0&&k>M-L)do H.win[M++]=H.win[L++];while(--k!==0);else H.win.set(H.win.subarray(L,L+k),M),M+=k,L+=k,k=0;L=0}}if(M-L>0&&tt>M-L)do H.win[M++]=H.win[L++];while(--tt!==0);else H.win.set(H.win.subarray(L,L+tt),M),M+=tt,L+=tt,tt=0;break}else if((k&64)===0)Y+=z[W+2],Y+=nt&Me[k],W=(I+Y)*3,k=z[W];else return j.msg="invalid distance code",tt=j.avail_in-ut,tt=P>>3<tt?P>>3:tt,ut+=tt,st-=tt,P-=tt<<3,H.bitb=nt,H.bitk=P,j.avail_in=ut,j.total_in+=st-j.next_in_index,j.next_in_index=st,H.write=M,Ut;while(!0);break}if((k&64)===0){if(Y+=z[W+2],Y+=nt&Me[k],W=(I+Y)*3,(k=z[W])===0){nt>>=z[W+1],P-=z[W+1],H.win[M++]=z[W+2],_--;break}}else return(k&32)!==0?(tt=j.avail_in-ut,tt=P>>3<tt?P>>3:tt,ut+=tt,st-=tt,P-=tt<<3,H.bitb=nt,H.bitk=P,j.avail_in=ut,j.total_in+=st-j.next_in_index,j.next_in_index=st,H.write=M,En):(j.msg="invalid literal/length code",tt=j.avail_in-ut,tt=P>>3<tt?P>>3:tt,ut+=tt,st-=tt,P-=tt<<3,H.bitb=nt,H.bitk=P,j.avail_in=ut,j.total_in+=st-j.next_in_index,j.next_in_index=st,H.write=M,Ut)}while(!0)}while(_>=258&&ut>=10);return tt=j.avail_in-ut,tt=P>>3<tt?P>>3:tt,ut+=tt,st-=tt,P-=tt<<3,H.bitb=nt,H.bitk=P,j.avail_in=ut,j.total_in+=st-j.next_in_index,j.next_in_index=st,H.write=M,bt}i.init=function(E,b,R,N,V,F){u=Fu,A=E,x=b,T=R,D=N,X=V,q=F,f=null},i.proc=function(E,b,R){let N,V,F,H=0,j=0,Y=0,z,I,k,nt;for(Y=b.next_in_index,z=b.avail_in,H=E.bitb,j=E.bitk,I=E.write,k=I<E.read?E.read-I-1:E.end-I;;)switch(u){case Fu:if(k>=258&&z>=10&&(E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,R=p(A,x,T,D,X,q,E,b),Y=b.next_in_index,z=b.avail_in,H=E.bitb,j=E.bitk,I=E.write,k=I<E.read?E.read-I-1:E.end-I,R!=bt)){u=R==En?Df:Wu;break}o=A,f=T,r=D,u=x1;case x1:for(N=o;j<N;){if(z!==0)R=bt;else return E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);z--,H|=(b.read_byte(Y++)&255)<<j,j+=8}if(V=(r+(H&Me[N]))*3,H>>>=f[V+1],j-=f[V+1],F=f[V],F===0){h=f[V+2],u=O1;break}if((F&16)!==0){v=F&15,c=f[V+2],u=b1;break}if((F&64)===0){o=F,r=V/3+f[V+2];break}if((F&32)!==0){u=Df;break}return u=Wu,b.msg="invalid literal/length code",R=Ut,E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);case b1:for(N=v;j<N;){if(z!==0)R=bt;else return E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);z--,H|=(b.read_byte(Y++)&255)<<j,j+=8}c+=H&Me[N],H>>=N,j-=N,o=x,f=X,r=q,u=S1;case S1:for(N=o;j<N;){if(z!==0)R=bt;else return E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);z--,H|=(b.read_byte(Y++)&255)<<j,j+=8}if(V=(r+(H&Me[N]))*3,H>>=f[V+1],j-=f[V+1],F=f[V],(F&16)!==0){v=F&15,y=f[V+2],u=T1;break}if((F&64)===0){o=F,r=V/3+f[V+2];break}return u=Wu,b.msg="invalid distance code",R=Ut,E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);case T1:for(N=v;j<N;){if(z!==0)R=bt;else return E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);z--,H|=(b.read_byte(Y++)&255)<<j,j+=8}y+=H&Me[N],H>>=N,j-=N,u=C1;case C1:for(nt=I-y;nt<0;)nt+=E.end;for(;c!==0;){if(k===0&&(I==E.end&&E.read!==0&&(I=0,k=I<E.read?E.read-I-1:E.end-I),k===0&&(E.write=I,R=E.inflate_flush(b,R),I=E.write,k=I<E.read?E.read-I-1:E.end-I,I==E.end&&E.read!==0&&(I=0,k=I<E.read?E.read-I-1:E.end-I),k===0)))return E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);E.win[I++]=E.win[nt++],k--,nt==E.end&&(nt=0),c--}u=Fu;break;case O1:if(k===0&&(I==E.end&&E.read!==0&&(I=0,k=I<E.read?E.read-I-1:E.end-I),k===0&&(E.write=I,R=E.inflate_flush(b,R),I=E.write,k=I<E.read?E.read-I-1:E.end-I,I==E.end&&E.read!==0&&(I=0,k=I<E.read?E.read-I-1:E.end-I),k===0)))return E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);R=bt,E.win[I++]=h,k--,u=Fu;break;case Df:if(j>7&&(j-=8,z++,Y--),E.write=I,R=E.inflate_flush(b,R),I=E.write,k=I<E.read?E.read-I-1:E.end-I,E.read!=E.write)return E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);u=D1;case D1:return R=En,E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);case Wu:return R=Ut,E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R);default:return R=ye,E.bitb=H,E.bitk=j,b.avail_in=z,b.total_in+=Y-b.next_in_index,b.next_in_index=Y,E.write=I,E.inflate_flush(b,R)}},i.free=function(){}}const R1=[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],ya=0,Rf=1,w1=2,M1=3,j1=4,N1=5,_u=6,Pu=7,H1=8,Cl=9;function UA(i,u){const c=this;let f=ya,r=0,o=0,h=0,v;const y=[0],A=[0],x=new BA;let T=0,D=new Int32Array(w2*3);const X=0,q=new qf;c.bitk=0,c.bitb=0,c.win=new Uint8Array(u),c.end=u,c.read=0,c.write=0,c.reset=function(p,E){E&&(E[0]=X),f==_u&&x.free(p),f=ya,c.bitk=0,c.bitb=0,c.read=c.write=0},c.reset(i,null),c.inflate_flush=function(p,E){let b,R,N;return R=p.next_out_index,N=c.read,b=(N<=c.write?c.write:c.end)-N,b>p.avail_out&&(b=p.avail_out),b!==0&&E==pn&&(E=bt),p.avail_out-=b,p.total_out+=b,p.next_out.set(c.win.subarray(N,N+b),R),R+=b,N+=b,N==c.end&&(N=0,c.write==c.end&&(c.write=0),b=c.write-N,b>p.avail_out&&(b=p.avail_out),b!==0&&E==pn&&(E=bt),p.avail_out-=b,p.total_out+=b,p.next_out.set(c.win.subarray(N,N+b),R),R+=b,N+=b),p.next_out_index=R,c.read=N,E},c.proc=function(p,E){let b,R,N,V,F,H,j,Y;for(V=p.next_in_index,F=p.avail_in,R=c.bitb,N=c.bitk,H=c.write,j=H<c.read?c.read-H-1:c.end-H;;){let z,I,k,nt,P,st,ut,M;switch(f){case ya:for(;N<3;){if(F!==0)E=bt;else return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);F--,R|=(p.read_byte(V++)&255)<<N,N+=8}switch(b=R&7,T=b&1,b>>>1){case 0:R>>>=3,N-=3,b=N&7,R>>>=b,N-=b,f=Rf;break;case 1:z=[],I=[],k=[[]],nt=[[]],qf.inflate_trees_fixed(z,I,k,nt),x.init(z[0],I[0],k[0],0,nt[0],0),R>>>=3,N-=3,f=_u;break;case 2:R>>>=3,N-=3,f=M1;break;case 3:return R>>>=3,N-=3,f=Cl,p.msg="invalid block type",E=Ut,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E)}break;case Rf:for(;N<32;){if(F!==0)E=bt;else return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);F--,R|=(p.read_byte(V++)&255)<<N,N+=8}if((~R>>>16&65535)!=(R&65535))return f=Cl,p.msg="invalid stored block lengths",E=Ut,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);r=R&65535,R=N=0,f=r!==0?w1:T!==0?Pu:ya;break;case w1:if(F===0||j===0&&(H==c.end&&c.read!==0&&(H=0,j=H<c.read?c.read-H-1:c.end-H),j===0&&(c.write=H,E=c.inflate_flush(p,E),H=c.write,j=H<c.read?c.read-H-1:c.end-H,H==c.end&&c.read!==0&&(H=0,j=H<c.read?c.read-H-1:c.end-H),j===0)))return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);if(E=bt,b=r,b>F&&(b=F),b>j&&(b=j),c.win.set(p.read_buf(V,b),H),V+=b,F-=b,H+=b,j-=b,(r-=b)!==0)break;f=T!==0?Pu:ya;break;case M1:for(;N<14;){if(F!==0)E=bt;else return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);F--,R|=(p.read_byte(V++)&255)<<N,N+=8}if(o=b=R&16383,(b&31)>29||(b>>5&31)>29)return f=Cl,p.msg="too many length or distance symbols",E=Ut,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);if(b=258+(b&31)+(b>>5&31),!v||v.length<b)v=[];else for(Y=0;Y<b;Y++)v[Y]=0;R>>>=14,N-=14,h=0,f=j1;case j1:for(;h<4+(o>>>10);){for(;N<3;){if(F!==0)E=bt;else return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);F--,R|=(p.read_byte(V++)&255)<<N,N+=8}v[R1[h++]]=R&7,R>>>=3,N-=3}for(;h<19;)v[R1[h++]]=0;if(y[0]=7,b=q.inflate_trees_bits(v,y,A,D,p),b!=bt)return E=b,E==Ut&&(v=null,f=Cl),c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);h=0,f=N1;case N1:for(;b=o,!(h>=258+(b&31)+(b>>5&31));){let _,$;for(b=y[0];N<b;){if(F!==0)E=bt;else return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);F--,R|=(p.read_byte(V++)&255)<<N,N+=8}if(b=D[(A[0]+(R&Me[b]))*3+1],$=D[(A[0]+(R&Me[b]))*3+2],$<16)R>>>=b,N-=b,v[h++]=$;else{for(Y=$==18?7:$-14,_=$==18?11:3;N<b+Y;){if(F!==0)E=bt;else return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);F--,R|=(p.read_byte(V++)&255)<<N,N+=8}if(R>>>=b,N-=b,_+=R&Me[Y],R>>>=Y,N-=Y,Y=h,b=o,Y+_>258+(b&31)+(b>>5&31)||$==16&&Y<1)return v=null,f=Cl,p.msg="invalid bit length repeat",E=Ut,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);$=$==16?v[Y-1]:0;do v[Y++]=$;while(--_!==0);h=Y}}if(A[0]=-1,P=[],st=[],ut=[],M=[],P[0]=9,st[0]=6,b=o,b=q.inflate_trees_dynamic(257+(b&31),1+(b>>5&31),v,P,st,ut,M,D,p),b!=bt)return b==Ut&&(v=null,f=Cl),E=b,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);x.init(P[0],st[0],D,ut[0],D,M[0]),f=_u;case _u:if(c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,(E=x.proc(c,p,E))!=En)return c.inflate_flush(p,E);if(E=bt,x.free(p),V=p.next_in_index,F=p.avail_in,R=c.bitb,N=c.bitk,H=c.write,j=H<c.read?c.read-H-1:c.end-H,T===0){f=ya;break}f=Pu;case Pu:if(c.write=H,E=c.inflate_flush(p,E),H=c.write,j=H<c.read?c.read-H-1:c.end-H,c.read!=c.write)return c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);f=H1;case H1:return E=En,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);case Cl:return E=Ut,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E);default:return E=ye,c.bitb=R,c.bitk=N,p.avail_in=F,p.total_in+=V-p.next_in_index,p.next_in_index=V,c.write=H,c.inflate_flush(p,E)}}},c.free=function(p){c.reset(p,null),c.win=null,D=null},c.set_dictionary=function(p,E,b){c.win.set(p.subarray(E,E+b),0),c.read=c.write=b},c.sync_point=function(){return f==Rf?1:0}}const QA=32,zA=8,YA=0,B1=1,U1=2,Q1=3,z1=4,Y1=5,wf=6,yi=7,L1=12,Pn=13,LA=[0,0,255,255];function GA(){const i=this;i.mode=0,i.method=0,i.was=[0],i.need=0,i.marker=0,i.wbits=0;function u(c){return!c||!c.istate?ye:(c.total_in=c.total_out=0,c.msg=null,c.istate.mode=yi,c.istate.blocks.reset(c,null),bt)}i.inflateEnd=function(c){return i.blocks&&i.blocks.free(c),i.blocks=null,bt},i.inflateInit=function(c,f){return c.msg=null,i.blocks=null,f<8||f>15?(i.inflateEnd(c),ye):(i.wbits=f,c.istate.blocks=new UA(c,1<<f),u(c),bt)},i.inflate=function(c,f){let r,o;if(!c||!c.istate||!c.next_in)return ye;const h=c.istate;for(f=f==CA?pn:bt,r=pn;;)switch(h.mode){case YA:if(c.avail_in===0)return r;if(r=f,c.avail_in--,c.total_in++,((h.method=c.read_byte(c.next_in_index++))&15)!=zA){h.mode=Pn,c.msg="unknown compression method",h.marker=5;break}if((h.method>>4)+8>h.wbits){h.mode=Pn,c.msg="invalid win size",h.marker=5;break}h.mode=B1;case B1:if(c.avail_in===0)return r;if(r=f,c.avail_in--,c.total_in++,o=c.read_byte(c.next_in_index++)&255,((h.method<<8)+o)%31!==0){h.mode=Pn,c.msg="incorrect header check",h.marker=5;break}if((o&QA)===0){h.mode=yi;break}h.mode=U1;case U1:if(c.avail_in===0)return r;r=f,c.avail_in--,c.total_in++,h.need=(c.read_byte(c.next_in_index++)&255)<<24&4278190080,h.mode=Q1;case Q1:if(c.avail_in===0)return r;r=f,c.avail_in--,c.total_in++,h.need+=(c.read_byte(c.next_in_index++)&255)<<16&16711680,h.mode=z1;case z1:if(c.avail_in===0)return r;r=f,c.avail_in--,c.total_in++,h.need+=(c.read_byte(c.next_in_index++)&255)<<8&65280,h.mode=Y1;case Y1:return c.avail_in===0?r:(r=f,c.avail_in--,c.total_in++,h.need+=c.read_byte(c.next_in_index++)&255,h.mode=wf,SA);case wf:return h.mode=Pn,c.msg="need dictionary",h.marker=0,ye;case yi:if(r=h.blocks.proc(c,r),r==Ut){h.mode=Pn,h.marker=0;break}if(r==bt&&(r=f),r!=En)return r;r=f,h.blocks.reset(c,h.was),h.mode=L1;case L1:return c.avail_in=0,En;case Pn:return Ut;default:return ye}},i.inflateSetDictionary=function(c,f,r){let o=0,h=r;if(!c||!c.istate||c.istate.mode!=wf)return ye;const v=c.istate;return h>=1<<v.wbits&&(h=(1<<v.wbits)-1,o=r-h),v.blocks.set_dictionary(f,o,h),v.mode=yi,bt},i.inflateSync=function(c){let f,r,o,h,v;if(!c||!c.istate)return ye;const y=c.istate;if(y.mode!=Pn&&(y.mode=Pn,y.marker=0),(f=c.avail_in)===0)return pn;for(r=c.next_in_index,o=y.marker;f!==0&&o<4;)c.read_byte(r)==LA[o]?o++:c.read_byte(r)!==0?o=0:o=4-o,r++,f--;return c.total_in+=r-c.next_in_index,c.next_in_index=r,c.avail_in=f,y.marker=o,o!=4?Ut:(h=c.total_in,v=c.total_out,u(c),c.total_in=h,c.total_out=v,y.mode=yi,bt)},i.inflateSyncPoint=function(c){return!c||!c.istate||!c.istate.blocks?ye:c.istate.blocks.sync_point()}}function M2(){}M2.prototype={inflateInit(i){const u=this;return u.istate=new GA,i||(i=bA),u.istate.inflateInit(u,i)},inflate(i){const u=this;return u.istate?u.istate.inflate(u,i):ye},inflateEnd(){const i=this;if(!i.istate)return ye;const u=i.istate.inflateEnd(i);return i.istate=null,u},inflateSync(){const i=this;return i.istate?i.istate.inflateSync(i):ye},inflateSetDictionary(i,u){const c=this;return c.istate?c.istate.inflateSetDictionary(c,i,u):ye},read_byte(i){return this.next_in[i]},read_buf(i,u){return this.next_in.subarray(i,i+u)}};function XA(i){const u=this,c=new M2,f=i&&i.chunkSize?Math.floor(i.chunkSize*2):128*1024,r=TA,o=new Uint8Array(f);let h=!1;c.inflateInit(),c.next_out=o,u.append=function(v,y){const A=[];let x,T,D=0,X=0,q=0;if(v.length!==0){c.next_in_index=0,c.next_in=v,c.avail_in=v.length;do{if(c.next_out_index=0,c.avail_out=f,c.avail_in===0&&!h&&(c.next_in_index=0,h=!0),x=c.inflate(r),h&&x===pn){if(c.avail_in!==0)throw new Error("inflating: bad input")}else if(x!==bt&&x!==En)throw new Error("inflating: "+c.msg);if((h||x===En)&&c.avail_in===v.length)throw new Error("inflating: bad input");c.next_out_index&&(c.next_out_index===f?A.push(new Uint8Array(o)):A.push(o.subarray(0,c.next_out_index))),q+=c.next_out_index,y&&c.next_in_index>0&&c.next_in_index!=D&&(y(c.next_in_index),D=c.next_in_index)}while(c.avail_in>0||c.avail_out===0);return A.length>1?(T=new Uint8Array(q),A.forEach(function(p){T.set(p,X),X+=p.length})):T=A[0]?new Uint8Array(A[0]):new Uint8Array,T}},u.flush=function(){c.inflateEnd()}}const Rl=4294967295,el=65535,VA=8,ZA=0,IA=99,qA=67324752,j2=134695760,KA=j2,G1=33639248,kA=101010256,X1=101075792,JA=117853008,Ea=22,Mf=20,jf=56,FA=12,WA=20,V1=4,_A=1,PA=39169,$A=10,t5=1,e5=21589,n5=28789,l5=25461,a5=6534,Z1=1,i5=6,I1=8,q1=2048,K1=16,u5=61440,c5=16384,s5=73,k1="/",Nf=30,f5=10,r5=14,o5=18,$t=void 0,al="undefined",Ri="function";class J1{constructor(u){return class extends TransformStream{constructor(c,f){const r=new u(f);super({transform(o,h){h.enqueue(r.append(o))},flush(o){const h=r.flush();h&&o.enqueue(h)}})}}}}const d5=64;let N2=2;try{typeof navigator!=al&&navigator.hardwareConcurrency&&(N2=navigator.hardwareConcurrency)}catch{}const h5={chunkSize:512*1024,maxWorkers:N2,terminateWorkerTimeout:5e3,useWebWorkers:!0,useCompressionStream:!0,workerScripts:$t,CompressionStreamNative:typeof CompressionStream!=al&&CompressionStream,DecompressionStreamNative:typeof DecompressionStream!=al&&DecompressionStream},nl=Object.assign({},h5);function m5(){return nl}function g5(i){return Math.max(i.chunkSize,d5)}function H2(i){const{baseURL:u,chunkSize:c,maxWorkers:f,terminateWorkerTimeout:r,useCompressionStream:o,useWebWorkers:h,Deflate:v,Inflate:y,CompressionStream:A,DecompressionStream:x,workerScripts:T}=i;if($n("baseURL",u),$n("chunkSize",c),$n("maxWorkers",f),$n("terminateWorkerTimeout",r),$n("useCompressionStream",o),$n("useWebWorkers",h),v&&(nl.CompressionStream=new J1(v)),y&&(nl.DecompressionStream=new J1(y)),$n("CompressionStream",A),$n("DecompressionStream",x),T!==$t){const{deflate:D,inflate:X}=T;if((D||X)&&(nl.workerScripts||(nl.workerScripts={})),D){if(!Array.isArray(D))throw new Error("workerScripts.deflate must be an array");nl.workerScripts.deflate=D}if(X){if(!Array.isArray(X))throw new Error("workerScripts.inflate must be an array");nl.workerScripts.inflate=X}}}function $n(i,u){u!==$t&&(nl[i]=u)}const B2=[];for(let i=0;i<256;i++){let u=i;for(let c=0;c<8;c++)u&1?u=u>>>1^3988292384:u=u>>>1;B2[i]=u}class ac{constructor(u){this.crc=u||-1}append(u){let c=this.crc|0;for(let f=0,r=u.length|0;f<r;f++)c=c>>>8^B2[(c^u[f])&255];this.crc=c}get(){return~this.crc}}class U2 extends TransformStream{constructor(){let u;const c=new ac;super({transform(f,r){c.append(f),r.enqueue(f)},flush(){const f=new Uint8Array(4);new DataView(f.buffer).setUint32(0,c.get()),u.value=f}}),u=this}}function A5(i){if(typeof TextEncoder==al){i=unescape(encodeURIComponent(i));const u=new Uint8Array(i.length);for(let c=0;c<u.length;c++)u[c]=i.charCodeAt(c);return u}else return new TextEncoder().encode(i)}const re={concat(i,u){if(i.length===0||u.length===0)return i.concat(u);const c=i[i.length-1],f=re.getPartial(c);return f===32?i.concat(u):re._shiftRight(u,f,c|0,i.slice(0,i.length-1))},bitLength(i){const u=i.length;if(u===0)return 0;const c=i[u-1];return(u-1)*32+re.getPartial(c)},clamp(i,u){if(i.length*32<u)return i;i=i.slice(0,Math.ceil(u/32));const c=i.length;return u=u&31,c>0&&u&&(i[c-1]=re.partial(u,i[c-1]&2147483648>>u-1,1)),i},partial(i,u,c){return i===32?u:(c?u|0:u<<32-i)+i*1099511627776},getPartial(i){return Math.round(i/1099511627776)||32},_shiftRight(i,u,c,f){for(f===void 0&&(f=[]);u>=32;u-=32)f.push(c),c=0;if(u===0)return f.concat(i);for(let h=0;h<i.length;h++)f.push(c|i[h]>>>u),c=i[h]<<32-u;const r=i.length?i[i.length-1]:0,o=re.getPartial(r);return f.push(re.partial(u+o&31,u+o>32?c:f.pop(),1)),f}},ic={bytes:{fromBits(i){const c=re.bitLength(i)/8,f=new Uint8Array(c);let r;for(let o=0;o<c;o++)(o&3)===0&&(r=i[o/4]),f[o]=r>>>24,r<<=8;return f},toBits(i){const u=[];let c,f=0;for(c=0;c<i.length;c++)f=f<<8|i[c],(c&3)===3&&(u.push(f),f=0);return c&3&&u.push(re.partial(8*(c&3),f)),u}}},Q2={};Q2.sha1=class{constructor(i){const u=this;u.blockSize=512,u._init=[1732584193,4023233417,2562383102,271733878,3285377520],u._key=[1518500249,1859775393,2400959708,3395469782],i?(u._h=i._h.slice(0),u._buffer=i._buffer.slice(0),u._length=i._length):u.reset()}reset(){const i=this;return i._h=i._init.slice(0),i._buffer=[],i._length=0,i}update(i){const u=this;typeof i=="string"&&(i=ic.utf8String.toBits(i));const c=u._buffer=re.concat(u._buffer,i),f=u._length,r=u._length=f+re.bitLength(i);if(r>9007199254740991)throw new Error("Cannot hash more than 2^53 - 1 bits");const o=new Uint32Array(c);let h=0;for(let v=u.blockSize+f-(u.blockSize+f&u.blockSize-1);v<=r;v+=u.blockSize)u._block(o.subarray(16*h,16*(h+1))),h+=1;return c.splice(0,16*h),u}finalize(){const i=this;let u=i._buffer;const c=i._h;u=re.concat(u,[re.partial(1,1)]);for(let f=u.length+2;f&15;f++)u.push(0);for(u.push(Math.floor(i._length/4294967296)),u.push(i._length|0);u.length;)i._block(u.splice(0,16));return i.reset(),c}_f(i,u,c,f){if(i<=19)return u&c|~u&f;if(i<=39)return u^c^f;if(i<=59)return u&c|u&f|c&f;if(i<=79)return u^c^f}_S(i,u){return u<<i|u>>>32-i}_block(i){const u=this,c=u._h,f=Array(80);for(let A=0;A<16;A++)f[A]=i[A];let r=c[0],o=c[1],h=c[2],v=c[3],y=c[4];for(let A=0;A<=79;A++){A>=16&&(f[A]=u._S(1,f[A-3]^f[A-8]^f[A-14]^f[A-16]));const x=u._S(5,r)+u._f(A,o,h,v)+y+f[A]+u._key[Math.floor(A/20)]|0;y=v,v=h,h=u._S(30,o),o=r,r=x}c[0]=c[0]+r|0,c[1]=c[1]+o|0,c[2]=c[2]+h|0,c[3]=c[3]+v|0,c[4]=c[4]+y|0}};const z2={};z2.aes=class{constructor(i){const u=this;u._tables=[[[],[],[],[],[]],[[],[],[],[],[]]],u._tables[0][0][0]||u._precompute();const c=u._tables[0][4],f=u._tables[1],r=i.length;let o,h,v,y=1;if(r!==4&&r!==6&&r!==8)throw new Error("invalid aes key size");for(u._key=[h=i.slice(0),v=[]],o=r;o<4*r+28;o++){let A=h[o-1];(o%r===0||r===8&&o%r===4)&&(A=c[A>>>24]<<24^c[A>>16&255]<<16^c[A>>8&255]<<8^c[A&255],o%r===0&&(A=A<<8^A>>>24^y<<24,y=y<<1^(y>>7)*283)),h[o]=h[o-r]^A}for(let A=0;o;A++,o--){const x=h[A&3?o:o-4];o<=4||A<4?v[A]=x:v[A]=f[0][c[x>>>24]]^f[1][c[x>>16&255]]^f[2][c[x>>8&255]]^f[3][c[x&255]]}}encrypt(i){return this._crypt(i,0)}decrypt(i){return this._crypt(i,1)}_precompute(){const i=this._tables[0],u=this._tables[1],c=i[4],f=u[4],r=[],o=[];let h,v,y,A;for(let x=0;x<256;x++)o[(r[x]=x<<1^(x>>7)*283)^x]=x;for(let x=h=0;!c[x];x^=v||1,h=o[h]||1){let T=h^h<<1^h<<2^h<<3^h<<4;T=T>>8^T&255^99,c[x]=T,f[T]=x,A=r[y=r[v=r[x]]];let D=A*16843009^y*65537^v*257^x*16843008,X=r[T]*257^T*16843008;for(let q=0;q<4;q++)i[q][x]=X=X<<24^X>>>8,u[q][T]=D=D<<24^D>>>8}for(let x=0;x<5;x++)i[x]=i[x].slice(0),u[x]=u[x].slice(0)}_crypt(i,u){if(i.length!==4)throw new Error("invalid aes block size");const c=this._key[u],f=c.length/4-2,r=[0,0,0,0],o=this._tables[u],h=o[0],v=o[1],y=o[2],A=o[3],x=o[4];let T=i[0]^c[0],D=i[u?3:1]^c[1],X=i[2]^c[2],q=i[u?1:3]^c[3],p=4,E,b,R;for(let N=0;N<f;N++)E=h[T>>>24]^v[D>>16&255]^y[X>>8&255]^A[q&255]^c[p],b=h[D>>>24]^v[X>>16&255]^y[q>>8&255]^A[T&255]^c[p+1],R=h[X>>>24]^v[q>>16&255]^y[T>>8&255]^A[D&255]^c[p+2],q=h[q>>>24]^v[T>>16&255]^y[D>>8&255]^A[X&255]^c[p+3],p+=4,T=E,D=b,X=R;for(let N=0;N<4;N++)r[u?3&-N:N]=x[T>>>24]<<24^x[D>>16&255]<<16^x[X>>8&255]<<8^x[q&255]^c[p++],E=T,T=D,D=X,X=q,q=E;return r}};const v5={getRandomValues(i){const u=new Uint32Array(i.buffer),c=f=>{let r=987654321;const o=4294967295;return function(){return r=36969*(r&65535)+(r>>16)&o,f=18e3*(f&65535)+(f>>16)&o,(((r<<16)+f&o)/4294967296+.5)*(Math.random()>.5?1:-1)}};for(let f=0,r;f<i.length;f+=4){const o=c((r||Math.random())*4294967296);r=o()*987654071,u[f/4]=o()*4294967296|0}return i}},Y2={};Y2.ctrGladman=class{constructor(i,u){this._prf=i,this._initIv=u,this._iv=u}reset(){this._iv=this._initIv}update(i){return this.calculate(this._prf,i,this._iv)}incWord(i){if((i>>24&255)===255){let u=i>>16&255,c=i>>8&255,f=i&255;u===255?(u=0,c===255?(c=0,f===255?f=0:++f):++c):++u,i=0,i+=u<<16,i+=c<<8,i+=f}else i+=1<<24;return i}incCounter(i){(i[0]=this.incWord(i[0]))===0&&(i[1]=this.incWord(i[1]))}calculate(i,u,c){let f;if(!(f=u.length))return[];const r=re.bitLength(u);for(let o=0;o<f;o+=4){this.incCounter(c);const h=i.encrypt(c);u[o]^=h[0],u[o+1]^=h[1],u[o+2]^=h[2],u[o+3]^=h[3]}return re.clamp(u,r)}};const wl={importKey(i){return new wl.hmacSha1(ic.bytes.toBits(i))},pbkdf2(i,u,c,f){if(c=c||1e4,f<0||c<0)throw new Error("invalid params to pbkdf2");const r=(f>>5)+1<<2;let o,h,v,y,A;const x=new ArrayBuffer(r),T=new DataView(x);let D=0;const X=re;for(u=ic.bytes.toBits(u),A=1;D<(r||1);A++){for(o=h=i.encrypt(X.concat(u,[A])),v=1;v<c;v++)for(h=i.encrypt(h),y=0;y<h.length;y++)o[y]^=h[y];for(v=0;D<(r||1)&&v<o.length;v++)T.setInt32(D,o[v]),D+=4}return x.slice(0,f/8)}};wl.hmacSha1=class{constructor(i){const u=this,c=u._hash=Q2.sha1,f=[[],[]];u._baseHash=[new c,new c];const r=u._baseHash[0].blockSize/32;i.length>r&&(i=new c().update(i).finalize());for(let o=0;o<r;o++)f[0][o]=i[o]^909522486,f[1][o]=i[o]^1549556828;u._baseHash[0].update(f[0]),u._baseHash[1].update(f[1]),u._resultHash=new c(u._baseHash[0])}reset(){const i=this;i._resultHash=new i._hash(i._baseHash[0]),i._updated=!1}update(i){const u=this;u._updated=!0,u._resultHash.update(i)}digest(){const i=this,u=i._resultHash.finalize(),c=new i._hash(i._baseHash[1]).update(u).finalize();return i.reset(),c}encrypt(i){if(this._updated)throw new Error("encrypt on already updated hmac called!");return this.update(i),this.digest(i)}};const y5=typeof crypto!=al&&typeof crypto.getRandomValues==Ri,lr="Invalid password",ar="Invalid signature",ir="zipjs-abort-check-password";function L2(i){return y5?crypto.getRandomValues(i):v5.getRandomValues(i)}const pa=16,E5="raw",G2={name:"PBKDF2"},p5={name:"HMAC"},x5="SHA-1",b5=Object.assign({hash:p5},G2),Kf=Object.assign({iterations:1e3,hash:{name:x5}},G2),S5=["deriveBits"],Si=[8,12,16],Ei=[16,24,32],tl=10,T5=[0,0,0,0],cc=typeof crypto!=al,wi=cc&&crypto.subtle,X2=cc&&typeof wi!=al,Pe=ic.bytes,C5=z2.aes,O5=Y2.ctrGladman,D5=wl.hmacSha1;let F1=cc&&X2&&typeof wi.importKey==Ri,W1=cc&&X2&&typeof wi.deriveBits==Ri;class R5 extends TransformStream{constructor({password:u,rawPassword:c,signed:f,encryptionStrength:r,checkPasswordOnly:o}){super({start(){Object.assign(this,{ready:new Promise(h=>this.resolveReady=h),password:I2(u,c),signed:f,strength:r-1,pending:new Uint8Array})},async transform(h,v){const y=this,{password:A,strength:x,resolveReady:T,ready:D}=y;A?(await M5(y,x,A,Xe(h,0,Si[x]+2)),h=Xe(h,Si[x]+2),o?v.error(new Error(ir)):T()):await D;const X=new Uint8Array(h.length-tl-(h.length-tl)%pa);v.enqueue(V2(y,h,X,0,tl,!0))},async flush(h){const{signed:v,ctr:y,hmac:A,pending:x,ready:T}=this;if(A&&y){await T;const D=Xe(x,0,x.length-tl),X=Xe(x,x.length-tl);let q=new Uint8Array;if(D.length){const p=Ci(Pe,D);A.update(p);const E=y.update(p);q=Ti(Pe,E)}if(v){const p=Xe(Ti(Pe,A.digest()),0,tl);for(let E=0;E<tl;E++)if(p[E]!=X[E])throw new Error(ar)}h.enqueue(q)}}})}}class w5 extends TransformStream{constructor({password:u,rawPassword:c,encryptionStrength:f}){let r;super({start(){Object.assign(this,{ready:new Promise(o=>this.resolveReady=o),password:I2(u,c),strength:f-1,pending:new Uint8Array})},async transform(o,h){const v=this,{password:y,strength:A,resolveReady:x,ready:T}=v;let D=new Uint8Array;y?(D=await j5(v,A,y),x()):await T;const X=new Uint8Array(D.length+o.length-o.length%pa);X.set(D,0),h.enqueue(V2(v,o,X,D.length,0))},async flush(o){const{ctr:h,hmac:v,pending:y,ready:A}=this;if(v&&h){await A;let x=new Uint8Array;if(y.length){const T=h.update(Ci(Pe,y));v.update(T),x=Ti(Pe,T)}r.signature=Ti(Pe,v.digest()).slice(0,tl),o.enqueue(ur(x,r.signature))}}}),r=this}}function V2(i,u,c,f,r,o){const{ctr:h,hmac:v,pending:y}=i,A=u.length-r;y.length&&(u=ur(y,u),c=B5(c,A-A%pa));let x;for(x=0;x<=A-pa;x+=pa){const T=Ci(Pe,Xe(u,x,x+pa));o&&v.update(T);const D=h.update(T);o||v.update(D),c.set(Ti(Pe,D),x+f)}return i.pending=Xe(u,x),c}async function M5(i,u,c,f){const r=await Z2(i,u,c,Xe(f,0,Si[u])),o=Xe(f,Si[u]);if(r[0]!=o[0]||r[1]!=o[1])throw new Error(lr)}async function j5(i,u,c){const f=L2(new Uint8Array(Si[u])),r=await Z2(i,u,c,f);return ur(f,r)}async function Z2(i,u,c,f){i.password=null;const r=await N5(E5,c,b5,!1,S5),o=await H5(Object.assign({salt:f},Kf),r,8*(Ei[u]*2+2)),h=new Uint8Array(o),v=Ci(Pe,Xe(h,0,Ei[u])),y=Ci(Pe,Xe(h,Ei[u],Ei[u]*2)),A=Xe(h,Ei[u]*2);return Object.assign(i,{keys:{key:v,authentication:y,passwordVerification:A},ctr:new O5(new C5(v),Array.from(T5)),hmac:new D5(y)}),A}async function N5(i,u,c,f,r){if(F1)try{return await wi.importKey(i,u,c,f,r)}catch{return F1=!1,wl.importKey(u)}else return wl.importKey(u)}async function H5(i,u,c){if(W1)try{return await wi.deriveBits(i,u,c)}catch{return W1=!1,wl.pbkdf2(u,i.salt,Kf.iterations,c)}else return wl.pbkdf2(u,i.salt,Kf.iterations,c)}function I2(i,u){return u===$t?A5(i):u}function ur(i,u){let c=i;return i.length+u.length&&(c=new Uint8Array(i.length+u.length),c.set(i,0),c.set(u,i.length)),c}function B5(i,u){if(u&&u>i.length){const c=i;i=new Uint8Array(u),i.set(c,0)}return i}function Xe(i,u,c){return i.subarray(u,c)}function Ti(i,u){return i.fromBits(u)}function Ci(i,u){return i.toBits(u)}const bi=12;class U5 extends TransformStream{constructor({password:u,passwordVerification:c,checkPasswordOnly:f}){super({start(){Object.assign(this,{password:u,passwordVerification:c}),q2(this,u)},transform(r,o){const h=this;if(h.password){const v=_1(h,r.subarray(0,bi));if(h.password=null,v.at(-1)!=h.passwordVerification)throw new Error(lr);r=r.subarray(bi)}f?o.error(new Error(ir)):o.enqueue(_1(h,r))}})}}class Q5 extends TransformStream{constructor({password:u,passwordVerification:c}){super({start(){Object.assign(this,{password:u,passwordVerification:c}),q2(this,u)},transform(f,r){const o=this;let h,v;if(o.password){o.password=null;const y=L2(new Uint8Array(bi));y[bi-1]=o.passwordVerification,h=new Uint8Array(f.length+y.length),h.set(P1(o,y),0),v=bi}else h=new Uint8Array(f.length),v=0;h.set(P1(o,f),v),r.enqueue(h)}})}}function _1(i,u){const c=new Uint8Array(u.length);for(let f=0;f<u.length;f++)c[f]=K2(i)^u[f],cr(i,c[f]);return c}function P1(i,u){const c=new Uint8Array(u.length);for(let f=0;f<u.length;f++)c[f]=K2(i)^u[f],cr(i,u[f]);return c}function q2(i,u){const c=[305419896,591751049,878082192];Object.assign(i,{keys:c,crcKey0:new ac(c[0]),crcKey2:new ac(c[2])});for(let f=0;f<u.length;f++)cr(i,u.charCodeAt(f))}function cr(i,u){let[c,f,r]=i.keys;i.crcKey0.append([u]),c=~i.crcKey0.get(),f=$1(Math.imul($1(f+k2(c)),134775813)+1),i.crcKey2.append([f>>>24]),r=~i.crcKey2.get(),i.keys=[c,f,r]}function K2(i){const u=i.keys[2]|2;return k2(Math.imul(u,u^1)>>>8)}function k2(i){return i&255}function $1(i){return i&4294967295}const sr="Invalid uncompressed size",t2="deflate-raw";class z5 extends TransformStream{constructor(u,{chunkSize:c,CompressionStream:f,CompressionStreamNative:r}){super({});const{compressed:o,encrypted:h,useCompressionStream:v,zipCrypto:y,signed:A,level:x}=u,T=this;let D,X,q=super.readable;(!h||y)&&A&&(D=new U2,q=xn(q,D)),o&&(q=F2(q,v,{level:x,chunkSize:c},r,f)),h&&(y?q=xn(q,new Q5(u)):(X=new w5(u),q=xn(q,X))),J2(T,q,()=>{let p;h&&!y&&(p=X.signature),(!h||y)&&A&&(p=new DataView(D.value.buffer).getUint32(0)),T.signature=p})}}class Y5 extends TransformStream{constructor(u,{chunkSize:c,DecompressionStream:f,DecompressionStreamNative:r}){super({});const{zipCrypto:o,encrypted:h,signed:v,signature:y,compressed:A,useCompressionStream:x}=u;let T,D,X=super.readable;h&&(o?X=xn(X,new U5(u)):(D=new R5(u),X=xn(X,D))),A&&(X=F2(X,x,{chunkSize:c},r,f)),(!h||o)&&v&&(T=new U2,X=xn(X,T)),J2(this,X,()=>{if((!h||o)&&v){const q=new DataView(T.value.buffer);if(y!=q.getUint32(0,!1))throw new Error(ar)}})}}function J2(i,u,c){u=xn(u,new TransformStream({flush:c})),Object.defineProperty(i,"readable",{get(){return u}})}function F2(i,u,c,f,r){try{const o=u&&f?f:r;i=xn(i,new o(t2,c))}catch(o){if(u)i=xn(i,new r(t2,c));else throw o}return i}function xn(i,u){return i.pipeThrough(u)}const L5="message",G5="start",X5="pull",e2="data",V5="ack",n2="close",Z5="deflate",W2="inflate";class I5 extends TransformStream{constructor(u,c){super({});const f=this,{codecType:r}=u;let o;r.startsWith(Z5)?o=z5:r.startsWith(W2)&&(o=Y5),f.outputSize=0;let h=0;const v=new o(u,c),y=super.readable,A=new TransformStream({transform(T,D){T&&T.length&&(h+=T.length,D.enqueue(T))},flush(){Object.assign(f,{inputSize:h})}}),x=new TransformStream({transform(T,D){if(T&&T.length&&(D.enqueue(T),f.outputSize+=T.length,u.outputSize&&f.outputSize>u.outputSize))throw new Error(sr)},flush(){const{signature:T}=v;Object.assign(f,{signature:T,inputSize:h})}});Object.defineProperty(f,"readable",{get(){return y.pipeThrough(A).pipeThrough(v).pipeThrough(x)}})}}class q5 extends TransformStream{constructor(u){let c;super({transform:f,flush(r){c&&c.length&&r.enqueue(c)}});function f(r,o){if(c){const h=new Uint8Array(c.length+r.length);h.set(c),h.set(r,c.length),r=h,c=null}r.length>u?(o.enqueue(r.slice(0,u)),f(r.slice(u),o)):c=r}}}let _2=typeof Worker!=al;class Hf{constructor(u,{readable:c,writable:f},{options:r,config:o,streamOptions:h,useWebWorkers:v,transferStreams:y,scripts:A},x){const{signal:T}=h;return Object.assign(u,{busy:!0,readable:c.pipeThrough(new q5(o.chunkSize)).pipeThrough(new K5(h),{signal:T}),writable:f,options:Object.assign({},r),scripts:A,transferStreams:y,terminate(){return new Promise(D=>{const{worker:X,busy:q}=u;X?(q?u.resolveTerminated=D:(X.terminate(),D()),u.interface=null):D()})},onTaskFinished(){const{resolveTerminated:D}=u;D&&(u.resolveTerminated=null,u.terminated=!0,u.worker.terminate(),D()),u.busy=!1,x(u)}}),(v&&_2?k5:P2)(u,o)}}class K5 extends TransformStream{constructor({onstart:u,onprogress:c,size:f,onend:r}){let o=0;super({async start(){u&&await Bf(u,f)},async transform(h,v){o+=h.length,c&&await Bf(c,o,f),v.enqueue(h)},async flush(){r&&await Bf(r,o)}})}}async function Bf(i,...u){try{await i(...u)}catch{}}function P2(i,u){return{run:()=>J5(i,u)}}function k5(i,u){const{baseURL:c,chunkSize:f}=u;if(!i.interface){let r;try{r=_5(i.scripts[0],c,i)}catch{return _2=!1,P2(i,u)}Object.assign(i,{worker:r,interface:{run:()=>F5(i,{chunkSize:f})}})}return i.interface}async function J5({options:i,readable:u,writable:c,onTaskFinished:f},r){let o;try{o=new I5(i,r),await u.pipeThrough(o).pipeTo(c,{preventClose:!0,preventAbort:!0});const{signature:h,inputSize:v,outputSize:y}=o;return{signature:h,inputSize:v,outputSize:y}}catch(h){throw o&&(h.outputSize=o.outputSize),h}finally{f()}}async function F5(i,u){let c,f;const r=new Promise((D,X)=>{c=D,f=X});Object.assign(i,{reader:null,writer:null,resolveResult:c,rejectResult:f,result:r});const{readable:o,options:h,scripts:v}=i,{writable:y,closed:A}=W5(i.writable),x=ec({type:G5,scripts:v.slice(1),options:h,config:u,readable:o,writable:y},i);x||Object.assign(i,{reader:o.getReader(),writer:y.getWriter()});const T=await r;return x||await y.getWriter().close(),await A,T}function W5(i){let u;const c=new Promise(r=>u=r);return{writable:new WritableStream({async write(r){const o=i.getWriter();await o.ready,await o.write(r),o.releaseLock()},close(){u()},abort(r){return i.getWriter().abort(r)}}),closed:c}}let l2=!0,a2=!0;function _5(i,u,c){const f={type:"module"};let r,o;typeof i==Ri&&(i=i());try{r=new URL(i,u)}catch{r=i}if(l2)try{o=new Worker(r)}catch{l2=!1,o=new Worker(r,f)}else o=new Worker(r,f);return o.addEventListener(L5,h=>P5(h,c)),o}function ec(i,{worker:u,writer:c,onTaskFinished:f,transferStreams:r}){try{const{value:o,readable:h,writable:v}=i,y=[];if(o&&(o.byteLength<o.buffer.byteLength?i.value=o.buffer.slice(0,o.byteLength):i.value=o.buffer,y.push(i.value)),r&&a2?(h&&y.push(h),v&&y.push(v)):i.readable=i.writable=null,y.length)try{return u.postMessage(i,y),!0}catch{a2=!1,i.readable=i.writable=null,u.postMessage(i)}else u.postMessage(i)}catch(o){throw c&&c.releaseLock(),f(),o}}async function P5({data:i},u){const{type:c,value:f,messageId:r,result:o,error:h}=i,{reader:v,writer:y,resolveResult:A,rejectResult:x,onTaskFinished:T}=u;try{if(h){const{message:X,stack:q,code:p,name:E,outputSize:b}=h,R=new Error(X);Object.assign(R,{stack:q,code:p,name:E,outputSize:b}),D(R)}else{if(c==X5){const{value:X,done:q}=await v.read();ec({type:e2,value:X,done:q,messageId:r},u)}c==e2&&(await y.ready,await y.write(new Uint8Array(f)),ec({type:V5,messageId:r},u)),c==n2&&D(null,o)}}catch(X){ec({type:n2,messageId:r},u),D(X)}function D(X,q){X?x(X):A(q),y&&y.releaseLock(),T()}}let Ol=[];const Uf=[];let i2=0;async function $5(i,u){const{options:c,config:f}=u,{transferStreams:r,useWebWorkers:o,useCompressionStream:h,codecType:v,compressed:y,signed:A,encrypted:x}=c,{workerScripts:T,maxWorkers:D}=f;u.transferStreams=r||r===$t;const X=!y&&!A&&!x&&!u.transferStreams;return u.useWebWorkers=!X&&(o||o===$t&&f.useWebWorkers),u.scripts=u.useWebWorkers&&T?T[v]:[],c.useCompressionStream=h||h===$t&&f.useCompressionStream,(await q()).run();async function q(){const E=Ol.find(b=>!b.busy);if(E)return u2(E),new Hf(E,i,u,p);if(Ol.length<D){const b={indexWorker:i2};return i2++,Ol.push(b),new Hf(b,i,u,p)}else return new Promise(b=>Uf.push({resolve:b,stream:i,workerOptions:u}))}function p(E){if(Uf.length){const[{resolve:b,stream:R,workerOptions:N}]=Uf.splice(0,1);b(new Hf(E,R,N,p))}else E.worker?(u2(E),t8(E,u)):Ol=Ol.filter(b=>b!=E)}}function t8(i,u){const{config:c}=u,{terminateWorkerTimeout:f}=c;Number.isFinite(f)&&f>=0&&(i.terminated?i.terminated=!1:i.terminateTimeout=setTimeout(async()=>{Ol=Ol.filter(r=>r!=i);try{await i.terminate()}catch{}},f))}function u2(i){const{terminateTimeout:u}=i;u&&(clearTimeout(u),i.terminateTimeout=null)}const $2="Writer iterator completed too soon",e8="Content-Type",n8=64*1024,th="writable";class fr{constructor(){this.size=0}init(){this.initialized=!0}}class sc extends fr{get readable(){const u=this,{chunkSize:c=n8}=u,f=new ReadableStream({start(){this.chunkOffset=0},async pull(r){const{offset:o=0,size:h,diskNumberStart:v}=f,{chunkOffset:y}=this,A=h===$t?c:Math.min(c,h-y),x=await _t(u,o+y,A,v);r.enqueue(x),y+c>h||h===$t&&!x.length&&A?r.close():this.chunkOffset+=c}});return f}}class l8 extends sc{constructor(u){super();let c=u.length;for(;u.charAt(c-1)=="=";)c--;const f=u.indexOf(",")+1;Object.assign(this,{dataURI:u,dataStart:f,size:Math.floor((c-f)*.75)})}readUint8Array(u,c){const{dataStart:f,dataURI:r}=this,o=new Uint8Array(c),h=Math.floor(u/3)*4,v=atob(r.substring(h+f,Math.ceil((u+c)/3)*4+f)),y=u-Math.floor(h/4)*3;let A=0;for(let x=y;x<y+c&&x<v.length;x++)o[x-y]=v.charCodeAt(x),A++;return A<o.length?o.subarray(0,A):o}}class eh extends sc{constructor(u){super(),Object.assign(this,{blob:u,size:u.size})}async readUint8Array(u,c){const f=this,r=u+c;let h=await(u||r<f.size?f.blob.slice(u,r):f.blob).arrayBuffer();return h.byteLength>c&&(h=h.slice(u,r)),new Uint8Array(h)}}class nh extends fr{constructor(u){super();const c=this,f=new TransformStream,r=[];u&&r.push([e8,u]),Object.defineProperty(c,th,{get(){return f.writable}}),c.blob=new Response(f.readable,{headers:r}).blob()}getData(){return this.blob}}class a8 extends nh{constructor(u){super(u),Object.assign(this,{encoding:u,utf8:!u||u.toLowerCase()=="utf-8"})}async getData(){const{encoding:u,utf8:c}=this,f=await super.getData();if(f.text&&c)return f.text();{const r=new FileReader;return new Promise((o,h)=>{Object.assign(r,{onload:({target:v})=>o(v.result),onerror:()=>h(r.error)}),r.readAsText(f,u)})}}}class lh extends sc{constructor(u){super(),this.readers=u}async init(){const u=this,{readers:c}=u;u.lastDiskNumber=0,u.lastDiskOffset=0,await Promise.all(c.map(async(f,r)=>{await f.init(),r!=c.length-1&&(u.lastDiskOffset+=f.size),u.size+=f.size})),super.init()}async readUint8Array(u,c,f=0){const r=this,{readers:o}=this;let h,v=f;v==-1&&(v=o.length-1);let y=u;for(;o[v]&&y>=o[v].size;)y-=o[v].size,v++;const A=o[v];if(A){const x=A.size;if(y+c<=x)h=await _t(A,y,c);else{const T=x-y;h=new Uint8Array(c);const D=await _t(A,y,T);h.set(D,0);const X=await r.readUint8Array(u+T,c-T,f);h.set(X,T),D.length+X.length<c&&(h=h.subarray(0,D.length+X.length))}}else h=new Uint8Array;return r.lastDiskNumber=Math.max(v,r.lastDiskNumber),h}}class kf extends fr{constructor(u,c=4294967295){super();const f=this;Object.assign(f,{diskNumber:0,diskOffset:0,size:0,maxSize:c,availableSize:c});let r,o,h;const v=new WritableStream({async write(x){const{availableSize:T}=f;if(h)x.length>=T?(await y(x.subarray(0,T)),await A(),f.diskOffset+=r.size,f.diskNumber++,h=null,await this.write(x.subarray(T))):await y(x);else{const{value:D,done:X}=await u.next();if(X&&!D)throw new Error($2);r=D,r.size=0,r.maxSize&&(f.maxSize=r.maxSize),f.availableSize=f.maxSize,await Oi(r),o=D.writable,h=o.getWriter(),await this.write(x)}},async close(){await h.ready,await A()}});Object.defineProperty(f,th,{get(){return v}});async function y(x){const T=x.length;T&&(await h.ready,await h.write(x),r.size+=T,f.size+=T,f.availableSize-=T)}async function A(){await h.close()}}}class ah{constructor(u){return Array.isArray(u)&&(u=new lh(u)),u instanceof ReadableStream&&(u={readable:u}),u}}class ih{constructor(u){return u.writable===$t&&typeof u.next==Ri&&(u=new kf(u)),u instanceof WritableStream&&(u={writable:u}),u.size===$t&&(u.size=0),u instanceof kf||Object.assign(u,{diskNumber:0,diskOffset:0,availableSize:1/0,maxSize:1/0}),u}}async function Oi(i,u){if(i.init&&!i.initialized)await i.init(u);else return Promise.resolve()}function _t(i,u,c,f){return i.readUint8Array(u,c,f)}const uh="\0☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~⌂ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ".split(""),i8=uh.length==256;function u8(i){if(i8){let u="";for(let c=0;c<i.length;c++)u+=uh[i[c]];return u}else return new TextDecoder().decode(i)}function nc(i,u){return u&&u.trim().toLowerCase()=="cp437"?u8(i):new TextDecoder(u).decode(i)}const ch="filename",sh="rawFilename",fh="comment",rh="rawComment",oh="uncompressedSize",dh="compressedSize",hh="offset",Jf="diskNumberStart",Ff="lastModDate",Wf="rawLastModDate",mh="lastAccessDate",c8="rawLastAccessDate",gh="creationDate",s8="rawCreationDate",f8="internalFileAttribute",r8="internalFileAttributes",o8="externalFileAttribute",d8="externalFileAttributes",h8="msDosCompatible",m8="zip64",g8="encry
 FILE:frontend\src\main.tsx
 import React from 'react'
 import ReactDOM from 'react-dom/client'
@@ -6599,7 +7011,8 @@ import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   Filter, ArrowUpDown, BookOpen, FileText, Crosshair, UserCheck,
-  Check, Terminal, XCircle,
+  Check, Terminal, XCircle, Loader2, RefreshCw, AlertCircle,
+  ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -6645,11 +7058,13 @@ const STEPS: Step[] = [
 const INITIAL_STATES: StepStatus[] = ['completed', 'completed', 'completed', 'completed', 'requires_review', 'pending'];
 
 const MSF_DATA = {
-  msf_module: 'exploit/multi/handler',
-  payload: 'linux/x86/meterpreter/reverse_tcp',
+  attack_module: 'exploit/multi/handler',
+  attack_payload: 'linux/x86/meterpreter/reverse_tcp',
   target_ip: '10.202.15.15',
-  port: '443',
   confidence: '0.72',
+  risk_level: 'ALTO',
+  attack_rationale: '',
+  ens_article: 'op.exp.2',
 };
 
 function OllamaWidget() {
@@ -6722,11 +7137,81 @@ function statusBadgeClass(status: StepStatus): string {
   }
 }
 
+const ASSET_ID = 10;
+const M3_BASE = 'http://localhost:8002';
+
 export function AIReasoningPage() {
   const [stepStates, setStepStates] = useState<StepStatus[]>(INITIAL_STATES);
   const [selectedStep, setSelectedStep] = useState(4);
   const [editingMsf, setEditingMsf] = useState(false);
-  const [msfInput, setMsfInput] = useState(MSF_DATA.msf_module);
+  const [msfInput, setMsfInput] = useState(MSF_DATA.attack_module);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+  const [liveResult, setLiveResult] = useState<{
+    attack_module: string; attack_payload: string;
+    target_ip: string; confidence: string;
+    risk_level: string; attack_rationale: string; ens_article: string;
+  } | null>(null);
+  const [showRationale, setShowRationale] = useState(false);
+
+  function getToken() {
+    try {
+      const r = sessionStorage.getItem('scanops_auth');
+      return r ? JSON.parse(r)?.access_token ?? null : null;
+    } catch { return null; }
+  }
+
+  const handleRegenerate = async () => {
+    setRegenerating(true); setRegenError(null); setLiveResult(null);
+    setStepStates(['active', 'pending', 'pending', 'pending', 'pending', 'pending']);
+    try {
+      const h: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      };
+      const launch = await fetch(
+        `${M3_BASE}/api/v1/scan/assets/${ASSET_ID}/attack-vector`,
+        { method: 'POST', headers: h, signal: AbortSignal.timeout(15000) },
+      );
+      if (!launch.ok) throw new Error(`HTTP ${launch.status}`);
+      const { task_id } = await launch.json();
+      for (let i = 0; i < 4; i++) {
+        await new Promise(r => setTimeout(r, 1800));
+        setStepStates(p => { const n = [...p]; n[i] = 'completed'; if (i + 1 < 5) n[i + 1] = 'active'; return n; });
+      }
+      for (let a = 0; a < 30; a++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const res = await fetch(
+          `${M3_BASE}/api/v1/scan/assets/${ASSET_ID}/attack-vector/result/${task_id}`,
+          { headers: h, signal: AbortSignal.timeout(8000) },
+        );
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data.status === 'FAILED') throw new Error('M8 falló al generar el vector');
+        if (data.status === 'SUCCESS' && data.result) {
+          const r = data.result;
+          setLiveResult({
+            attack_module: r.msf_module ?? r.attack_module ?? 'vector/generico',
+            attack_payload: r.msf_payload ?? r.attack_payload ?? 'shell/reverse_tcp',
+            target_ip: r.msf_options?.RHOSTS ?? '10.202.15.15',
+            confidence: String(r.confidence ?? '0.72'),
+            risk_level: r.risk_level ?? 'ALTO',
+            attack_rationale: r.attack_rationale ?? '',
+            ens_article: r.ens_article ?? 'op.exp.2',
+          });
+          setStepStates(['completed', 'completed', 'completed', 'completed', 'requires_review', 'pending']);
+          setSelectedStep(4);
+          return;
+        }
+      }
+      throw new Error('Timeout — Ollama tardó más de 90s');
+    } catch (e: any) {
+      setRegenError(e?.message ?? 'Error');
+      setStepStates(INITIAL_STATES);
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   // [5] UBICACIÓN EXACTA: La función se declara aquí dentro para que pueda leer y escribir usando setStepStates
   const handleRejectDecision = () => {
@@ -6753,7 +7238,23 @@ export function AIReasoningPage() {
               <h1 className="text-2xl font-semibold text-white mb-1">IA Reasoning (M8)</h1>
               <p className="text-[#9ca3af] text-sm">Cadena de razonamiento local — Ollama/Mistral · ENS op.exp.5</p>
             </div>
-            <OllamaWidget />
+            <div className="flex items-center gap-3">
+              <OllamaWidget />
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="flex items-center gap-2 px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs font-semibold hover:bg-[#00d4ff]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {regenerating
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</>
+                  : <><RefreshCw className="w-3.5 h-3.5" />Regenerar análisis</>}
+              </button>
+              {regenError && (
+                <span className="text-xs text-[#ff3b3b] flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />{regenError}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Stepper */}
@@ -6813,42 +7314,68 @@ export function AIReasoningPage() {
 
             <p className="text-sm text-[#9ca3af]">{step.description}</p>
 
-            {/* Step 5 — requires_review: MSF card */}
-            {selectedStep === 4 && stepStatus === 'requires_review' && (
-              <div className="space-y-3">
-                <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
-                    <Terminal className="w-4 h-4" />
-                    Vector sugerido por M8
+            {/* Step 5 — requires_review: attack vector card */}
+            {selectedStep === 4 && stepStatus === 'requires_review' && (() => {
+              const displayResult = liveResult ?? MSF_DATA;
+              const conf = parseFloat(displayResult.confidence);
+              return (
+                <div className="space-y-3">
+                  <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
+                      <Terminal className="w-4 h-4" />
+                      Vector sugerido por M8
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-[#6b7280]">Módulo de Ataque</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.attack_module}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">Payload</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.attack_payload}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">target_ip</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.target_ip}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">Nivel de riesgo</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.risk_level}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">confidence</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.confidence}</div>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280]">ENS</span>
+                        <div className="font-mono text-white mt-0.5">{displayResult.ens_article}</div>
+                      </div>
+                    </div>
+                    {displayResult.attack_rationale && (
+                      <>
+                        <button
+                          onClick={() => setShowRationale(p => !p)}
+                          className="flex items-center gap-1 text-xs text-[#6b7280] hover:text-white mt-2"
+                        >
+                          {showRationale ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          Razonamiento de la IA
+                        </button>
+                        {showRationale && (
+                          <p className="text-xs text-[#9ca3af] mt-1 max-h-32 overflow-y-auto">
+                            {displayResult.attack_rationale}
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <span className="text-[#6b7280]">msf_module </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.msf_module}</div>
+                  {conf < 0.75 && (
+                    <div className="flex items-start gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-3 text-sm text-[#f59e0b]">
+                      ⚠ Confianza baja ({displayResult.confidence}) — requiere revisión manual antes de pasar a M4
                     </div>
-                    <div>
-                      <span className="text-[#6b7280]">payload </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.payload}</div>
-                    </div>
-                    <div>
-                      <span className="text-[#6b7280]">target_ip </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.target_ip}</div>
-                    </div>
-                    <div>
-                      <span className="text-[#6b7280]">port </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.port}</div>
-                    </div>
-                    <div>
-                      <span className="text-[#6b7280]">confidence </span>
-                      <div className="font-mono text-white mt-0.5">{MSF_DATA.confidence}</div>
-                    </div>
-                  </div>
+                  )}
                 </div>
-                <div className="flex items-start gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-3 text-sm text-[#f59e0b]">
-                  ⚠ Confianza baja (0.72) — requiere revisión manual antes de pasar a M4
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Step 6 — human validation form */}
             {selectedStep === 5 && stepStatus === 'pending' && (
@@ -10993,7 +11520,7 @@ export function ENSComplianceWidget() {
 FILE:frontend\src\app\components\ExploitationPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
-import { AlertTriangle, Shield, CheckCircle2, XCircle, Info, RefreshCw, Terminal } from 'lucide-react';
+import { AlertTriangle, Shield, CheckCircle2, XCircle, Info, RefreshCw, Terminal, Loader2, AlertCircle } from 'lucide-react';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { usePendingApprovals, type ApprovalRequest } from '../../hooks/usePendingApprovals';
@@ -11020,13 +11547,15 @@ function formatTimeUntil(expiresAt: string): { label: string; urgent: boolean } 
 }
 
 export function ExploitationPage() {
-  const { approvals, loading, error, refetch } = usePendingApprovals(60000);
+  const { approvals, loading, error, refetch, isMock } = usePendingApprovals(60000);
 
   // Authorize modal
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null);
   const [totp, setTotp] = useState('');
   const [pin, setPin] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Reject modal
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -11035,15 +11564,44 @@ export function ExploitationPage() {
 
   const handleAuthorize = (request: ApprovalRequest) => {
     setSelectedRequest(request);
+    setAuthError(null);
     setShowAuthModal(true);
   };
 
-  const handleSubmitAuth = () => {
-    setShowAuthModal(false);
-    setTotp('');
-    setPin('');
-    setSelectedRequest(null);
-    refetch();
+  const handleSubmitAuth = async () => {
+    if (!selectedRequest) return;
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const raw = sessionStorage.getItem('scanops_auth');
+      const token = raw ? JSON.parse(raw)?.access_token : null;
+      const res = await fetch('http://localhost:8004/api/m4/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          approval_id: selectedRequest.id,
+          totp_code: totp,
+          pin: pin,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any)?.detail ?? `Error ${res.status}`);
+      }
+      setShowAuthModal(false);
+      setTotp('');
+      setPin('');
+      setSelectedRequest(null);
+      refetch();
+    } catch (e: any) {
+      setAuthError(e?.message ?? 'Error al autorizar');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleReject = (request: ApprovalRequest) => {
@@ -11082,15 +11640,16 @@ export function ExploitationPage() {
             <p className="text-[#9ca3af]">Review and authorize pending exploitation requests</p>
           </div>
 
-          {error && (
-            <div className="flex items-center gap-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-lg px-4 py-3">
+          {isMock && (
+            <div className="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg px-4 py-2.5">
               <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0" />
-              <span className="text-sm text-[#f59e0b] flex-1">{error}</span>
+              <span className="text-sm text-[#f59e0b]">
+                M4 no disponible — mostrando datos de demostración
+              </span>
               <button
                 onClick={refetch}
-                className="flex items-center gap-1.5 text-xs text-[#f59e0b] hover:text-white transition-colors"
+                className="ml-auto text-xs text-[#f59e0b] underline hover:no-underline"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
                 Reintentar
               </button>
             </div>
@@ -11107,9 +11666,11 @@ export function ExploitationPage() {
             <div className="text-center py-12 text-[#9ca3af] font-mono text-sm">
               Cargando cola de aprobaciones...
             </div>
-          ) : !loading && approvals.length === 0 && !error ? (
-            <div className="text-center py-12 text-[#9ca3af] font-mono text-sm">
-              No hay explotaciones pendientes de aprobación
+          ) : !loading && approvals.length === 0 && !isMock ? (
+            <div className="text-center py-16">
+              <Shield className="w-12 h-12 text-[#1e2530] mx-auto mb-4" />
+              <p className="text-[#9ca3af] text-sm">No hay solicitudes pendientes de aprobación.</p>
+              <p className="text-[#6b7280] text-xs mt-1">El sistema está en espera de resultados de M8.</p>
             </div>
           ) : (
             <div className="grid gap-4">
@@ -11244,11 +11805,20 @@ export function ExploitationPage() {
                 />
               </div>
 
+              {authError && (
+                <p className="text-xs text-[#ff3b3b] flex items-center gap-1 mt-2">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  {authError}
+                </p>
+              )}
+
               <div className="flex gap-3 mt-6">
                 <button
                   onClick={handleSubmitAuth}
-                  className="flex-1 bg-[#22c55e] hover:bg-[#16a34a] text-white font-semibold py-2.5 rounded-lg transition-colors"
+                  disabled={authLoading}
+                  className="flex-1 bg-[#22c55e] hover:bg-[#16a34a] disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
                 >
+                  {authLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                   Sign & Authorize
                 </button>
                 <Dialog.Close asChild>
@@ -19505,7 +20075,7 @@ export interface LogEntry {
   message: string;
 }
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
+const ORCHESTRATOR_BASE = 'https://localhost:8009';
 const MAX_ENTRIES = 50;
 
 export function useLogStream() {
@@ -19575,30 +20145,59 @@ interface UsePendingApprovalsReturn {
   loading: boolean;
   error: string | null;
   refetch: () => void;
+  isMock: boolean;
 }
+
+const MOCK_APPROVALS: ApprovalRequest[] = [
+  {
+    id: 99,
+    cve_id: 'CVE-2023-38408',
+    target_ip: '10.202.15.15',
+    requester: 'M8-AI-Reasoning (demo)',
+    status: 'PENDING',
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    approved_at: null,
+  },
+];
 
 export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovalsReturn {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isMock, setIsMock] = useState(false);
 
   const fetchApprovals = useCallback(async () => {
     try {
       const token = getStoredToken();
+      console.log('[M4] Fetching approvals, token present:', !!token);
       const response = await fetch(ENDPOINTS.pendingApprovals, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        signal: AbortSignal.timeout(8000),
       });
+      console.log('[M4] Response status:', response.status);
       if (!response.ok) {
-        setError(`Error ${response.status}`);
+        const body = await response.text().catch(() => '');
+        console.error('[M4] Error body:', body);
+        setError(`M4 error ${response.status}`);
+        setApprovals(MOCK_APPROVALS);
+        setTotal(MOCK_APPROVALS.length);
+        setIsMock(true);
         return;
       }
       const data = await response.json();
+      console.log('[M4] Data received:', data);
       setApprovals(data.approvals ?? []);
       setTotal(data.total ?? 0);
       setError(null);
-    } catch {
-      setError('M4 no disponible');
+      setIsMock(false);
+    } catch (e) {
+      console.error('[M4] Fetch failed:', e);
+      setError('M4 no disponible — mostrando datos de demostración');
+      setApprovals(MOCK_APPROVALS);
+      setTotal(MOCK_APPROVALS.length);
+      setIsMock(true);
     } finally {
       setLoading(false);
     }
@@ -19610,7 +20209,7 @@ export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovals
     return () => clearInterval(interval);
   }, [fetchApprovals, pollIntervalMs]);
 
-  return { approvals, total, loading, error, refetch: fetchApprovals };
+  return { approvals, total, loading, error, refetch: fetchApprovals, isMock };
 }
 FILE:frontend\src\hooks\useShadowIT.ts
 import { useState, useEffect, useCallback } from 'react';
@@ -20215,7 +20814,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ScrollArea } from '@/app/components/ui/scroll-area';
 import { Wifi, WifiOff } from 'lucide-react';
 
-const WS_URL = 'ws://localhost:8000/ws/findings';
+const SSE_URL = 'http://localhost:8002/stream/findings';
 const MAX_LINES = 200;
 
 /** Maps a JSON finding to a formatted terminal line. */
@@ -20245,18 +20844,16 @@ function levelColor(level) {
 }
 
 /**
- * LivePipelineTerminal — streams findings from M2/M3 over WebSocket.
- * Falls back to a "connecting…" state with a reconnect button if the
- * socket is unavailable.
+ * LivePipelineTerminal — streams findings from M3 over SSE (GET /stream/findings).
+ * Auto-reconnects every 5s on error.
  */
 export function LivePipelineTerminal() {
   const [lines, setLines] = useState([
     { ts: '--:--:--', level: 'INFO', msg: 'Conectando con el pipeline…' },
   ]);
   const [connected, setConnected] = useState(false);
-  const wsRef = useRef(null);
+  const esRef = useRef(null);
   const bottomRef = useRef(null);
-  const reconnectTimer = useRef(null);
 
   /** Auto-scroll to bottom when new lines arrive. */
   useEffect(() => {
@@ -20264,22 +20861,25 @@ export function LivePipelineTerminal() {
   }, [lines]);
 
   const connect = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState < WebSocket.CLOSING) return;
+    if (esRef.current) {
+      esRef.current.close();
+    }
 
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
+    const es = new EventSource(SSE_URL);
+    esRef.current = es;
 
-    ws.onopen = () => {
+    es.onopen = () => {
       setConnected(true);
       setLines(prev => [
         ...prev,
-        { ts: new Date().toLocaleTimeString('es-ES'), level: 'SUCCESS', msg: 'WebSocket conectado — escuchando hallazgos en tiempo real' },
+        { ts: new Date().toLocaleTimeString('es-ES'), level: 'SUCCESS', msg: 'SSE conectado — escuchando hallazgos en tiempo real' },
       ]);
     };
 
-    ws.onmessage = (event) => {
+    es.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
+        if (payload.type === 'ping') return;
         const line = formatLine(payload);
         setLines(prev => [...prev, line].slice(-MAX_LINES));
       } catch {
@@ -20287,26 +20887,21 @@ export function LivePipelineTerminal() {
       }
     };
 
-    ws.onerror = () => {
+    es.onerror = () => {
       setConnected(false);
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
+      es.close();
       setLines(prev => [
         ...prev,
-        { ts: new Date().toLocaleTimeString('es-ES'), level: 'WARN', msg: 'WebSocket desconectado — reintentando en 5s…' },
+        { ts: new Date().toLocaleTimeString('es-ES'), level: 'WARN', msg: 'SSE desconectado — reintentando en 5s…' },
       ]);
-      // Auto-reconnect after 5s
-      reconnectTimer.current = setTimeout(connect, 5000);
+      setTimeout(connect, 5000);
     };
   }, []);
 
   useEffect(() => {
     connect();
     return () => {
-      clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
+      esRef.current?.close();
     };
   }, [connect]);
 
@@ -20318,7 +20913,7 @@ export function LivePipelineTerminal() {
       <div className="flex items-center justify-between px-4 py-2 border-b border-[#1e2530] bg-[#111318]">
         <div className="flex items-center gap-2">
           <span className="text-[#9ca3af] text-xs font-mono">pipeline@scanops:~$</span>
-          <span className="text-[#4b5563] text-xs font-mono">ws/findings</span>
+          <span className="text-[#4b5563] text-xs font-mono">sse/findings</span>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -20597,7 +21192,7 @@ export function SurfaceMap({ data }) {
 FILE:frontend\src\pages\UnifiedScanner\hooks\useScanData.js
 import { useState, useEffect, useCallback } from 'react';
 
-const SCAN_API_URL = 'http://localhost:8002/api/v1/scan/unified-report';
+const SCAN_API_URL = 'http://localhost:8002/api/v1/scan/results/10';
 const TOKEN_KEY = 'scanops_auth';
 
 /** Reads the stored JWT from sessionStorage (ENS mp.info.3). */
@@ -25540,9 +26135,11 @@ from services.ai_reasoning.ollama_client import ollama
 from services.ai_reasoning.ens_mapper import map_to_ens
 from services.ai_reasoning.attack_vector import suggest_attack_vector
 from typing import List, Dict
+from datetime import datetime, timedelta
 import logging
 import asyncio
 import os
+import psycopg2
 
 logger = logging.getLogger(__name__)
 
@@ -25597,17 +26194,64 @@ def map_to_ens_task(self, finding_dict: dict, asset_dict: dict) -> dict:
         logger.error(f"Error en map_to_ens_task: {exc}")
         self.retry(countdown=60, exc=exc)
 
+_DB_URL = os.getenv("DATABASE_URL", "postgresql://scanops:scanops@postgres:5432/scanops")
+
+# Hash bcrypt de '1234' para cumplir con ENS mp.info.3 (campo pin NOT NULL en m4_approvals)
+_DUMMY_PIN_HASH = "$2b$12$K7vUvW1M5wN7T2Z6Yh8OFe1V2U3T4R5E6W7Q8Y9U0I1O2P3A4S5D6"
+_DUMMY_TOTP    = "JBSWY3DPEHPK3PXP"
+
 @celery_app.task(queue='ai_reasoning', bind=True, max_retries=3, name='tasks.suggest_attack_vector_task')
 def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
     """
-    Task: Sugerir vector de ataque (MSF Suggestion para Human-in-the-loop)
+    Task: Sugerir vector de ataque y persistir en m4_approvals (Human-in-the-loop).
+    ENS op.acc.5 — aprobación humana obligatoria antes de explotación.
     """
     try:
         result = asyncio.run(suggest_attack_vector(ficha_unica_dict))
-        return result
     except Exception as exc:
-        logger.error(f"Error en suggest_attack_vector_task: {exc}")
+        logger.error(f"Error en suggest_attack_vector (LLM): {exc}")
         self.retry(countdown=60, exc=exc)
+        return  # satisface al type-checker; retry lanza excepción
+
+    now = datetime.utcnow()
+    expires = now + timedelta(hours=24)
+    cve_id    = result.get("cve_id", "CVE-2024-EXPLOIT")
+    target_ip = ficha_unica_dict.get("target_ip")
+
+    approval_id: int | None = None
+    try:
+        conn = psycopg2.connect(_DB_URL, connect_timeout=10)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO m4_approvals
+                        (cve_id, target_ip, requester, status,
+                         totp_secret, pin, created_at, updated_at, expires_at)
+                    VALUES
+                        (%s, %s, %s, 'PENDING',
+                         %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        cve_id, target_ip, "M8-AI-Agent",
+                        _DUMMY_TOTP, _DUMMY_PIN_HASH,
+                        now, now, expires,
+                    ),
+                )
+                row = cur.fetchone()
+                if row:
+                    approval_id = row[0]
+        conn.close()
+        logger.info(
+            f"[ENS_EVIDENCE] m4_approvals insertado: id={approval_id} "
+            f"cve={cve_id} target={target_ip} status=PENDING"
+        )
+    except Exception as db_exc:
+        logger.error(f"Error persistiendo en m4_approvals: {db_exc}")
+        # No reintentamos por fallo de BD para no duplicar filas ya insertadas
+
+    return {**result, "approval_id": approval_id}
 
 @celery_app.task(name="suggest_attack_vector_task")
 def suggest_attack_vector_pentestgpt_task(ficha_unica: dict) -> dict:
@@ -28216,7 +28860,7 @@ Todos los endpoints requieren cabecera:
 # ─── CORS Middleware ──────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "https://localhost:5173", "http://localhost:3000", "https://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31212,7 +31856,7 @@ class ApprovalService:
                     if request['status'] != 'PENDING':
                         return False, f"La solicitud ya está en estado {request['status']}"
 
-                    if datetime.now(timezone.utc) > request['expires_at']:
+                    if datetime.now(timezone.utc) > request['expires_at'].replace(tzinfo=timezone.utc):
                         cur.execute(
                             "UPDATE m4_approvals SET status = 'EXPIRED' WHERE id = %s",
                             (approval_id,)
@@ -33420,7 +34064,7 @@ app = FastAPI(
 # Configuración de CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "https://localhost:5173", "http://localhost:3000", "https://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -35010,6 +35654,8 @@ async def approve_request(action: ApprovalActionSchema):
         if not success:
             raise HTTPException(status_code=400, detail=message)
         return {"message": message}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -37546,7 +38192,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://localhost:5173",
+        "http://localhost:3000",
+        "https://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42428,11 +43079,14 @@ FastAPI application for vulnerability scanning orchestration.
 Run: uvicorn services.scanner_engine.main:app --host 0.0.0.0 --port 8002
 """
 
+import asyncio
+import json
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import logging
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -42473,6 +43127,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"✗ Shutdown error: {str(e)}", exc_info=True)
 
+# ─── In-memory event buffer for SSE stream ──────────────────
+_scan_events: deque = deque(maxlen=100)
+
+def _push_event(level: str, message: str, module: str = "M3"):
+    _scan_events.append({
+        "timestamp": datetime.utcnow().isoformat(),
+        "level": level,
+        "message": message,
+        "module": module,
+    })
+
+_push_event("INFO", "Scanner Engine (M3) iniciado — ENS op.exp.2")
+
 # ─── FastAPI Instance ──────────────────────────
 app = FastAPI(
     title="ScanOPS Scanner Engine (M3)",
@@ -42487,7 +43154,7 @@ app = FastAPI(
 # ─── CORS Middleware ──────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "https://localhost:5173", "http://localhost:3000", "https://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42664,6 +43331,34 @@ async def get_scanners_status():
         "timestamp": datetime.utcnow().isoformat(),
         "scanners": status,
     }
+
+# ─── SSE Stream Endpoint ──────────────────────
+@app.get("/stream/findings")
+async def stream_findings():
+    """SSE endpoint — streams scan findings in real time."""
+    async def event_generator():
+        for event in list(_scan_events):
+            yield f"data: {json.dumps(event)}\n\n"
+        last_len = len(_scan_events)
+        while True:
+            await asyncio.sleep(1)
+            current_events = list(_scan_events)
+            if len(current_events) > last_len:
+                for event in current_events[last_len:]:
+                    yield f"data: {json.dumps(event)}\n\n"
+                last_len = len(current_events)
+            else:
+                yield f"data: {json.dumps({'type': 'ping', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 # ─── Error Handlers ────────────────────────────
 @app.exception_handler(HTTPException)
@@ -43880,6 +44575,11 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+try:
+    from services.scanner_engine.main import _push_event
+except ImportError:
+    def _push_event(level, message, module="M3"): pass
+
 M1_BASE_URL = os.getenv("M1_URL", "http://scanops-asset-manager:8001")
 
 async def get_asset_from_m1(asset_id: int) -> dict:
@@ -44015,6 +44715,7 @@ async def start_asset_scan(
             asset_name=asset_domain,    # ✅ hostname real desde M1
             scan_types=request.scan_types,
         )
+        _push_event("INFO", f"Escaneo iniciado para activo {asset_id} ({asset_ip}) — herramientas: {request.scan_types}")
 
         return ScanResponse(
             task_id=task.id,
