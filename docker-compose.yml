@@ -237,9 +237,12 @@ services:
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://redis:6379/0
-      MSF_HOST: 10.202.15.199
-      MSF_PORT: 55553
-      MSF_PASSWORD: scanops123
+      M4_DRY_RUN: "false"
+      HYDRA_WORDLIST: "/usr/share/wordlists/rockyou.txt"
+      HYDRA_THREADS: "4"
+      HYDRA_TIMEOUT: "120"
+      UBUNTU_TEST_TARGET_IP: "10.202.15.100"
+      UBUNTU_TEST_SSH_USER: "admin"
       NXC_TIMEOUT: 30
       NXC_THREADS: 10
       NXC_DEFAULT_DOMAIN: WORKGROUP

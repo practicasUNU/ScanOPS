@@ -11521,7 +11521,7 @@ export function ENSComplianceWidget() {
 FILE:frontend\src\app\components\ExploitationPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
-import { AlertTriangle, Shield, CheckCircle2, XCircle, Info, RefreshCw, Terminal, Loader2, AlertCircle } from 'lucide-react';
+import { AlertTriangle, Shield, CheckCircle2, XCircle, Info, RefreshCw, Terminal, Loader2, AlertCircle, Search } from 'lucide-react';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { usePendingApprovals, type ApprovalRequest } from '../../hooks/usePendingApprovals';
@@ -11549,6 +11549,9 @@ function formatTimeUntil(expiresAt: string): { label: string; urgent: boolean } 
 
 export function ExploitationPage() {
   const { approvals, loading, error, refetch, isMock } = usePendingApprovals(60000);
+
+  // ─── Estado para el filtro de búsqueda ───
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Authorize modal
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -11628,6 +11631,19 @@ export function ExploitationPage() {
     }
   };
 
+  // ─── Lógica de filtrado en tiempo real (IP, CVE o ID) ───
+  const filteredApprovals = (approvals as ExtendedApproval[]).filter((approval) => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return true;
+
+    return (
+      approval.target_ip.toLowerCase().includes(term) ||
+      approval.cve_id.toLowerCase().includes(term) ||
+      approval.id.toString().includes(term) ||
+      `exp-${approval.id}`.toLowerCase().includes(term)
+    );
+  });
+
   return (
     <div className="flex h-screen bg-[#0f1117]">
       <Sidebar />
@@ -11663,6 +11679,28 @@ export function ExploitationPage() {
             </p>
           </div>
 
+          {/* 🔍 BARRA DE BÚSQUEDA INTERACTIVA DE ACTIVOS */}
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-4 w-4 text-[#6b7280]" />
+            </div>
+            <input
+              type="text"
+              placeholder="Buscar activo por dirección IP (ej: 10.202.), ID de solicitud (ej: 99) o identificador CVE..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="block w-full pl-10 pr-4 py-2.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-sm text-white placeholder-[#6b7280] focus:outline-none focus:border-[#00d4ff] focus:ring-1 focus:ring-[#00d4ff] transition-all font-mono"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-[#6b7280] hover:text-white font-mono"
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+
           {loading && approvals.length === 0 ? (
             <div className="text-center py-12 text-[#9ca3af] font-mono text-sm">
               Cargando cola de aprobaciones...
@@ -11673,9 +11711,16 @@ export function ExploitationPage() {
               <p className="text-[#9ca3af] text-sm">No hay solicitudes pendientes de aprobación.</p>
               <p className="text-[#6b7280] text-xs mt-1">El sistema está en espera de resultados de M8.</p>
             </div>
+          ) : filteredApprovals.length === 0 ? (
+            /* Estado vacío secundario si hay datos pero la búsqueda no da coincidencia */
+            <div className="text-center py-16 border border-dashed border-[#1e2530] rounded-lg">
+              <Search className="w-10 h-10 text-[#374151] mx-auto mb-3" />
+              <p className="text-[#9ca3af] text-sm">No se encontraron activos que coincidan con la búsqueda.</p>
+              <p className="text-[#6b7280] text-xs mt-1">Prueba refinando la IP, el ID de la cola o los términos del CVE.</p>
+            </div>
           ) : (
             <div className="grid gap-4">
-              {(approvals as ExtendedApproval[]).map((approval) => {
+              {filteredApprovals.map((approval) => {
                 const risk = deriveRisk(approval.cve_id);
                 const { label: timeUntilExec, urgent } = formatTimeUntil(approval.expires_at);
                 return (

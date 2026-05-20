@@ -15,6 +15,16 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Wordlist: intentar descomprimir rockyou, si no existe crear lista mínima
+RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
+        gunzip /usr/share/wordlists/rockyou.txt.gz; \
+    fi && \
+    if [ ! -f /usr/share/wordlists/rockyou.txt ]; then \
+        mkdir -p /usr/share/wordlists && \
+        printf 'admin\npassword\n123456\nroot\ntoor\nletmein\nqwerty\n12345678\nadmin123\npassword1\ntest\nguest\nubuntu\nchangeme\nscanops\ntest123\n'  \
+        > /usr/share/wordlists/rockyou.txt; \
+    fi
+
 # Instalar NetExec desde GitHub
 RUN pip install --no-cache-dir git+https://github.com/Pennyw0rth/NetExec
 
