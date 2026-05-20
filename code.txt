@@ -1535,6 +1535,7 @@ services:
     environment:
       - SERVICE_NAME=M7-Reporting
       - DATABASE_URL=postgresql://scanops:scanops@scanops-postgres:5432/scanops
+      - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
     depends_on:
       postgres:
         condition: service_healthy
@@ -7179,7 +7180,7 @@ export function AIReasoningPage() {
         await new Promise(r => setTimeout(r, 1800));
         setStepStates(p => { const n = [...p]; n[i] = 'completed'; if (i + 1 < 5) n[i + 1] = 'active'; return n; });
       }
-      for (let a = 0; a < 30; a++) {
+      for (let a = 0; a < 60; a++) {
         await new Promise(r => setTimeout(r, 3000));
         const res = await fetch(
           `${M3_BASE}/api/v1/scan/assets/${ASSET_ID}/attack-vector/result/${task_id}`,
@@ -42063,7 +42064,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalamos las librerías gráficas para WeasyPrint (Actualizadas para Debian Trixie/Bookworm)
+# 1. Instalamos las librerías gráficas para WeasyPrint
 RUN apt-get update && apt-get install -y \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
@@ -42073,15 +42074,93 @@ RUN apt-get update && apt-get install -y \
     fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiamos e instalamos dependencias de Python
+# 2. Copiamos e instalamos dependencias de Python estándar
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiamos el código
+# 3. ── INYECCIÓN FORZADA DE SEGURIDAD PARA GOOGLE DRIVE ──
+RUN pip install --no-cache-dir google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+# 4. Copiamos el código
 COPY . .
 
 # Arrancamos FastAPI
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+FILE:services\reporting_engine\google_drive_service.py
+import io
+import logging
+import os
+from typing import Optional  # <-- Corregido: Importación añadida para evitar el NameError
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+
+logger = logging.getLogger("m7.google_drive")
+
+SCOPES = ['https://www.googleapis.com/auth/drive']  # <-- Al quitar '.file', le permites escribir en tu carpeta compartida
+
+# Buscar el archivo de claves de forma dinámica (local o raíz del contenedor)
+SERVICE_ACCOUNT_FILE = 'service_account.json'
+if not os.path.exists(SERVICE_ACCOUNT_FILE):
+    SERVICE_ACCOUNT_FILE = 'services/reporting_engine/service_account.json'
+
+class GoogleDriveService:
+    def __init__(self):
+        self.folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", None)
+        self.service = self._authenticate()
+
+    def _authenticate(self):
+        """Autentica de forma silenciosa usando la Cuenta de Servicio."""
+        if not os.path.exists(SERVICE_ACCOUNT_FILE):
+            logger.warning(f"⚠️ Archivo de credenciales no encontrado en ruta. Subida a Drive en stand-by.")
+            return None
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                SERVICE_ACCOUNT_FILE, scopes=SCOPES
+            )
+            return build('drive', 'v3', credentials=creds)
+        except Exception as e:
+            logger.error(f"❌ Error crítico de autenticación en Google Drive API: {e}")
+            return None
+
+    def upload_pdf(self, filename: str, pdf_bytes: bytes) -> Optional[str]:
+        """Sube los bytes de un PDF a la carpeta de Drive designada."""
+        if not self.service:
+            logger.warning("⚠️ Servicio de Google Drive no inicializado. Omitiendo subida.")
+            return None
+
+        try:
+            file_metadata = {
+                'name': filename,
+                'mimeType': 'application/pdf'
+            }
+
+            if self.folder_id:
+                file_metadata['parents'] = [self.folder_id]
+
+            media = MediaIoBaseUpload(
+                io.BytesIO(pdf_bytes),
+                mimetype='application/pdf',
+                resumable=False
+            )
+
+            # Aquí añadimos el parámetro para obligar a buscar en unidades corporativas/compartidas
+            file = self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id',
+                supportsAllDrives=True  # <-- ¡AÑADE ESTA LÍNEA EXACTAMENTE AQUÍ!
+            ).execute()
+
+            drive_id = file.get('id')
+            logger.info(f"✅ Evidencia de auditoría respaldada en Google Drive. ID: {drive_id}")
+            return drive_id
+
+        except Exception as e:
+            logger.error(f"❌ Error durante la transferencia de datos a Google Drive: {e}")
+            return None
+
+drive_uploader = GoogleDriveService()
 FILE:services\reporting_engine\main.py
 import io
 import logging
@@ -42100,14 +42179,18 @@ from fastapi.responses import FileResponse
 from jinja2 import Environment, FileSystemLoader
 from psycopg2.extras import RealDictCursor
 from weasyprint import HTML
+# CORRECCIÓN EN services/reporting_engine/main.py
+from google_drive_service import drive_uploader
 
 logger = logging.getLogger("m7.reporting")
 
 app = FastAPI(title="ScanOps M7 - Reporting Engine")
 
+# services/reporting_engine/main.py -> Reemplazar el bloque de CORSMiddleware por este:
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origin_regex=r"https?://localhost(:\d+)?",  # <-- Soporta dinámicamente http/https y cualquier puerto local
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42299,23 +42382,42 @@ def seal_pdf(pdf_bytes: bytes) -> bytes:
 
 def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]:
     """
-    Función síncrona que renderiza el HTML, genera el PDF y lo sella.
-    Devuelve una tupla con el nombre sugerido del archivo y los bytes del PDF.
+    Renderiza el HTML, genera el PDF, lo sella criptográficamente
+    y lo envía de forma tolerante a fallos hacia Google Drive.
     """
     template = template_env.get_template(template_name)
     html_content = template.render(context)
+
     pdf_file = io.BytesIO()
     HTML(string=html_content).write_pdf(target=pdf_file)
     raw_pdf_bytes = pdf_file.getvalue()
     pdf_file.close()
+
+    # Sellado del PDF (Cifrado de ScanOps)
     sealed_bytes = seal_pdf(raw_pdf_bytes)
+
     nombres = {
         'executive.html': '01_Informe_Ejecutivo_ScanOps.pdf',
         'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
         'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
         'certificate.html': '04_Certificado_Activo_Critico.pdf',
     }
-    return nombres.get(template_name, 'informe.pdf'), sealed_bytes
+    filename = nombres.get(template_name, 'informe.pdf')
+
+    # ─── [NUEVO] SUBIDA EN SEGUNDO PLANO TOLERANTE A FALLOS ───
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        drive_filename = f"{timestamp}_{filename}"
+
+        # Intentar subir el archivo sin bloquear el retorno principal
+        drive_uploader.upload_pdf(drive_filename, sealed_bytes)
+
+    except Exception as drive_err:
+        # Si Google Drive falla, se captura el error aquí para que NO tire el endpoint
+        logger.error(f"[M7_DRIVE_SHIELD] Falló la subida de respaldo a la nube: {drive_err}. Prosiguiendo con la entrega local.")
+
+    # El return queda fuera del bloque de Drive, asegurando la descarga pase lo que pase
+    return filename, sealed_bytes
 
 # --- Endpoints ---
 
@@ -42359,6 +42461,9 @@ async def test_report():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando reporte: {str(e)}")
 
+# ==============================================================================
+# 1. ENDPOINT: INFORME EJECUTIVO
+# ==============================================================================
 @app.get("/report/executive")
 async def generate_executive_report():
     """US-7.3: Informe Ejecutivo con datos reales de BD."""
@@ -42380,6 +42485,14 @@ async def generate_executive_report():
         raw_pdf_bytes = pdf_file.getvalue()
         pdf_file.close()
         sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        # ─── BACKUP EN SEGUNDO PLANO GOOGLE DRIVE ───
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(f"{timestamp}_01_Informe_Ejecutivo_ScanOps.pdf", sealed_pdf_bytes)
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup en ruta: {drive_err}")
+
         return Response(
             content=sealed_pdf_bytes,
             media_type="application/pdf",
@@ -42388,6 +42501,9 @@ async def generate_executive_report():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando reporte ejecutivo: {str(e)}")
 
+# ==============================================================================
+# 2. ENDPOINT: INFORME TÉCNICO
+# ==============================================================================
 @app.get("/report/technical")
 async def generate_technical_report():
     """US-7.2 y US-7.7: Informe Técnico y Plan de Remediación con datos reales de BD."""
@@ -42407,14 +42523,25 @@ async def generate_technical_report():
         raw_pdf_bytes = pdf_file.getvalue()
         pdf_file.close()
         sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        # ─── BACKUP EN SEGUNDO PLANO GOOGLE DRIVE ───
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(f"{timestamp}_02_Informe_Tecnico_ScanOps.pdf", sealed_pdf_bytes)
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup en ruta: {drive_err}")
+
         return Response(
             content=sealed_pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=ScanOps_Informe_Tecnico_Remediacion.pdf"},
+            headers={"Content-Disposition": "attachment; filename=ScanOps_Informe_Tecnico.pdf"},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando reporte técnico: {str(e)}")
 
+# ==============================================================================
+# 3. ENDPOINT: DECLARACIÓN DE APLICABILIDAD (SoA)
+# ==============================================================================
 @app.get("/report/soa")
 async def generate_soa_report():
     """US-7.4: Declaración de Aplicabilidad (SoA) con datos reales de BD."""
@@ -42432,6 +42559,14 @@ async def generate_soa_report():
         raw_pdf_bytes = pdf_file.getvalue()
         pdf_file.close()
         sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        # ─── BACKUP EN SEGUNDO PLANO GOOGLE DRIVE ───
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(f"{timestamp}_03_Declaracion_Aplicabilidad_SoA.pdf", sealed_pdf_bytes)
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup en ruta: {drive_err}")
+
         return Response(
             content=sealed_pdf_bytes,
             media_type="application/pdf",
@@ -42567,6 +42702,20 @@ async def download_historical_report(filename: str):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+FILE:services\reporting_engine\service_account.json
+{
+  "type": "service_account",
+  "project_id": "scanops-m7-reporting",
+  "private_key_id": "5ddea4310ba668150070b1f3426603c46a744e46",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCjBEOWi92/S8LH\nut6p7tLQmJZ2R3ifAFDgyHWV5u1ngF1WZ2RgB0lr+rfCxalIjyJl/rWGv/hKShUp\npWfO+TRT68cJvreZwbm8N0AE/MczfHKyYf7C9El6qx4hYYFcDDldjPeIBo0+RzNs\nieWAqrCJ1nu2yj7uzfMLKOVxviOkc5k1y0+hnZAKDCidvEaLeYgL15OehW7Qp++p\na8VIm4yJR6bJkg3m/IoylF7MCYtBk3fhJZWDtL9kEz7tiyFtLZRJ+2J+rhC9MTJ7\n1fMGEXF+J7SyrQunJFV0pHlCseeJTicozNBPPNfmYfO4auSPtb/B34PpChDyktjh\nSfQP6gv/AgMBAAECggEAFvADKJw+k+uvmRX4vbV+kV5fEX6GAO108+QQ84o+Tml3\n+K/spjxwPtLU54GTi8OkJfDcjvzVDXL2HlmJTUywabyL0Zm10Ns67LpjdjAxQVPZ\n+bKjO8BO1IVeZHkJUC/iJIEw1UGCv0gaesO+eMfLtmFpH/O+PjDZaXEUM9h6wGlQ\nDs7QVQV0G9mRE/JoJfbg6bd8s59ikvs+I4B25YsaTrpeU9eQ9OSFklxSyjUXQR5h\nFfD5QiJ12bZby21a6WnClJuMVZiHLLMlJfRnhWlQssuoMIbOSgX/KSpHQiCEv+F4\nwyKHq/kgVLrDA9HDTFPepLFlMHwHxT57UVnQkt5ccQKBgQDWoMRt8l2VrDitu8mO\ns9VPE31jQad5+qyKGPEePsorTcYo4BHjmD7BcJaFHnx1wn0/ew4QDWYuz5o38vDX\n784eQPPKIvb4nkbAiO9Ms3Cpf9clcEGkb7W6irDcqL5YwHIJdr63pJckuku5T+mW\nJM1xhBV3QLVnTZCqRSOOzCHkLwKBgQDCcKKv/x/3OJfrm0vXxXUIKcw79sJF42/6\nAro+C5SrkVo8Z1hcfLNcYZuLLqhuCPWKKRlOb7iusjL/2ajr9GwNC8nQbpGjCBLF\nwdTiGQcwdK26BT9yzDXXm/jYylFPj63x9GyLnJ6cwlBlHdj1hhEvUEqA+vhAncUM\n19U5UE3RMQKBgQDAHpi2ckUjPU5e9cGuY3uFlUSgHJz1q1XXKAxtrnb53FyNKkXZ\nHObP8SBLeMagAsBqmpQz+kqFjH/XpTfBk39FxY50WmgIlGVw4yKR3e3zS+QiNyIL\nN5PMr2kxnDsG5v0tS4XcjRBeaARwlP/azoa4Hiu428uF9QCR6eGyaTfNMQKBgFwo\n9QOEYktUeLWEwxr/jWwUG6ikWgq0NYQDvPDhnlL/rwyIU1prBLyZyxbaQ5z8BB27\nQzJpQ9kRv5iDO0yzam94keyIK+FhVzyClfugr0apVxqfmCY6Yp7SX82pf4a9bE4N\nc1FtJ8TXWTHERuyA4i5R2S5vRjGiVh6zQm5LAMdRAoGBAJQa2CplWJiu3jDeb2o3\nBqjIeC//WgCwuiCWQ//dwj0lQ3ajBedOQ9kOn0RvSI2zI/xbVOC3GrNs+eQy9c7/\nITwqRa4HEKRHChz2DeeW5hsfgneK70S3sqpGJUAWSm1DTwURLsSHFu69rOZLNAjA\nwk20Vv3mw3SyMKDAbbHSJa30\n-----END PRIVATE KEY-----\n",
+  "client_email": "m7-uploader@scanops-m7-reporting.iam.gserviceaccount.com",
+  "client_id": "101056205253976249119",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/m7-uploader%40scanops-m7-reporting.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
 FILE:services\reporting_engine\tasks.py
 """
 Celery tasks for M7 Reporting Engine.
@@ -42608,6 +42757,15 @@ FILE:services\reporting_engine\history\ScanOps_Audit_20260518_135633.zip
 BINARY:true
 
 FILE:services\reporting_engine\history\ScanOps_Audit_20260518_152423.zip
+BINARY:true
+
+FILE:services\reporting_engine\history\ScanOps_Audit_20260520_111138.zip
+BINARY:true
+
+FILE:services\reporting_engine\history\ScanOps_Audit_20260520_112506.zip
+BINARY:true
+
+FILE:services\reporting_engine\history\ScanOps_Audit_20260520_113406.zip
 BINARY:true
 
 FILE:services\reporting_engine\templates\base.html

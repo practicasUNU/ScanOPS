@@ -437,6 +437,7 @@ services:
     environment:
       - SERVICE_NAME=M7-Reporting
       - DATABASE_URL=postgresql://scanops:scanops@scanops-postgres:5432/scanops
+      - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
     depends_on:
       postgres:
         condition: service_healthy

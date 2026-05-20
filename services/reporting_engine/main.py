@@ -15,14 +15,18 @@ from fastapi.responses import FileResponse
 from jinja2 import Environment, FileSystemLoader
 from psycopg2.extras import RealDictCursor
 from weasyprint import HTML
+# CORRECCIÓN EN services/reporting_engine/main.py
+from google_drive_service import drive_uploader
 
 logger = logging.getLogger("m7.reporting")
 
 app = FastAPI(title="ScanOps M7 - Reporting Engine")
 
+# services/reporting_engine/main.py -> Reemplazar el bloque de CORSMiddleware por este:
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origin_regex=r"https?://localhost(:\d+)?",  # <-- Soporta dinámicamente http/https y cualquier puerto local
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -219,23 +223,42 @@ def seal_pdf(pdf_bytes: bytes) -> bytes:
 
 def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]:
     """
-    Función síncrona que renderiza el HTML, genera el PDF y lo sella.
-    Devuelve una tupla con el nombre sugerido del archivo y los bytes del PDF.
+    Renderiza el HTML, genera el PDF, lo sella criptográficamente
+    y lo envía de forma tolerante a fallos hacia Google Drive.
     """
     template = template_env.get_template(template_name)
     html_content = template.render(context)
+    
     pdf_file = io.BytesIO()
     HTML(string=html_content).write_pdf(target=pdf_file)
     raw_pdf_bytes = pdf_file.getvalue()
     pdf_file.close()
+    
+    # Sellado del PDF (Cifrado de ScanOps)
     sealed_bytes = seal_pdf(raw_pdf_bytes)
+    
     nombres = {
         'executive.html': '01_Informe_Ejecutivo_ScanOps.pdf',
         'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
         'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
         'certificate.html': '04_Certificado_Activo_Critico.pdf',
     }
-    return nombres.get(template_name, 'informe.pdf'), sealed_bytes
+    filename = nombres.get(template_name, 'informe.pdf')
+    
+    # ─── [NUEVO] SUBIDA EN SEGUNDO PLANO TOLERANTE A FALLOS ───
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        drive_filename = f"{timestamp}_{filename}"
+        
+        # Intentar subir el archivo sin bloquear el retorno principal
+        drive_uploader.upload_pdf(drive_filename, sealed_bytes)
+        
+    except Exception as drive_err:
+        # Si Google Drive falla, se captura el error aquí para que NO tire el endpoint
+        logger.error(f"[M7_DRIVE_SHIELD] Falló la subida de respaldo a la nube: {drive_err}. Prosiguiendo con la entrega local.")
+    
+    # El return queda fuera del bloque de Drive, asegurando la descarga pase lo que pase
+    return filename, sealed_bytes
 
 
 # --- Endpoints ---
@@ -282,6 +305,9 @@ async def test_report():
         raise HTTPException(status_code=500, detail=f"Error generando reporte: {str(e)}")
 
 
+# ==============================================================================
+# 1. ENDPOINT: INFORME EJECUTIVO
+# ==============================================================================
 @app.get("/report/executive")
 async def generate_executive_report():
     """US-7.3: Informe Ejecutivo con datos reales de BD."""
@@ -303,6 +329,14 @@ async def generate_executive_report():
         raw_pdf_bytes = pdf_file.getvalue()
         pdf_file.close()
         sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        # ─── BACKUP EN SEGUNDO PLANO GOOGLE DRIVE ───
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(f"{timestamp}_01_Informe_Ejecutivo_ScanOps.pdf", sealed_pdf_bytes)
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup en ruta: {drive_err}")
+
         return Response(
             content=sealed_pdf_bytes,
             media_type="application/pdf",
@@ -311,7 +345,9 @@ async def generate_executive_report():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando reporte ejecutivo: {str(e)}")
 
-
+# ==============================================================================
+# 2. ENDPOINT: INFORME TÉCNICO
+# ==============================================================================
 @app.get("/report/technical")
 async def generate_technical_report():
     """US-7.2 y US-7.7: Informe Técnico y Plan de Remediación con datos reales de BD."""
@@ -331,15 +367,26 @@ async def generate_technical_report():
         raw_pdf_bytes = pdf_file.getvalue()
         pdf_file.close()
         sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        # ─── BACKUP EN SEGUNDO PLANO GOOGLE DRIVE ───
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(f"{timestamp}_02_Informe_Tecnico_ScanOps.pdf", sealed_pdf_bytes)
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup en ruta: {drive_err}")
+
         return Response(
             content=sealed_pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=ScanOps_Informe_Tecnico_Remediacion.pdf"},
+            headers={"Content-Disposition": "attachment; filename=ScanOps_Informe_Tecnico.pdf"},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando reporte técnico: {str(e)}")
 
 
+# ==============================================================================
+# 3. ENDPOINT: DECLARACIÓN DE APLICABILIDAD (SoA)
+# ==============================================================================
 @app.get("/report/soa")
 async def generate_soa_report():
     """US-7.4: Declaración de Aplicabilidad (SoA) con datos reales de BD."""
@@ -357,6 +404,14 @@ async def generate_soa_report():
         raw_pdf_bytes = pdf_file.getvalue()
         pdf_file.close()
         sealed_pdf_bytes = seal_pdf(raw_pdf_bytes)
+
+        # ─── BACKUP EN SEGUNDO PLANO GOOGLE DRIVE ───
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(f"{timestamp}_03_Declaracion_Aplicabilidad_SoA.pdf", sealed_pdf_bytes)
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup en ruta: {drive_err}")
+
         return Response(
             content=sealed_pdf_bytes,
             media_type="application/pdf",

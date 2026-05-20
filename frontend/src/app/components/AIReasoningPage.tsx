@@ -171,7 +171,7 @@ export function AIReasoningPage() {
         await new Promise(r => setTimeout(r, 1800));
         setStepStates(p => { const n = [...p]; n[i] = 'completed'; if (i + 1 < 5) n[i + 1] = 'active'; return n; });
       }
-      for (let a = 0; a < 30; a++) {
+      for (let a = 0; a < 60; a++) {
         await new Promise(r => setTimeout(r, 3000));
         const res = await fetch(
           `${M3_BASE}/api/v1/scan/assets/${ASSET_ID}/attack-vector/result/${task_id}`,
