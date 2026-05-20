@@ -227,6 +227,7 @@ __marimo__/
 .env.local
 config/secrets.yaml
 keys/
+certs/
 *.pem
 *.crt
 

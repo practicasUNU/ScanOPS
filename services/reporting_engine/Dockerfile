@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalamos las librerías gráficas para WeasyPrint (Actualizadas para Debian Trixie/Bookworm)
+# 1. Instalamos las librerías gráficas para WeasyPrint
 RUN apt-get update && apt-get install -y \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
@@ -12,11 +12,14 @@ RUN apt-get update && apt-get install -y \
     fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiamos e instalamos dependencias de Python
+# 2. Copiamos e instalamos dependencias de Python estándar
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiamos el código
+# 3. ── INYECCIÓN FORZADA DE SEGURIDAD PARA GOOGLE DRIVE ──
+RUN pip install --no-cache-dir google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+# 4. Copiamos el código
 COPY . .
 
 # Arrancamos FastAPI
