@@ -4,11 +4,10 @@ import { TopBar } from './TopBar';
 import {
   Filter, ArrowUpDown, BookOpen, FileText, Crosshair, UserCheck,
   Check, Terminal, XCircle, Loader2, RefreshCw, AlertCircle,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, ShieldAlert, Activity, Cpu, Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-// [1] Añadimos 'rejected' a los estados válidos de TypeScript
 type StepStatus = 'completed' | 'active' | 'pending' | 'requires_review' | 'rejected';
 
 interface Step {
@@ -96,7 +95,6 @@ function OllamaWidget() {
   );
 }
 
-// [2] Mapeamos el color carmesí/rojo para el estado 'rejected'
 function stepColor(status: StepStatus, activeColor: string): string {
   switch (status) {
     case 'completed': return '#22c55e';
@@ -107,7 +105,6 @@ function stepColor(status: StepStatus, activeColor: string): string {
   }
 }
 
-// [3] Mapeamos la etiqueta para el estado 'rejected'
 function statusLabel(status: StepStatus): string {
   switch (status) {
     case 'completed': return 'Completado';
@@ -118,7 +115,6 @@ function statusLabel(status: StepStatus): string {
   }
 }
 
-// [4] Mapeamos las clases de Tailwind para el Badge de estado 'rejected'
 function statusBadgeClass(status: StepStatus): string {
   switch (status) {
     case 'completed': return 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30';
@@ -205,7 +201,6 @@ export function AIReasoningPage() {
     }
   };
 
-  // [5] UBICACIÓN EXACTA: La función se declara aquí dentro para que pueda leer y escribir usando setStepStates
   const handleRejectDecision = () => {
     setStepStates((prevStates) => {
       const newStates = [...prevStates];
@@ -235,7 +230,7 @@ export function AIReasoningPage() {
               <button
                 onClick={handleRegenerate}
                 disabled={regenerating}
-                className="flex items-center gap-2 px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs font-semibold hover:bg-[#00d4ff]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs font-semibold hover:bg-[#00d4ff]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {regenerating
                   ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</>
@@ -297,21 +292,134 @@ export function AIReasoningPage() {
 
           {/* Detail panel */}
           <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <span className="text-white font-semibold">{step.label}</span>
-              <span className={`px-2.5 py-0.5 rounded-full border text-xs font-semibold ${statusBadgeClass(stepStatus)}`}>
-                {statusLabel(stepStatus)}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="text-white font-semibold text-lg">{step.label}</span>
+                <span className={`px-2.5 py-0.5 rounded-full border text-xs font-semibold ${statusBadgeClass(stepStatus)}`}>
+                  {statusLabel(stepStatus)}
+                </span>
+              </div>
+              <span className="text-xs font-mono text-[#6b7280] bg-[#0f1117] border border-[#1e2530] px-2 py-1 rounded">
+                {step.us}
               </span>
             </div>
 
-            <p className="text-sm text-[#9ca3af]">{step.description}</p>
+            <p className="text-sm text-[#9ca3af] border-b border-[#1e2530] pb-4">{step.description}</p>
+
+            {/* ─── DESGLOSE TÉCNICO EXPLICITO POR PUNTO SELECCIONADO ─── */}
+
+            {/* PASO 1: Filtro de Falsos Positivos */}
+            {selectedStep === 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs mt-2 animate-fadeIn">
+                <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 space-y-2">
+                  <div className="text-[#00d4ff] font-semibold flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5" /> Correlación del Estado del Puerto
+                  </div>
+                  <p className="text-[#6b7280] leading-relaxed">
+                    Cruza los banners recogidos por Nmap (M2) con los vectores de escaneo de Nuclei (M3). Si el banner del servicio indica un puerto cerrado o filtrado perimetralmente, M8 realiza un descarte inmediato de la vulnerabilidad.
+                  </p>
+                </div>
+                <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 space-y-2">
+                  <div className="text-[#00d4ff] font-semibold flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5" /> Verificación de Arquitectura del S.O.
+                  </div>
+                  <p className="text-[#6b7280] leading-relaxed">
+                    Valida la correspondencia del exploit contra el Kernel detectado. Descarta automáticamente firmas de Linux que intenten saltar contra plataformas Windows corporativas, minimizando alertas inútiles en el SOC.
+                  </p>
+                </div>
+                <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 space-y-2">
+                  <div className="text-[#22c55e] font-semibold flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5" /> Directiva ENS de Salvaguarda
+                  </div>
+                  <p className="text-[#6b7280] leading-relaxed">
+                    Principio de Máxima Cobertura: Ante la falta de evidencias concluyentes en el banner de red, M8 asume de manera proactiva que el hallazgo es VERDADERO para no ignorar brechas potenciales en el perímetro de auditoría.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* PASO 2: Prioritizador CVSS */}
+            {selectedStep === 1 && (
+              <div className="space-y-4 font-mono text-xs mt-2 animate-fadeIn">
+                <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4">
+                  <div className="text-white font-semibold mb-2">Fórmula de Cálculo Dinámico de Riesgo Real:</div>
+                  <div className="text-[#00d4ff] text-center p-3 bg-[#1a1d27] rounded border border-[#1e2530] text-sm my-2 font-mono">
+                    Score_Ajustado = CVSS_Base × Coeficiente_CMDB × Coeficiente_Red
+                  </div>
+                  <p className="text-[#6b7280] mt-2 leading-relaxed">
+                    Modifica el score estático de la vulnerabilidad cruzando la gravedad base de la CVE con la criticidad real que tiene asignada ese activo dentro de la base de datos de ScanOps.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
+                  <div className="bg-[#0f1117] p-3 rounded-lg border border-[#1e2530] space-y-1">
+                    <span className="text-[#f59e0b] font-semibold">Pesos de Criticidad del Activo (M1):</span>
+                    <p className="text-[#6b7280]">• CRÍTICA: Multiplicador 1.2 (Bases de datos de producción, AD)</p>
+                    <p className="text-[#6b7280]">• ALTA / MEDIA: Multiplicador 1.0 (Servidores web, proxies)</p>
+                    <p className="text-[#6b7280]">• BAJA: Multiplicador 0.7 (Entornos aislados de desarrollo o sandbox)</p>
+                  </div>
+                  <div className="bg-[#0f1117] p-3 rounded-lg border border-[#1e2530] space-y-1">
+                    <span className="text-[#f59e0b] font-semibold">Pesos de Exposición Perimetral:</span>
+                    <p className="text-[#6b7280]">• INTERNET: Multiplicador 1.3 (Accesible de forma pública)</p>
+                    <p className="text-[#6b7280]">• DMZ INTERNA: Multiplicador 1.0 (Segmentado mediante VLANs)</p>
+                    <p className="text-[#6b7280]">• INTRANET: Multiplicador 0.8 (Aislado dentro de la LAN corporativa)</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PASO 3: ENS Mapper (RAG) */}
+            {selectedStep === 2 && (
+              <div className="space-y-3 font-mono text-xs mt-2 animate-fadeIn">
+                <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4">
+                  <div className="text-white font-semibold mb-1">Mapeo Semántico Local mediante Embeddings:</div>
+                  <p className="text-[#6b7280] leading-relaxed">
+                    M8 indexa el contenido del fichero normativo <span className="text-white">rd_311_2022.txt</span> de forma estrictamente local para buscar qué artículos del Anexo II se ven vulnerados por el hallazgo técnico, garantizando la confidencialidad de la infraestructura.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
+                  <div className="p-3 bg-[#0f1117] border border-purple-500/20 rounded-lg space-y-1">
+                    <div className="text-[#a78bfa] font-semibold">Firma de Código Dañino</div>
+                    <div className="text-white font-bold">👉 Medida [op.exp.4]</div>
+                    <p className="text-[#6b7280]">Identifica parches críticos ausentes y software desactualizado expuesto en el activo corporativo.</p>
+                  </div>
+                  <div className="p-3 bg-[#0f1117] border border-purple-500/20 rounded-lg space-y-1">
+                    <div className="text-[#a78bfa] font-semibold">Firma de Inyección SQL / XSS</div>
+                    <div className="text-white font-bold">👉 Medida [mp.info.3]</div>
+                    <p className="text-[#6b7280]">Detecta la falta de cifrado e integridad de la información en los formularios de almacenamiento de datos.</p>
+                  </div>
+                  <div className="p-3 bg-[#0f1117] border border-purple-500/20 rounded-lg space-y-1">
+                    <div className="text-[#a78bfa] font-semibold">Firma de Bypass de Login</div>
+                    <div className="text-white font-bold">👉 Medida [op.acc.5]</div>
+                    <p className="text-[#6b7280]">Asocia la vulnerabilidad con fallos estructurales en los mecanismos de autenticación y control de acceso robusto.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PASO 4: Informe Preliminar */}
+            {selectedStep === 3 && (
+              <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 font-mono text-xs space-y-3 animate-fadeIn">
+                <div className="text-white font-semibold flex items-center gap-1.5">
+                  <ShieldAlert className="w-4 h-4 text-[#00d4ff]" /> Esqueleto Estructural del Reporte Semanal Consolidado (M7)
+                </div>
+                <p className="text-[#6b7280] leading-relaxed">
+                  Planifica de forma automatizada las secciones requeridas para la entrega del informe ejecutivo en formato PDF firmado digitalmente:
+                </p>
+                <div className="space-y-2 p-3 bg-[#16171d] rounded border border-[#1e2530] text-[#6b7280] text-[11px]">
+                  <div>📊 <span className="text-white font-bold">SECCIÓN 1:</span> Resumen General Cuantitativo del Ciclo de Vigilancia Activo.</div>
+                  <div>🚨 <span className="text-white font-bold">SECCIÓN 2:</span> Hallazgos Críticos Filtrados que califican para Explotación Inmediata ($\ge 8.0$).</div>
+                  <div>⚔ <span className="text-white font-bold">SECCIÓN 3:</span> Propuesta de la Ventana Automatizada de Ataques del sábado.</div>
+                  <div>📜 <span className="text-white font-bold">SECCIÓN 4:</span> Artículos del Anexo II del ENS impactados con trazas de auditoría inmutables.</div>
+                </div>
+              </div>
+            )}
 
             {/* Step 5 — requires_review: attack vector card */}
             {selectedStep === 4 && stepStatus === 'requires_review' && (() => {
               const displayResult = liveResult ?? MSF_DATA;
               const conf = parseFloat(displayResult.confidence);
               return (
-                <div className="space-y-3">
+                <div className="space-y-3 animate-fadeIn">
                   <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4 space-y-3">
                     <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
                       <Terminal className="w-4 h-4" />
@@ -347,13 +455,13 @@ export function AIReasoningPage() {
                       <>
                         <button
                           onClick={() => setShowRationale(p => !p)}
-                          className="flex items-center gap-1 text-xs text-[#6b7280] hover:text-white mt-2"
+                          className="flex items-center gap-1 text-xs text-[#6b7280] hover:text-white mt-2 cursor-pointer"
                         >
                           {showRationale ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                           Razonamiento de la IA
                         </button>
                         {showRationale && (
-                          <p className="text-xs text-[#9ca3af] mt-1 max-h-32 overflow-y-auto">
+                          <p className="text-xs text-[#9ca3af] mt-1 max-h-32 overflow-y-auto font-mono bg-[#16171d] p-2.5 rounded border border-[#1e2530] leading-relaxed">
                             {displayResult.attack_rationale}
                           </p>
                         )}
@@ -371,7 +479,7 @@ export function AIReasoningPage() {
 
             {/* Step 6 — human validation form */}
             {selectedStep === 5 && stepStatus === 'pending' && (
-              <div className="space-y-4">
+              <div className="space-y-4 animate-fadeIn">
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     className="px-4 py-2 bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg text-sm font-semibold hover:bg-[#22c55e]/20 transition-colors cursor-pointer"
@@ -398,7 +506,7 @@ export function AIReasoningPage() {
                 </div>
 
                 {editingMsf && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 animate-fadeIn">
                     <input
                       value={msfInput}
                       onChange={e => setMsfInput(e.target.value)}
@@ -414,26 +522,26 @@ export function AIReasoningPage() {
                   </div>
                 )}
 
-                <p className="text-xs text-[#6b7280]">
-                  ENS op.pl.1 — Toda decisión requiere justificación humana
+                <p className="text-xs text-[#6b7280] font-mono">
+                  ENS op.pl.1 — Toda decisión requiere justificación humana y firma del operador en auditoría.
                 </p>
               </div>
             )}
 
             {/* Step 6 — rejected confirmation */}
             {selectedStep === 5 && stepStatus === 'rejected' && (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 animate-fadeIn">
                 <div className="flex items-center gap-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-4 py-3">
                   <XCircle className="w-4 h-4 text-[#ff3b3b] shrink-0" />
                   <div>
-                    <div className="text-sm font-semibold text-[#ff3b3b]">Vector rechazado</div>
-                    <div className="text-xs text-[#9ca3af] mt-0.5">
-                      Decisión registrada de forma inmutable en los logs de auditoría (ENS op.exp.5).
+                    <div className="text-sm font-semibold text-[#ff3b3b]">Vector de ataque rechazado</div>
+                    <div className="text-xs text-[#9ca3af] mt-0.5 font-mono">
+                      Decisión denegada registrada de forma inmutable en los logs de auditoría (ENS op.exp.5). El ciclo de explotación M4 queda cancelado.
                     </div>
                   </div>
                 </div>
                 <button
-                  className="self-start px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg text-sm hover:text-white transition-colors"
+                  className="self-start px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg text-sm hover:text-white transition-colors cursor-pointer"
                   onClick={() => {
                     const next = [...stepStates];
                     next[5] = 'pending';
