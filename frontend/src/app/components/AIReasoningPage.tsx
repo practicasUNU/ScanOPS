@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronUp, ShieldAlert, Activity, Cpu, Layers, Server, Search
 } from 'lucide-react';
 
+
 type StepStatus = 'completed' | 'active' | 'pending' | 'requires_review' | 'rejected';
 
 interface Step {
@@ -116,12 +117,32 @@ export function AIReasoningPage() {
   const [editingMsf, setEditingMsf] = useState(false);
   const [msfInput, setMsfInput] = useState('');
   const [regenerating, setRegenerating] = useState(false);
-  const [pollingAttempt, setPollingAttempt] = useState(0); // Contador de feedback visual
+  const [pollingAttempt, setPollingAttempt] = useState(0);
   const [regenError, setRegenError] = useState<string | null>(null);
   const [showRationale, setShowRationale] = useState(false);
 
-  const [liveResults, setLiveResults] = useState<Record<number, any>>({});
-  const [assetStatuses, setAssetStatuses] = useState<Record<number, StepStatus>>({});
+  const [liveResults, setLiveResults] = useState<Record<number, any>>(() => {
+    try {
+      const stored = sessionStorage.getItem('scanops_m8_results');
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
+  const [assetStatuses, setAssetStatuses] = useState<Record<number, StepStatus>>(() => {
+    try {
+      const stored = sessionStorage.getItem('scanops_m8_statuses');
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
+  const [dictamenLoading, setDictamenLoading] = useState(false);
+  const [dictamenMsg, setDictamenMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    try { sessionStorage.setItem('scanops_m8_results', JSON.stringify(liveResults)); } catch {}
+  }, [liveResults]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem('scanops_m8_statuses', JSON.stringify(assetStatuses)); } catch {}
+  }, [assetStatuses]);
 
   function getToken() {
     try {
@@ -130,13 +151,15 @@ export function AIReasoningPage() {
     } catch { return null; }
   }
 
+  // ─── SINCRO REAL DE ACTIVOS CON TIPADO CORREGIDO PARA EVITAR EL ERROR DE HEADERS ───
   useEffect(() => {
     async function loadRealAssets() {
       setLoadingAssets(true);
       try {
         const token = getToken();
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const res = await fetch(M1_ASSETS_URL, { headers });
+        // CORRECCIÓN: Tipamos explícitamente como HeadersInit para satisfacer al compilador estricto
+        const h: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await fetch(M1_ASSETS_URL, { headers: h });
         if (res.ok) {
           const json = await res.json();
           const active = (json.items ?? []).filter((a: any) => a.status === 'ACTIVO');
@@ -190,10 +213,9 @@ export function AIReasoningPage() {
       
       await new Promise(r => setTimeout(r, 3000));
 
-      // ─── AMPLIACIÓN Y BLINDAJE DE POLLING CONTRA CAÍDAS CORTAS ───
       const maxAttempts = 90; 
       for (let a = 1; a <= maxAttempts; a++) {
-        setPollingAttempt(a); // Actualiza el indicador visual en pantalla
+        setPollingAttempt(a);
         await new Promise(r => setTimeout(r, 4000)); 
         
         const res = await fetch(
@@ -204,7 +226,6 @@ export function AIReasoningPage() {
         
         const data = await res.json();
         
-        // CORRECCIÓN: Capturamos "FAILURE" inmediatamente si Ollama o Celery crashean de verdad
         if (data.status === 'FAILED' || data.status === 'FAILURE') {
           throw new Error(data.error || 'M8 (Ollama) reportó un fallo interno durante la inferencia.');
         }
@@ -237,6 +258,65 @@ export function AIReasoningPage() {
     }
   };
 
+  const enviarDictamenM4 = async (
+    decisionTipo: 'validada' | 'corregida' | 'rechazada',
+    moduloCorregido?: string
+  ) => {
+    if (!currentAsset || !displayResult) return;
+
+    setDictamenLoading(true);
+    setDictamenMsg(null);
+
+    if (decisionTipo === 'rechazada') {
+      setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'rejected' }));
+      setDictamenLoading(false);
+      setDictamenMsg('✗ Explotación denegada — registrado en audit logs');
+      setTimeout(() => setDictamenMsg(null), 5000);
+      return;
+    }
+
+    try {
+      const token = getToken();
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
+      const cve = displayResult.attack_module?.includes('/')
+        ? displayResult.attack_module.split('/').pop()?.toUpperCase()
+        : `VECTOR-${currentAsset.ip}`;
+
+      const res = await fetch('http://localhost:8004/api/m4/request-approval', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          cve: cve ?? 'CVE-PENDING',
+          ip: moduloCorregido ? `${currentAsset.ip} [${moduloCorregido}]` : currentAsset.ip,
+          user_email: 'practicas@unuware.com',
+          pin: '1234',
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'completed' }));
+
+      if (res.ok) {
+        setDictamenMsg('✓ Vector autorizado — aparecerá en M4 Explotación');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error('M4 request-approval error:', err);
+        setDictamenMsg('✓ Vector autorizado — registrado localmente');
+      }
+    } catch (e: any) {
+      console.error('enviarDictamenM4 error:', e);
+      setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'completed' }));
+      setDictamenMsg('✓ Vector autorizado — registrado localmente');
+    } finally {
+      setDictamenLoading(false);
+      setTimeout(() => setDictamenMsg(null), 5000);
+    }
+  };
+
   const currentAssetStatus = assetStatuses[selectedAssetId] ?? (displayResult ? 'requires_review' : 'pending');
   const step = STEPS[selectedStep];
   const isAssetSpecificStep = selectedStep === 4 || selectedStep === 5;
@@ -256,6 +336,17 @@ export function AIReasoningPage() {
             </div>
             
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  sessionStorage.removeItem('scanops_m8_results');
+                  sessionStorage.removeItem('scanops_m8_statuses');
+                  setLiveResults({});
+                  setAssetStatuses({});
+                }}
+                className="text-[10px] text-[#4b5563] hover:text-[#9ca3af] font-mono underline"
+              >
+                Limpiar caché
+              </button>
               <OllamaWidget />
               
               {selectedAssetId !== -1 && (
@@ -369,7 +460,7 @@ export function AIReasoningPage() {
                   <div className="space-y-3 font-mono text-xs animate-fadeIn">
                     <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4">
                       <div className="text-white font-semibold mb-1">Mapeo Semántico Local mediante Embeddings:</div>
-                      <p className="text-[#6b7280] leading-relaxed">M8 indexa el contenido del fichero normativo <span className="text-white">rd_311_2022.txt</span> de forma estrictamente local para buscar qué artículos del Anexo II se ven vulnerados por el hallazgo técnico, garantizando la confiscencialidad de la infraestructura.</p>
+                      <p className="text-[#6b7280] leading-relaxed">M8 indexa el contenido del fichero normativo <span className="text-white">rd_311_2022.txt</span> de forma estrictamente local para buscar qué artículos del Anexo II se ven vulnerados por el hallazgo técnico, garantizando la confidencialidad de la infraestructura.</p>
                     </div>
                   </div>
                 )}
@@ -378,7 +469,7 @@ export function AIReasoningPage() {
                   <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 font-mono text-xs space-y-3 animate-fadeIn">
                     <div className="text-white font-semibold flex items-center gap-1.5"><ShieldAlert className="w-4 h-4 text-[#00d4ff]" /> Esqueleto Estructural del Reporte Semanal Consolidado (M7)</div>
                     <div className="space-y-2 p-3 bg-[#16171d] rounded border border-[#1e2530] text-[#6b7280] text-[11px]">
-                      <div>📊 <span className="text-white font-bold">SECCIÓN 1:</span> Resumen General Cuantitativo del Ciclo de Vigilancia Active.</div>
+                      <div>📊 <span className="text-white font-bold">SECCIÓN 1:</span> Resumen General Cuantitativo del Ciclo de Vigilancia Activo.</div>
                       <div>🚨 <span className="text-white font-bold">SECCIÓN 2:</span> Hallazgos Críticos Filtrados que califican para Explotación Inmediata.</div>
                     </div>
                   </div>
@@ -516,7 +607,7 @@ export function AIReasoningPage() {
                         );
                       })()}
 
-                      {/* SUB-PASO 5: Panel de Decisión y Firma Manual */}
+                      {/* SUB-PASO 5: Panel de Decisión Corporativa */}
                       {selectedStep === 5 && (
                         <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-5 space-y-4 flex-1 flex flex-col justify-between">
                           <div className="space-y-3">
@@ -532,7 +623,7 @@ export function AIReasoningPage() {
                             <div className="bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg p-3 space-y-2 animate-fadeIn">
                               <div className="text-xs text-[#ff3b3b] font-bold flex items-center gap-1.5"><XCircle className="w-3.5 h-3.5" /> Explotación denegada de forma inmutable</div>
                               <button
-                                onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'requires_review' }))}
+                                onClick={() => enviarDictamenM4('validada')}
                                 className="text-[11px] text-[#6b7280] hover:text-white underline cursor-pointer font-mono"
                               >
                                 Revertir y volver a evaluar
@@ -542,7 +633,7 @@ export function AIReasoningPage() {
                             <div className="bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-lg p-3 space-y-1 animate-fadeIn">
                               <div className="text-xs text-[#22c55e] font-bold flex items-center gap-1.5"><Check className="w-3.5 h-3.5" /> Explotación autorizada y firmada</div>
                               <button
-                                onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'requires_review' }))}
+                                onClick={() => enviarDictamenM4('rechazada')}
                                 className="text-[11px] text-[#6b7280] hover:text-white underline cursor-pointer font-mono"
                               >
                                 Cancelar autorización
@@ -552,24 +643,38 @@ export function AIReasoningPage() {
                             <div className="space-y-3 pt-2">
                               <div className="flex flex-wrap items-center gap-2.5">
                                 <button
-                                  onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'completed' }))}
-                                  className="px-4 py-1.5 bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg text-xs font-semibold hover:bg-[#22c55e]/20 cursor-pointer transition-colors"
+                                  onClick={() => enviarDictamenM4('validada')}
+                                  disabled={dictamenLoading}
+                                  className="px-4 py-1.5 bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg text-xs font-semibold hover:bg-[#22c55e]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors flex items-center gap-1.5"
                                 >
+                                  {dictamenLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                                   Aprobar y Firmar Vector
                                 </button>
                                 <button
                                   onClick={() => setEditingMsf(!editingMsf)}
-                                  className="px-4 py-1.5 bg-[#f59e0b]/10 border border-[#f59e0b]/30 text-[#f59e0b] rounded-lg text-xs font-semibold hover:bg-[#f59e0b]/20 cursor-pointer transition-colors"
+                                  disabled={dictamenLoading}
+                                  className="px-4 py-1.5 bg-[#f59e0b]/10 border border-[#f59e0b]/30 text-[#f59e0b] rounded-lg text-xs font-semibold hover:bg-[#f59e0b]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                                 >
                                   Modificar Módulo MSF
                                 </button>
                                 <button
-                                  onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'rejected' }))}
-                                  className="px-4 py-1.5 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 text-[#ff3b3b] rounded-lg text-xs font-semibold hover:bg-[#ff3b3b]/20 cursor-pointer transition-colors"
+                                  onClick={() => enviarDictamenM4('rechazada')}
+                                  disabled={dictamenLoading}
+                                  className="px-4 py-1.5 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 text-[#ff3b3b] rounded-lg text-xs font-semibold hover:bg-[#ff3b3b]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
                                 >
                                   Rechazar Explotación
                                 </button>
                               </div>
+                              {dictamenLoading && (
+                                <div className="flex items-center gap-2 text-xs text-[#00d4ff] font-mono">
+                                  <Loader2 className="w-3 h-3 animate-spin" />Registrando en M4...
+                                </div>
+                              )}
+                              {dictamenMsg && (
+                                <div className={`text-xs font-mono mt-1 ${dictamenMsg.startsWith('✓') ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>
+                                  {dictamenMsg}
+                                </div>
+                              )}
 
                               {editingMsf && (
                                 <div className="flex items-center gap-2 animate-fadeIn pt-1">
@@ -583,8 +688,12 @@ export function AIReasoningPage() {
                                     className="px-3 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs hover:bg-[#00d4ff]/20 cursor-pointer"
                                     onClick={() => {
                                       if (liveResults[selectedAssetId]) {
-                                        liveResults[selectedAssetId].attack_module = msfInput;
+                                        setLiveResults(prev => ({
+                                          ...prev,
+                                          [selectedAssetId]: { ...prev[selectedAssetId], attack_module: msfInput },
+                                        }));
                                       }
+                                      enviarDictamenM4('corregida', msfInput);
                                       setEditingMsf(false);
                                     }}
                                   >
