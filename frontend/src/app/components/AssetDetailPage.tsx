@@ -791,8 +791,20 @@ export function AssetDetailPage() {
                   ] as [string, string][]).map(([label, path]) => (
                     <button
                       key={path}
-                      onClick={() => navigate(path)}
-                      className="w-full px-4 py-2.5 text-sm text-[#9ca3af] border border-[#1e2530] rounded-lg hover:text-white hover:border-[#374151] transition-colors text-left"
+                      onClick={() => {
+                        if (path === '/surface') {
+                          // Enviamos la IP y la pestaña destino en el estado de la navegación
+                          navigate(path, { 
+                            state: { 
+                              searchIp: asset.ip, 
+                              defaultTab: 'findings' 
+                            } 
+                          });
+                        } else {
+                          navigate(path);
+                        }
+                      }}
+                      className="w-full px-4 py-2.5 text-sm text-[#9ca3af] border border-[#1e2530] rounded-lg hover:text-white hover:border-[#374151] transition-colors text-left cursor-pointer"
                     >
                       {label}
                     </button>

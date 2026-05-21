@@ -183,10 +183,10 @@ function FindingDrawer({ finding, open, onClose }) {
  * FindingsTable — tabla de hallazgos con ordenación, filtrado y drawer lateral.
  * Acepta `findings` del hook; si está vacío o ausente usa el mock.
  */
-export function FindingsTable({ findings }) {
+export function FindingsTable({ findings, initialQuery = '' }) {
   const rows = findings?.length ? findings : MOCK_FINDINGS;
 
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [sortField, setSortField] = useState('severidad');
   const [sortDir, setSortDir] = useState('desc');
   const [selected, setSelected] = useState(null);

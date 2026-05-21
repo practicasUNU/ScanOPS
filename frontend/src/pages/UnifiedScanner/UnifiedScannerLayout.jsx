@@ -1,12 +1,11 @@
 import { useState } from 'react';
+import { useLocation } from 'react-router';
 import { ScanLine, Radio, LayoutGrid, Map, RefreshCw, AlertCircle, Search, Loader2, ShieldAlert } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/app/components/ui/tabs';
 import { useScanData } from './hooks/useScanData';
 import { LivePipelineTerminal } from './components/LivePipelineTerminal';
 import { FindingsTable } from './components/FindingsTable';
 import { SurfaceMap } from './components/SurfaceMap';
-
-// IMPORTACIONES AÑADIDAS: Traemos la barra lateral y superior
 import { Sidebar } from '../../app/components/Sidebar';
 import { TopBar } from '../../app/components/TopBar';
 
@@ -31,6 +30,10 @@ function StatPill({ label, value, accent }) {
 export function UnifiedScannerLayout() {
   const { data, loading, error, refetch } = useScanData();
   const findings = data?.findings ?? data?.items ?? [];
+
+  const location = useLocation();
+  const initialTab = location.state?.defaultTab || 'pipeline';
+  const targetIp = location.state?.searchIp || '';
 
   // ── Ad-hoc scanner state ──
   const [adhocTarget, setAdhocTarget] = useState('');
@@ -183,7 +186,7 @@ export function UnifiedScannerLayout() {
           )}
 
           {/* ── Tabs ── */}
-          <Tabs defaultValue="pipeline" className="flex-1">
+          <Tabs defaultValue={initialTab} className="flex-1">
             <TabsList className="bg-[#1a1d27] border border-[#1e2530] h-10 w-full justify-start rounded-lg gap-1 p-1">
               <TabsTrigger
                 value="pipeline"
@@ -228,7 +231,7 @@ export function UnifiedScannerLayout() {
             </TabsContent>
 
             <TabsContent value="findings" className="mt-4">
-              <FindingsTable findings={findings} />
+              <FindingsTable findings={findings} initialQuery={targetIp} />
             </TabsContent>
 
             <TabsContent value="surface" className="mt-4">
