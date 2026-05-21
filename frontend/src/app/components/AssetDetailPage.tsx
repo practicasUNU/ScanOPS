@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -29,6 +29,7 @@ interface AssetDetail {
   id: number;
   ip: string;
   hostname: string | null;
+  nombre?: string | null;
   tipo: string;
   criticidad: string;
   status: string;
@@ -49,6 +50,7 @@ interface AssetDetail {
 
 type EditForm = {
   hostname: string;
+  nombre: string;
   tipo: string;
   criticidad: string;
   responsable: string;
@@ -66,6 +68,7 @@ type EditForm = {
 function toEditForm(a: AssetDetail): EditForm {
   return {
     hostname: a.hostname ?? '',
+    nombre: a.nombre ?? '',
     tipo: a.tipo,
     criticidad: a.criticidad,
     responsable: a.responsable ?? '',
@@ -115,7 +118,7 @@ const inputClass =
 export function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { scanAsset, getVulnResults } = useAssets();
+  const { scanAsset, getVulnResults, pollScanStatus } = useAssets();
 
   const [asset, setAsset] = useState<AssetDetail | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
@@ -124,10 +127,12 @@ export function AssetDetailPage() {
   const [vulns, setVulns] = useState<VulnResult[]>([]);
   const [vulnsLoading, setVulnsLoading] = useState(false);
   const [expandedVuln, setExpandedVuln] = useState<number | null>(null);
+  const [filterDate, setFilterDate] = useState('all');
+  const [filterTool, setFilterTool] = useState('all');
 
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<EditForm>({
-    hostname: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '',
+    hostname: '', nombre: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '',
     status: 'ACTIVO', os_family: '', os_version: '', dominio: '',
     network_range: '', departamento: '', ubicacion: '', mac_address: '', notas: '',
   });
@@ -181,6 +186,7 @@ export function AssetDetailPage() {
     try {
       const payload = {
         hostname:      editForm.hostname      || null,
+        nombre:        editForm.nombre        || null,
         tipo:          editForm.tipo,
         criticidad:    editForm.criticidad,
         responsable:   editForm.responsable,
@@ -238,25 +244,68 @@ export function AssetDetailPage() {
 
   const handleScan = useCallback(async () => {
     if (!asset) return;
-    setScanState({ status: 'scanning' });
+    setScanState({ status: 'scanning', msg: 'Iniciando...' });
     try {
       const task = await scanAsset(asset.id, [selectedTool]);
-      setScanState({ status: 'done', msg: `Iniciado · ${task.task_id}` });
+      setScanState({ status: 'scanning', msg: 'Escaneando...' });
+      const result = await pollScanStatus(task.task_id, asset.id,
+        (msg) => setScanState({ status: 'scanning', msg })
+      );
+      if (result.status === 'SUCCESS') {
+        setScanState({ status: 'done', msg: `✓ Completado · ${result.findings_count} hallazgos · ${fmt.format(new Date())}` });
+      } else if (result.status === 'FAILED') {
+        setScanState({ status: 'error', msg: '✗ Escaneo fallido' });
+      } else {
+        setScanState({ status: 'error', msg: '✗ Timeout — escaneo tardó demasiado' });
+      }
     } catch {
-      setScanState({ status: 'error', msg: 'Error al lanzar escaneo' });
+      setScanState({ status: 'error', msg: '✗ Error al lanzar escaneo' });
+    } finally {
+      setTimeout(() => setScanState({ status: 'idle' }), 8000);
     }
-  }, [asset, scanAsset, selectedTool]);
+  }, [asset, scanAsset, selectedTool, pollScanStatus]);
 
   const handleFullScan = useCallback(async () => {
     if (!asset) return;
-    setFullScanState({ status: 'scanning' });
+    setFullScanState({ status: 'scanning', msg: 'Iniciando...' });
     try {
       const task = await scanAsset(asset.id, ['nuclei', 'nikto']);
-      setFullScanState({ status: 'done', msg: `Iniciado · ${task.task_id}` });
+      setFullScanState({ status: 'scanning', msg: 'Escaneando...' });
+      const result = await pollScanStatus(task.task_id, asset.id,
+        (msg) => setFullScanState({ status: 'scanning', msg })
+      );
+      if (result.status === 'SUCCESS') {
+        setFullScanState({ status: 'done', msg: `✓ Completado · ${result.findings_count} hallazgos · ${fmt.format(new Date())}` });
+      } else if (result.status === 'FAILED') {
+        setFullScanState({ status: 'error', msg: '✗ Escaneo fallido' });
+      } else {
+        setFullScanState({ status: 'error', msg: '✗ Timeout — escaneo tardó demasiado' });
+      }
     } catch {
-      setFullScanState({ status: 'error', msg: 'Error al lanzar escaneo' });
+      setFullScanState({ status: 'error', msg: '✗ Error al lanzar escaneo' });
+    } finally {
+      setTimeout(() => setFullScanState({ status: 'idle' }), 8000);
     }
-  }, [asset, scanAsset]);
+  }, [asset, scanAsset, pollScanStatus]);
+
+  const scanDates = useMemo(() => {
+    const dates = new Set(vulns.map(v =>
+      v.created_at ? new Date(v.created_at).toLocaleDateString('es-ES') : null
+    ).filter(Boolean) as string[]);
+    return Array.from(dates).sort().reverse();
+  }, [vulns]);
+
+  const scanTools = useMemo(() =>
+    Array.from(new Set(vulns.map(v => v.tool_source).filter(Boolean))),
+    [vulns]
+  );
+
+  const filteredVulns = useMemo(() => vulns.filter(v => {
+    const dateMatch = filterDate === 'all' ||
+      (v.created_at && new Date(v.created_at).toLocaleDateString('es-ES') === filterDate);
+    const toolMatch = filterTool === 'all' || v.tool_source === filterTool;
+    return dateMatch && toolMatch;
+  }), [vulns, filterDate, filterTool]);
 
   if (pageLoading) {
     return (
@@ -422,6 +471,14 @@ export function AssetDetailPage() {
                       : <div className="text-white font-mono text-sm">{asset.hostname ?? '—'}</div>}
                   </div>
 
+                  {/* Nombre personalizado */}
+                  <div>
+                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Nombre personalizado</div>
+                    {editing
+                      ? <input value={editForm.nombre} onChange={e => setEditForm(p => ({ ...p, nombre: e.target.value }))} className={inputClass} placeholder="ej. Servidor Principal BBDD" />
+                      : <div className="text-white text-sm">{asset.nombre ?? '—'}</div>}
+                  </div>
+
                   {/* Tipo */}
                   <div>
                     <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Tipo</div>
@@ -562,9 +619,30 @@ export function AssetDetailPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">Resultados de escaneo</h2>
                   {vulns.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-[#1e2530] text-xs text-[#9ca3af] font-mono">{vulns.length}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-[#1e2530] text-xs text-[#9ca3af] font-mono">{filteredVulns.length}/{vulns.length}</span>
                   )}
                 </div>
+
+                {vulns.length > 0 && (
+                  <div className="flex items-center gap-2 mb-3">
+                    <select
+                      value={filterDate}
+                      onChange={e => setFilterDate(e.target.value)}
+                      className="bg-[#0f1117] border border-[#1e2530] text-sm text-[#9ca3af] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#00d4ff] transition-colors"
+                    >
+                      <option value="all">Todos los días</option>
+                      {scanDates.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    <select
+                      value={filterTool}
+                      onChange={e => setFilterTool(e.target.value)}
+                      className="bg-[#0f1117] border border-[#1e2530] text-sm text-[#9ca3af] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#00d4ff] transition-colors"
+                    >
+                      <option value="all">Todas las herramientas</option>
+                      {scanTools.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                )}
 
                 {vulnsLoading ? (
                   <div className="flex items-center gap-2 text-xs text-[#6b7280] py-4">
@@ -583,9 +661,11 @@ export function AssetDetailPage() {
                       Lanzar escaneo completo
                     </button>
                   </div>
+                ) : filteredVulns.length === 0 ? (
+                  <p className="text-sm text-[#6b7280] py-4 text-center">Sin resultados para los filtros seleccionados.</p>
                 ) : (
                   <div className="space-y-2">
-                    {vulns.map((v) => (
+                    {filteredVulns.map((v) => (
                       <div
                         key={v.id}
                         className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-3 space-y-1.5 cursor-pointer hover:border-[#374151] transition-colors"
@@ -602,9 +682,16 @@ export function AssetDetailPage() {
                             {v.tool_source}
                           </span>
                         </div>
-                        {v.cve_id && (
-                          <span className="text-[10px] font-mono text-[#00d4ff]">{v.cve_id}</span>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {v.cve_id && (
+                            <span className="text-[10px] font-mono text-[#00d4ff]">{v.cve_id}</span>
+                          )}
+                          {v.created_at && (
+                            <span className="text-[10px] text-[#6b7280] font-mono">
+                              {fmt.format(new Date(v.created_at))}
+                            </span>
+                          )}
+                        </div>
                         {expandedVuln === v.id && (
                           <div className="text-xs text-[#9ca3af] mt-2 pt-2 border-t border-[#1e2530]">
                             <p className="font-mono text-[10px] text-[#6b7280] mb-1">
@@ -652,6 +739,7 @@ export function AssetDetailPage() {
                   Iniciar escaneo
                 </button>
 
+                {scanState.status === 'scanning' && scanState.msg && <p className="text-xs text-[#00d4ff] font-mono text-center mb-2 animate-pulse">{scanState.msg}</p>}
                 {scanState.status === 'done' && <p className="text-xs text-[#22c55e] font-mono text-center mb-2">{scanState.msg}</p>}
                 {scanState.status === 'error' && <p className="text-xs text-[#ff3b3b] font-mono text-center mb-2">{scanState.msg}</p>}
 
@@ -664,6 +752,7 @@ export function AssetDetailPage() {
                   Escaneo completo (nuclei + nikto)
                 </button>
 
+                {fullScanState.status === 'scanning' && fullScanState.msg && <p className="text-xs text-[#00d4ff] font-mono text-center mt-2 animate-pulse">{fullScanState.msg}</p>}
                 {fullScanState.status === 'done' && <p className="text-xs text-[#22c55e] font-mono text-center mt-2">{fullScanState.msg}</p>}
                 {fullScanState.status === 'error' && <p className="text-xs text-[#ff3b3b] font-mono text-center mt-2">{fullScanState.msg}</p>}
               </div>

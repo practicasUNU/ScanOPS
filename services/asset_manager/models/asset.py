@@ -67,6 +67,7 @@ class Asset(Base):
     # Identity
     ip = Column(String(45), nullable=False, index=True)
     hostname = Column(String(255), nullable=True, index=True)
+    nombre = Column(String(255), nullable=True)
     dominio = Column(String(255), nullable=True)
     mac_address = Column(String(17), nullable=True)
 

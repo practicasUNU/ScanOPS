@@ -167,6 +167,22 @@ async def start_asset_scan(
         )
         _push_event("INFO", f"Escaneo iniciado para activo {asset_id} ({asset_ip}) — herramientas: {request.scan_types}")
 
+        try:
+            import redis as redis_lib
+            import json as _json
+            _r = redis_lib.Redis(host='redis', port=6379, db=0, decode_responses=True)
+            _r.setex(
+                f"scanops:scan:{task.id}",
+                600,
+                _json.dumps({
+                    "asset_id": asset_id,
+                    "started_at": datetime.utcnow().isoformat(),
+                    "scan_types": [str(t) for t in request.scan_types],
+                })
+            )
+        except Exception as _e:
+            logger.warning(f"Redis scan tracking failed: {_e}")
+
         return ScanResponse(
             task_id=task.id,
             asset_id=asset_id,
@@ -215,33 +231,104 @@ async def quick_scan_asset(asset_id: int) -> ScanResponse:
 
 @router.get("/status/{task_id}", response_model=ScanStatusResponse)
 async def get_scan_status(task_id: str) -> ScanStatusResponse:
-    """Get status of a scanning task."""
+    """
+    Get status of a scanning task.
+    Priority order:
+      1. Celery chord result (follow parent → chord task_id redirect)
+      2. Redis + DB fallback (count new findings since scan started)
+      3. Generic PENDING
+    """
     try:
         from shared.celery_app import app
         from celery.result import AsyncResult
+        import redis as redis_lib
+        import json as _json
+        from shared.database import SessionLocal
+        from services.scanner_engine.models.vulnerability import VulnFinding
 
         result = AsyncResult(task_id, app=app)
 
-        progress_map = {
-            "PENDING": 0,
-            "STARTED": 25,
-            "RETRY": 50,
-            "SUCCESS": 100,
-            "FAILURE": 100,
-        }
+        # Parent task finishes instantly; its result carries the chord's task_id.
+        actual_task_id = task_id
+        if (
+            result.state == "SUCCESS"
+            and isinstance(result.result, dict)
+            and result.result.get("status") == "parallel_scans_initiated"
+            and result.result.get("task_id")
+        ):
+            actual_task_id = result.result["task_id"]
+            result = AsyncResult(actual_task_id, app=app)
 
-        progress = progress_map.get(result.state, 0)
+        state = result.state
+        logger.debug(f"Status check: {task_id} -> chord {actual_task_id} -> {state}")
 
-        logger.debug(f"Status check: {task_id} -> {result.state}")
+        if state == "SUCCESS":
+            chord_result = result.result
+            findings_count = (
+                chord_result.get("stats", {}).get("total", 0)
+                if isinstance(chord_result, dict)
+                else 0
+            )
+            return ScanStatusResponse(
+                task_id=actual_task_id, asset_id=0, status="SUCCESS",
+                progress=100, findings_count=findings_count,
+                started_at=datetime.utcnow(), completed_at=datetime.utcnow(),
+            )
 
+        if state in ("FAILURE", "REVOKED"):
+            return ScanStatusResponse(
+                task_id=actual_task_id, asset_id=0, status="FAILED",
+                progress=100, findings_count=0,
+                started_at=datetime.utcnow(), completed_at=datetime.utcnow(),
+            )
+
+        # ── FALLBACK: Redis tracking + BD query ───────────────────────────
+        # Celery hasn't registered a result yet; check whether findings
+        # already landed in the DB (chord completed but result expired/missed).
+        try:
+            _r = redis_lib.Redis(host='redis', port=6379, db=0, decode_responses=True)
+            scan_meta_raw = _r.get(f"scanops:scan:{task_id}")
+            if scan_meta_raw:
+                scan_meta = _json.loads(scan_meta_raw)
+                fb_asset_id = scan_meta.get("asset_id")
+                started_at_str = scan_meta.get("started_at", datetime.utcnow().isoformat())
+                started_at_dt = datetime.fromisoformat(started_at_str)
+
+                if fb_asset_id:
+                    db = SessionLocal()
+                    try:
+                        count = db.query(VulnFinding).filter(
+                            VulnFinding.asset_id == fb_asset_id,
+                            VulnFinding.created_at >= started_at_dt,
+                        ).count()
+                    finally:
+                        db.close()
+
+                    if count > 0:
+                        return ScanStatusResponse(
+                            task_id=task_id, asset_id=fb_asset_id,
+                            status="SUCCESS", progress=100,
+                            findings_count=count,
+                            started_at=started_at_dt,
+                            completed_at=datetime.utcnow(),
+                        )
+                    else:
+                        return ScanStatusResponse(
+                            task_id=task_id, asset_id=fb_asset_id,
+                            status="PENDING", progress=25,
+                            findings_count=0,
+                            started_at=started_at_dt,
+                            completed_at=None,
+                        )
+        except Exception as _fe:
+            logger.warning(f"Redis/DB fallback failed: {_fe}")
+
+        # Generic PENDING — no information available yet
+        progress_map = {"PENDING": 10, "STARTED": 50, "RETRY": 30}
         return ScanStatusResponse(
-            task_id=task_id,
-            asset_id=0,
-            status=result.state,
-            progress=progress,
-            findings_count=0,
-            started_at=datetime.utcnow(),
-            completed_at=None if result.state != "SUCCESS" else datetime.utcnow(),
+            task_id=task_id, asset_id=0,
+            status="PENDING", progress=progress_map.get(state, 10),
+            findings_count=0, started_at=datetime.utcnow(), completed_at=None,
         )
 
     except Exception as e:
