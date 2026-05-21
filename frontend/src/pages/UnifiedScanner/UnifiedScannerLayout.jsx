@@ -16,6 +16,17 @@ import { TopBar } from '../../app/components/TopBar';
 function getToken() { try { const r = sessionStorage.getItem('scanops_auth'); return r ? JSON.parse(r)?.access_token ?? null : null; } catch { return null; } }
 function authH() { const t = getToken(); return t ? { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' }; }
 
+function isIPAddress(target) {
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(target) || /^[0-9a-fA-F:]+$/.test(target);
+}
+function normalizeTarget(target) {
+  return target.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].trim();
+}
+function getWebUrl(target) {
+  if (target.startsWith('http://') || target.startsWith('https://')) return target;
+  return `https://${target}`;
+}
+
 function StatPill({ label, value, accent }) {
   const accentClass =
     accent === 'red'   ? 'text-red-400 border-red-500/20 bg-red-500/5' :
@@ -48,6 +59,8 @@ export function UnifiedScannerLayout() {
   const [adhocM3Result, setAdhocM3Result] = useState(null);
   const [adhocError, setAdhocError] = useState('');
   const [adhocLog, setAdhocLog] = useState([]);
+  const [adhocWebResult, setAdhocWebResult] = useState(null);
+  const [adhocScanMode, setAdhocScanMode] = useState('auto');
 
   const handleAdhocScan = async () => {
     if (!adhocTarget.trim()) return;
@@ -55,64 +68,103 @@ export function UnifiedScannerLayout() {
     setAdhocError('');
     setAdhocM2Result(null);
     setAdhocM3Result(null);
+    setAdhocWebResult(null);
     setAdhocLog([]);
     const log = (msg) => setAdhocLog(p => [...p, { ts: new Date().toLocaleTimeString('es-ES'), msg }]);
 
+    const rawTarget = adhocTarget.trim();
+    const cleanTarget = normalizeTarget(rawTarget);
+    const webUrl = getWebUrl(rawTarget);
+    const isIP = isIPAddress(cleanTarget);
+
     try {
-      setAdhocPhase('M2');
-      const target = adhocDomain.trim() || adhocTarget.trim();
-      log(`[M2] Iniciando reconocimiento Nmap sobre ${target}...`);
-      const m2Res = await fetch(
-        `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(target)}`,
-        { method: 'POST', headers: authH(), signal: AbortSignal.timeout(120000) }
-      );
-      if (!m2Res.ok) throw new Error(`M2 HTTP ${m2Res.status}`);
-      const m2Data = await m2Res.json();
-      setAdhocM2Result(m2Data);
-      const ports = m2Data.reconnaissance?.ports_discovered?.length ?? 0;
-      log(`[M2] ✓ Completado — ${ports} puertos descubiertos en ${m2Data.summary?.scan_duration_seconds?.toFixed(1)}s`);
-      if (m2Data.reconnaissance?.os_information?.detected_family)
-        log(`[M2] OS detectado: ${m2Data.reconnaissance.os_information.detected_family}`);
-      if (m2Data.webcheck?.tech_stack?.technologies?.length > 0)
-        log(`[M2] Stack: ${m2Data.webcheck['tech-stack']?.technologies?.slice(0, 3).map(t => t.name).join(', ')}`);
-
-      setAdhocPhase('M3');
-      log(`[M3] Lanzando Nuclei + Nikto + Nmap sobre ${target}...`);
-      const m3Launch = await fetch(
-        `http://localhost:8002/api/v1/scan/asset/10`,
-        {
-          method: 'POST', headers: authH(),
-          body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto'], description: `Ad-hoc scan: ${target}` }),
-          signal: AbortSignal.timeout(15000)
-        }
-      );
-      if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
-      const { task_id } = await m3Launch.json();
-      log(`[M3] Tarea creada: ${task_id} — esperando resultados...`);
-
-      for (let i = 0; i < 40; i++) {
-        await new Promise(r => setTimeout(r, 4000));
-        const statusRes = await fetch(
-          `http://localhost:8002/api/v1/scan/status/${task_id}`,
-          { headers: authH(), signal: AbortSignal.timeout(8000) }
+      if (isIP) {
+        // ── MODO IP: M2 reconocimiento + M3 vulnerabilidades ──
+        setAdhocPhase('M2');
+        log(`[M2] Iniciando reconocimiento Nmap sobre ${cleanTarget}...`);
+        const m2Res = await fetch(
+          `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(cleanTarget)}`,
+          { method: 'POST', headers: authH(), signal: AbortSignal.timeout(120000) }
         );
-        if (!statusRes.ok) continue;
-        const st = await statusRes.json();
-        if (st.status === 'FAILED') throw new Error('M3 falló durante el escaneo');
-        if (st.status === 'SUCCESS') {
-          log(`[M3] ✓ Completado — ${st.findings_count ?? 0} hallazgos encontrados`);
-          const resultsRes = await fetch(
-            `http://localhost:8002/api/v1/scan/results/10`,
-            { headers: authH(), signal: AbortSignal.timeout(8000) }
-          );
+        if (!m2Res.ok) throw new Error(`M2 HTTP ${m2Res.status}`);
+        const m2Data = await m2Res.json();
+        setAdhocM2Result(m2Data);
+        const ports = m2Data.reconnaissance?.ports_discovered?.length ?? 0;
+        log(`[M2] ✓ Completado — ${ports} puertos descubiertos en ${m2Data.summary?.scan_duration_seconds?.toFixed(1)}s`);
+        if (m2Data.reconnaissance?.os_information?.detected_family)
+          log(`[M2] OS detectado: ${m2Data.reconnaissance.os_information.detected_family}`);
+
+        setAdhocPhase('M3');
+        log(`[M3] Lanzando Nuclei + Nikto + Nmap sobre ${cleanTarget}...`);
+        const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/10`, {
+          method: 'POST', headers: authH(),
+          body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto'], description: `Ad-hoc IP: ${cleanTarget}` }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
+        const { task_id } = await m3Launch.json();
+        log(`[M3] Tarea creada — esperando resultados...`);
+        await new Promise(r => setTimeout(r, 15000));
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 5000));
+          const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/10`,
+            { headers: authH(), signal: AbortSignal.timeout(8000) });
           if (resultsRes.ok) {
             const results = await resultsRes.json();
-            setAdhocM3Result(results);
-            log(`[M3] ${results.total_findings ?? 0} vulnerabilidades totales procesadas`);
+            if ((results.total_findings ?? 0) > 0) {
+              setAdhocM3Result(results);
+              log(`[M3] ✓ Completado — ${results.total_findings} vulnerabilidades`);
+              break;
+            }
           }
-          break;
+          if (i % 3 === 0) log(`[M3] Escaneando... ${15 + (i + 1) * 5}s`);
         }
-        if (i % 3 === 0) log(`[M3] Escaneando... (${(i + 1) * 4}s)`);
+
+      } else {
+        // ── MODO WEB: Webcheck + M2 reconocimiento DNS ──
+        setAdhocPhase('WEB');
+        log(`[WEB] Iniciando análisis web de ${cleanTarget}...`);
+        log(`[WEB] URL objetivo: ${webUrl}`);
+
+        const webcheckEndpoints = ['ssl', 'headers', 'dns', 'tech-stack', 'cookies', 'mail-config'];
+        log(`[WEB] Consultando: SSL, Headers, DNS, Tech Stack, Cookies, Mail Config...`);
+
+        const wcResults = await Promise.allSettled(
+          webcheckEndpoints.map(ep =>
+            fetch(`http://localhost:3000/api/${ep}?url=${encodeURIComponent(webUrl)}`,
+              { signal: AbortSignal.timeout(30000) })
+              .then(r => r.ok ? r.json() : null)
+              .catch(() => null)
+          )
+        );
+
+        const webData = {};
+        webcheckEndpoints.forEach((ep, i) => {
+          webData[ep] = wcResults[i].status === 'fulfilled' ? wcResults[i].value : null;
+        });
+        setAdhocWebResult(webData);
+
+        const techCount = webData['tech-stack']?.technologies?.length ?? 0;
+        const sslValid = webData['ssl']?.isValid;
+        const headerGrade = webData['headers']?.grade ?? '?';
+        log(`[WEB] ✓ Tech Stack: ${techCount} tecnologías detectadas`);
+        log(`[WEB] ✓ SSL: ${sslValid ? 'Válido' : 'Inválido/Expirado'}`);
+        log(`[WEB] ✓ Security Headers Grade: ${headerGrade}`);
+
+        setAdhocPhase('M2');
+        log(`[M2] Lanzando reconocimiento Nmap sobre ${cleanTarget}...`);
+        try {
+          const m2Res = await fetch(
+            `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(cleanTarget)}`,
+            { method: 'POST', headers: authH(), signal: AbortSignal.timeout(120000) }
+          );
+          if (m2Res.ok) {
+            const m2Data = await m2Res.json();
+            setAdhocM2Result(m2Data);
+            const p = m2Data.reconnaissance?.ports_discovered?.length ?? 0;
+            log(`[M2] ✓ ${p} puertos descubiertos`);
+          }
+        } catch { log(`[M2] Reconocimiento omitido (timeout)`); }
       }
 
       setAdhocPhase('done');
@@ -237,20 +289,20 @@ export function UnifiedScannerLayout() {
               <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4">
                 <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Search className="w-4 h-4 text-[#00d4ff]" />Escaneo Ad-hoc — IP o Dominio externo</h3>
                 <p className="text-xs text-[#6b7280] mb-4">Analiza cualquier IP o dominio sin necesidad de registrarlo en el inventario. Ejecuta M2 (reconocimiento Nmap) + M3 (Nuclei+Nikto) en secuencia.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label className="text-xs text-[#6b7280] mb-1 block">IP Address *</label>
-                    <input type="text" value={adhocTarget} onChange={e => setAdhocTarget(e.target.value)} placeholder="ej. 10.202.15.15 o 185.199.108.153" disabled={adhocScanning} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff] disabled:opacity-50" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-[#6b7280] mb-1 block">Dominio (opcional)</label>
-                    <input type="text" value={adhocDomain} onChange={e => setAdhocDomain(e.target.value)} placeholder="ej. pruebas.unuware.com" disabled={adhocScanning} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff] disabled:opacity-50" />
-                  </div>
+                <div className="mb-3">
+                  <label className="text-xs text-[#6b7280] mb-1 block">IP, Dominio o URL *</label>
+                  <input type="text" value={adhocTarget} onChange={e => setAdhocTarget(e.target.value)} placeholder="ej. 10.202.15.15, google.com o https://pruebas.unuware.com" disabled={adhocScanning} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff] disabled:opacity-50" />
+                  {adhocTarget.trim() && (
+                    isIPAddress(normalizeTarget(adhocTarget))
+                      ? <span className="text-xs text-[#00d4ff] flex items-center gap-1 mt-1"><Server className="w-3 h-3" />Modo IP — ejecutará M2 + M3</span>
+                      : <span className="text-xs text-[#22c55e] flex items-center gap-1 mt-1"><Globe className="w-3 h-3" />Modo Web — ejecutará Webcheck + M2 DNS</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <button onClick={handleAdhocScan} disabled={adhocScanning || !adhocTarget.trim()} className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
                     {adhocScanning ? <><Loader2 className="w-4 h-4 animate-spin" />Escaneando...</> : <><Search className="w-4 h-4" />Iniciar Análisis Completo</>}
                   </button>
+                  {adhocPhase === 'WEB' && <span className="text-xs text-[#22c55e] font-mono animate-pulse">Webcheck activo...</span>}
                   {adhocPhase === 'M2' && <span className="text-xs text-[#00d4ff] font-mono animate-pulse">M2 Reconocimiento activo...</span>}
                   {adhocPhase === 'M3' && <span className="text-xs text-[#f59e0b] font-mono animate-pulse">M3 Escaneo de vulnerabilidades...</span>}
                   {adhocPhase === 'done' && <span className="text-xs text-[#22c55e] font-mono">✓ Análisis completado</span>}
@@ -263,9 +315,111 @@ export function UnifiedScannerLayout() {
                   {adhocLog.map((l, i) => (
                     <div key={i} className="flex gap-2">
                       <span className="text-[#374151] shrink-0">{l.ts}</span>
-                      <span className={l.msg.startsWith('[✗]') ? 'text-[#ff3b3b]' : l.msg.startsWith('[✓]') ? 'text-[#22c55e]' : l.msg.startsWith('[M2]') ? 'text-[#00d4ff]' : l.msg.startsWith('[M3]') ? 'text-[#f59e0b]' : 'text-[#9ca3af]'}>{l.msg}</span>
+                      <span className={l.msg.startsWith('[✗]') ? 'text-[#ff3b3b]' : l.msg.startsWith('[✓]') ? 'text-[#22c55e]' : l.msg.startsWith('[M2]') ? 'text-[#00d4ff]' : l.msg.startsWith('[M3]') ? 'text-[#f59e0b]' : l.msg.startsWith('[WEB]') ? 'text-[#22c55e]' : 'text-[#9ca3af]'}>{l.msg}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {adhocWebResult && (
+                <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4 space-y-4">
+                  <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-[#22c55e]" />
+                    Análisis Web — {normalizeTarget(adhocTarget)}
+                  </h4>
+
+                  {adhocWebResult.ssl && (
+                    <div>
+                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">SSL / TLS</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="bg-[#0f1117] rounded p-2 text-center">
+                          <div className={`text-sm font-bold ${adhocWebResult.ssl.isValid ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>{adhocWebResult.ssl.isValid ? '✓ Válido' : '✗ Inválido'}</div>
+                          <div className="text-[10px] text-[#6b7280] mt-0.5">Estado</div>
+                        </div>
+                        <div className="bg-[#0f1117] rounded p-2 text-center">
+                          <div className="text-sm font-bold text-white font-mono">{adhocWebResult.ssl.days_until_expiry ?? '?'}d</div>
+                          <div className="text-[10px] text-[#6b7280] mt-0.5">Días hasta expirar</div>
+                        </div>
+                        <div className="bg-[#0f1117] rounded p-2 text-center col-span-2">
+                          <div className="text-xs text-white font-mono truncate">{adhocWebResult.ssl.subject?.CN ?? adhocWebResult.ssl.subject ?? '—'}</div>
+                          <div className="text-[10px] text-[#6b7280] mt-0.5">Common Name</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {adhocWebResult.headers && (
+                    <div>
+                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">
+                        Security Headers
+                        {adhocWebResult.headers.grade && (
+                          <span className={`ml-2 px-2 py-0.5 rounded font-bold text-xs ${
+                            adhocWebResult.headers.grade === 'A' ? 'bg-[#22c55e]/20 text-[#22c55e]' :
+                            adhocWebResult.headers.grade === 'B' ? 'bg-[#00d4ff]/20 text-[#00d4ff]' :
+                            adhocWebResult.headers.grade === 'C' ? 'bg-[#f59e0b]/20 text-[#f59e0b]' :
+                            'bg-[#ff3b3b]/20 text-[#ff3b3b]'
+                          }`}>Grade {adhocWebResult.headers.grade}</span>
+                        )}
+                      </p>
+                      {adhocWebResult.headers.missing?.length > 0 && (
+                        <div className="space-y-1">
+                          {adhocWebResult.headers.missing.map((h, i) => (
+                            <div key={i} className="flex items-center gap-2 text-xs">
+                              <span className="text-[#ff3b3b]">✗</span>
+                              <span className="font-mono text-[#9ca3af]">{h}</span>
+                              <span className="text-[#6b7280]">ausente</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {adhocWebResult['tech-stack']?.technologies?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">Tech Stack</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {adhocWebResult['tech-stack'].technologies.map((t, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-[#1e2530] border border-[#374151] text-[#9ca3af] rounded text-xs font-mono">
+                            {t.name}{t.version ? ` ${t.version}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {adhocWebResult.dns && Object.values(adhocWebResult.dns).some(v => Array.isArray(v) && v.length > 0) && (
+                    <div>
+                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">DNS Records</p>
+                      <div className="space-y-1">
+                        {Object.entries(adhocWebResult.dns)
+                          .filter(([, v]) => Array.isArray(v) && v.length > 0)
+                          .map(([type, records]) => (
+                            <div key={type} className="flex gap-2 text-xs">
+                              <span className="font-mono text-[#00d4ff] w-12 shrink-0">{type}</span>
+                              <span className="text-[#9ca3af] font-mono truncate">{records.slice(0, 3).join(', ')}</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {adhocWebResult['mail-config'] && (
+                    <div>
+                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">Mail Security</p>
+                      <div className="flex gap-3">
+                        {['spf', 'dkim', 'dmarc'].map(k => {
+                          const val = adhocWebResult['mail-config'][k];
+                          const ok = val && val !== 'none' && !String(val).includes('error');
+                          return (
+                            <div key={k} className={`px-2 py-1 rounded border text-xs font-mono ${ok ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]' : 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]'}`}>
+                              {k.toUpperCase()} {ok ? '✓' : '✗'}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
