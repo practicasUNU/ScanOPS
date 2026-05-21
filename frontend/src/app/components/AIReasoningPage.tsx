@@ -116,6 +116,7 @@ export function AIReasoningPage() {
   const [editingMsf, setEditingMsf] = useState(false);
   const [msfInput, setMsfInput] = useState('');
   const [regenerating, setRegenerating] = useState(false);
+  const [pollingAttempt, setPollingAttempt] = useState(0); // Contador de feedback visual
   const [regenError, setRegenError] = useState<string | null>(null);
   const [showRationale, setShowRationale] = useState(false);
 
@@ -171,7 +172,9 @@ export function AIReasoningPage() {
 
   const handleRegenerate = async () => {
     if (selectedAssetId === -1) return;
-    setRegenerating(true); setRegenError(null);
+    setRegenerating(true); 
+    setRegenError(null);
+    setPollingAttempt(0);
     try {
       const h: HeadersInit = {
         'Content-Type': 'application/json',
@@ -180,22 +183,32 @@ export function AIReasoningPage() {
       
       const launch = await fetch(
         `${M3_BASE}/api/v1/scan/assets/${selectedAssetId}/attack-vector`,
-        { method: 'POST', headers: h, signal: AbortSignal.timeout(15000) },
+        { method: 'POST', headers: h, signal: AbortSignal.timeout(35000) },
       );
-      if (!launch.ok) throw new Error(`HTTP ${launch.status}`);
+      if (!launch.ok) throw new Error(`Error en Backend M3 (HTTP ${launch.status})`);
       const { task_id } = await launch.json();
       
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 3000));
 
-      for (let a = 0; a < 30; a++) {
-        await new Promise(r => setTimeout(r, 2000));
+      // ─── AMPLIACIÓN Y BLINDAJE DE POLLING CONTRA CAÍDAS CORTAS ───
+      const maxAttempts = 90; 
+      for (let a = 1; a <= maxAttempts; a++) {
+        setPollingAttempt(a); // Actualiza el indicador visual en pantalla
+        await new Promise(r => setTimeout(r, 4000)); 
+        
         const res = await fetch(
           `${M3_BASE}/api/v1/scan/assets/${selectedAssetId}/attack-vector/result/${task_id}`,
-          { headers: h, signal: AbortSignal.timeout(8000) },
+          { headers: h, signal: AbortSignal.timeout(15000) },
         );
         if (!res.ok) continue;
+        
         const data = await res.json();
-        if (data.status === 'FAILED') throw new Error('M8 falló al generar el vector');
+        
+        // CORRECCIÓN: Capturamos "FAILURE" inmediatamente si Ollama o Celery crashean de verdad
+        if (data.status === 'FAILED' || data.status === 'FAILURE') {
+          throw new Error(data.error || 'M8 (Ollama) reportó un fallo interno durante la inferencia.');
+        }
+        
         if (data.status === 'SUCCESS' && data.result) {
           const r = data.result;
           
@@ -216,7 +229,7 @@ export function AIReasoningPage() {
           return;
         }
       }
-      throw new Error('Timeout de respuesta en el agente Ollama local');
+      throw new Error('Inferencia extendida superada. Ollama local está tardando demasiado en CPU pura.');
     } catch (e: any) {
       setRegenError(e?.message ?? 'Error');
     } finally {
@@ -245,15 +258,14 @@ export function AIReasoningPage() {
             <div className="flex items-center gap-3">
               <OllamaWidget />
               
-              {/* ─── CORRECCIÓN CLAVE: BOTÓN CORREGIDO GLOBAL Y SIEMPRE DISPONIBLE ─── */}
               {selectedAssetId !== -1 && (
                 <button
                   onClick={handleRegenerate}
                   disabled={regenerating}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs font-semibold hover:bg-[#00d4ff]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
+                  className="flex items-center gap-2 px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs font-semibold hover:bg-[#00d4ff]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all font-mono"
                 >
                   {regenerating ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</>
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando [{pollingAttempt}/90]...</>
                   ) : (
                     <><RefreshCw className="w-3.5 h-3.5" />Regenerar análisis</>
                   )}
@@ -261,9 +273,10 @@ export function AIReasoningPage() {
               )}
 
               {regenError && (
-                <span className="text-xs text-[#ff3b3b] flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />{regenError}
-                </span>
+                <div className="bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-3 py-1.5 text-xs text-[#ff3b3b] flex items-center gap-1.5 font-mono max-w-sm">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{regenError}</span>
+                </div>
               )}
             </div>
           </div>
@@ -356,7 +369,7 @@ export function AIReasoningPage() {
                   <div className="space-y-3 font-mono text-xs animate-fadeIn">
                     <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4">
                       <div className="text-white font-semibold mb-1">Mapeo Semántico Local mediante Embeddings:</div>
-                      <p className="text-[#6b7280] leading-relaxed">M8 indexa el contenido del fichero normativo <span className="text-white">rd_311_2022.txt</span> de forma estrictamente local para buscar qué artículos del Anexo II se ven vulnerados por el hallazgo técnico, garantizando la confidencialidad de la infraestructura.</p>
+                      <p className="text-[#6b7280] leading-relaxed">M8 indexa el contenido del fichero normativo <span className="text-white">rd_311_2022.txt</span> de forma estrictamente local para buscar qué artículos del Anexo II se ven vulnerados por el hallazgo técnico, garantizando la confiscencialidad de la infraestructura.</p>
                     </div>
                   </div>
                 )}
@@ -365,7 +378,7 @@ export function AIReasoningPage() {
                   <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 font-mono text-xs space-y-3 animate-fadeIn">
                     <div className="text-white font-semibold flex items-center gap-1.5"><ShieldAlert className="w-4 h-4 text-[#00d4ff]" /> Esqueleto Estructural del Reporte Semanal Consolidado (M7)</div>
                     <div className="space-y-2 p-3 bg-[#16171d] rounded border border-[#1e2530] text-[#6b7280] text-[11px]">
-                      <div>📊 <span className="text-white font-bold">SECCIÓN 1:</span> Resumen General Cuantitativo del Ciclo de Vigilancia Activo.</div>
+                      <div>📊 <span className="text-white font-bold">SECCIÓN 1:</span> Resumen General Cuantitativo del Ciclo de Vigilancia Active.</div>
                       <div>🚨 <span className="text-white font-bold">SECCIÓN 2:</span> Hallazgos Críticos Filtrados que califican para Explotación Inmediata.</div>
                     </div>
                   </div>
@@ -432,9 +445,8 @@ export function AIReasoningPage() {
                 <div className="space-y-4 flex flex-col justify-between min-h-[340px]">
                   
                   {!displayResult ? (
-                    /* TERMINAL INTELIGENTE CUANDO EL ACTIVO REAL AUN NO TIENE INFERENCIA GENERADA */
                     <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-6 text-center flex flex-col items-center justify-center space-y-4 flex-1 font-mono py-12">
-                      <Crosshair className="w-8 h-8 text-[#4b5563] animate-pulse" />
+                      <Crosshair className="w-8 h-8 text-[#4b5563]" />
                       <div className="space-y-1">
                         <div className="text-white text-sm font-semibold">Sin vector de ataque para {currentAsset?.ip}</div>
                         <p className="text-xs text-[#6b7280] max-w-sm mx-auto leading-relaxed">
@@ -446,7 +458,7 @@ export function AIReasoningPage() {
                         disabled={regenerating}
                         className="px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-xs font-mono font-bold rounded-lg hover:bg-[#00d4ff]/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
                       >
-                        {regenerating ? 'Invocando Ollama...' : '⚡ Disparar Inferencia M8'}
+                        {regenerating ? `Invocando Ollama [${pollingAttempt}/90]...` : '⚡ Disparar Inferencia M8'}
                       </button>
                     </div>
                   ) : (

@@ -29,7 +29,9 @@ services:
     ports:
       - "6379:6379"
     networks:
-      - scanops
+      scanops:
+        aliases:
+          - scanops-main-redis
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -63,7 +65,7 @@ services:
     command: uvicorn services.asset_manager.main:app --host 0.0.0.0 --port 8001
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://scanops-main-redis:6379/0
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: "myroot"
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
@@ -87,7 +89,7 @@ services:
     command: celery -A shared.celery_app worker --loglevel=info --pool=threads --concurrency=10 -Q discovery,vulnerabilities,heavy_scans,scanner_tasks,scanner_orchestrator,celery,ai_reasoning,exploitation,reporting
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://scanops-main-redis:6379/0
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       OLLAMA_MODEL: "mistral:7b"
@@ -107,7 +109,7 @@ services:
     command: celery -A shared.celery_app beat --loglevel=info --scheduler celery.beat.PersistentScheduler
     environment:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://scanops-main-redis:6379/0
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
     depends_on:
       postgres:
@@ -172,7 +174,7 @@ services:
     environment:
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://scanops-main-redis:6379/0
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       ZAP_API_KEY: ""
@@ -236,7 +238,7 @@ services:
     environment:
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://scanops-main-redis:6379/0
       M4_DRY_RUN: "false"
       HYDRA_WORDLIST: "/usr/share/wordlists/rockyou.txt"
       HYDRA_THREADS: "4"
@@ -246,7 +248,7 @@ services:
       NXC_TIMEOUT: 30
       NXC_THREADS: 10
       NXC_DEFAULT_DOMAIN: WORKGROUP
-      KILL_SWITCH_REDIS_URL: redis://redis:6379/0
+      KILL_SWITCH_REDIS_URL: redis://scanops-main-redis:6379/0
       MONITOR_SSH_USER: admin
       MONITOR_SSH_PASSWORD: test123
     depends_on:
@@ -272,7 +274,7 @@ services:
     environment:
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://scanops-main-redis:6379/0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: mistral:7b
       M3_URL: http://scanner-engine:8002
