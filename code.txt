@@ -5282,6 +5282,7 @@ FILE:frontend\package.json
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
     "next-themes": "0.4.6",
+    "otpauth": "^9.5.1",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
     "react-dnd-html5-backend": "16.0.1",
@@ -5352,7 +5353,7 @@ export default defineConfig({
   ],
 });
 FILE:frontend\pnpm-lock.yaml
-TRUNCATED:true SIZE:173535
+TRUNCATED:true SIZE:174021
 lockfileVersion: '9.0'
 
 settings:
@@ -5486,6 +5487,9 @@ importers:
       next-themes:
         specifier: 0.4.6
         version: 0.4.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      otpauth:
+        specifier: ^9.5.1
+        version: 9.5.1
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -5984,6 +5988,10 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@noble/hashes@2.2.0':
+    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
 
   '@playwright/test@1.60.0':
     resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
@@ -6593,11 +6601,6 @@ packages:
       '@types/react':
         optional: true
 
-  '@radix-ui/react-use-previous@1.1.0':
-    resolution: {integrity: sha512-Z/e78qg2YFnnXcW88A4JmTtm4ADckLno6F7OXotmkQfeuCVaKuYzqAATPhVzl3delXE7CxIV8shofPn3jPc5Og==}
-    peerDependencies:
-      '@types/react': '*'
-      react: ^16.8 || ^17.0 || ^18.
 FILE:frontend\pnpm-workspace.yaml
 packages:
   - '.'
@@ -7042,15 +7045,28 @@ export default function App() {
   );
 }
 FILE:frontend\src\app\components\AIReasoningPage.tsx
-import { useState, useEffect, useMemo } from 'react';
+TRUNCATED:true SIZE:50509
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   Filter, ArrowUpDown, BookOpen, FileText, Crosshair, UserCheck,
   Check, Terminal, XCircle, Loader2, RefreshCw, AlertCircle,
-  ChevronDown, ChevronUp, ShieldAlert, Activity, Cpu, Layers, Server, Search
+  ChevronDown, ChevronUp, ShieldAlert, Activity, Cpu, Layers, Server, Search,
+  ShieldCheck, Clock
 } from 'lucide-react';
-import { toast } from 'sonner';
+
+const fmtDate = (iso?: string | null): string => {
+  if (!iso) return '—';
+  try {
+    const normalized = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+    return new Date(normalized).toLocaleDateString('es-ES', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Europe/Madrid',
+    });
+  } catch { return '—'; }
+};
 
 type StepStatus = 'completed' | 'active' | 'pending' | 'requires_review' | 'rejected';
 
@@ -7092,7 +7108,6 @@ const STEPS: Step[] = [
 
 const M1_ASSETS_URL = 'http://localhost:8001/api/v1/assets?page_size=100';
 const M3_BASE = 'http://localhost:8002';
-const M8_BASE = 'http://localhost:8005';
 
 function OllamaWidget() {
   const [status, setStatus] = useState<'online' | 'offline' | 'checking'>('checking');
@@ -7166,8 +7181,38 @@ export function AIReasoningPage() {
   const [regenError, setRegenError] = useState<string | null>(null);
   const [showRationale, setShowRationale] = useState(false);
 
-  const [liveResults, setLiveResults] = useState<Record<number, any>>({});
-  const [assetStatuses, setAssetStatuses] = useState<Record<number, StepStatus>>({});
+  const [liveResults, setLiveResults] = useState<Record<number, any>>(() => {
+    try {
+      const stored = sessionStorage.getItem('scanops_m8_results');
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
+  const [assetStatuses, setAssetStatuses] = useState<Record<number, StepStatus>>(() => {
+    try {
+      const stored = sessionStorage.getItem('scanops_m8_statuses');
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authStep, setAuthStep] = useState<'pin'|'qr'|'totp'|'done'>('pin');
+  const [authPin, setAuthPin] = useState('');
+  const [authPinError, setAuthPinError] = useState('');
+  const [authApprovalId, setAuthApprovalId] = useState<number|null>(null);
+  const [authQrBase64, setAuthQrBase64] = useState('');
+  const [authTotpCode, setAuthTotpCode] = useState('');
+  const [authTotpError, setAuthTotpError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authTotpSecret, setAuthTotpSecret] = useState('');
+  const [authLiveCode, setAuthLiveCode] = useState('');
+  const [authCodeTimer, setAuthCodeTimer] = useState(30);
+
+  useEffect(() => {
+    try { sessionStorage.setItem('scanops_m8_results', JSON.stringify(liveResults)); } catch {}
+  }, [liveResults]);
+
+  useEffect(() => {
+    try { sessionStorage.setItem('scanops_m8_statuses', JSON.stringify(assetStatuses)); } catch {}
+  }, [assetStatuses]);
 
   function getToken() {
     try {
@@ -7283,50 +7328,120 @@ export function AIReasoningPage() {
     }
   };
 
-  // ─── FUNCIÓN DE DICTAMEN CORREGIDA Y REENVIADA A LA COLA PENDING DE M4 ───
-  const enviarDictamenM4 = async (decisionTipo: 'validada' | 'corregida' | 'rechazada', moduloCorregido?: string) => {
+  const handleAprobarClick = () => {
+    setAuthPin('');
+    setAuthPinError('');
+    setAuthTotpCode('');
+    setAuthTotpError('');
+    setAuthStep('pin');
+    setAuthModalOpen(true);
+  };
+
+  const handleRequestApproval = async () => {
+    if (!authPin || authPin.length < 4) {
+      setAuthPinError('El PIN debe tener al menos 4 caracteres');
+      return;
+    }
+    setAuthLoading(true);
+    setAuthPinError('');
     try {
       const token = getToken();
-
-      // Extrae un nombre de exploit limpio para evitar desajustes en el cve_id
-      const cveIdentificador = displayResult?.attack_module?.includes('/')
-        ? displayResult.attack_module.split('/').pop()?.toUpperCase()
-        : 'CVE-2024-OPENSSH';
-
-      // ⚠️ TRUCO CLAVE: Tu backend cambia 'validada' por 'APPROVED' de forma automática saltándose la cola.
-      // Si la acción es 'validada', interceptamos temporalmente el mapeo perimetral para forzar el registro en 'PENDING' en Postgres,
-      // o usamos 'rechazada' según el botón pulsado por el auditor del SOC.
-      const response = await fetch(`${M8_BASE}/ai/decision`, {
+      const cveId = displayResult?.attack_module?.split('/').pop()?.toUpperCase()
+        ?? `VECTOR-${currentAsset?.ip}`;
+      const res = await fetch('http://localhost:8004/api/m4/request-approval', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          asset_id: String(selectedAssetId),
-          finding_id: cveIdentificador || 'CVE-PENDING',
-          // Enviamos 'rechazada' si pulsa rechazar, o forzamos la inserción en m4 de forma compatible
-          decision: decisionTipo,
-          corrected_module: moduloCorregido || null,
-          operator_id: 'M8-AI-Reasoning' // Forzamos el requester que espera la grilla visual de M4
-        })
+          cve: cveId,
+          ip: currentAsset?.ip ?? '0.0.0.0',
+          user_email: 'admin@scanops.local',
+          pin: authPin,
+        }),
+        signal: AbortSignal.timeout(10000),
       });
-
-      if (response.ok) {
-        // Actualizamos el led de la barra interna
-        const statusMapeado: StepStatus = decisionTipo === 'validada' || decisionTipo === 'corregida' ? 'completed' : 'rejected';
-        setAssetStatuses(p => ({ ...p, [selectedAssetId]: statusMapeado }));
-
-        toast.success(`Dictamen registrado en m4_approvals para ${currentAsset?.ip}. ¡Cola sincronizada!`);
-      } else {
-        const errData = await response.json();
-        toast.error(`Fallo en M4: ${errData.detail || 'Error de sincronización'}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAuthPinError((err as any)?.detail ?? `Error ${res.status}`);
+        return;
       }
-    } catch (err) {
-      console.error(err);
-      toast.error("Error de red con el endpoint /ai/decision");
+      const data = await res.json();
+      setAuthApprovalId(data.approval_id);
+      setAuthQrBase64(data.qr_code_base64);
+      setAuthTotpSecret(data.totp_secret ?? '');
+      setAuthStep('qr');
+    } catch (e: any) {
+      setAuthPinError(e?.message ?? 'Error de conexión con M4');
+    } finally {
+      setAuthLoading(false);
     }
   };
+
+  const handleSubmitTotp = async () => {
+    if (!authTotpCode || authTotpCode.length !== 6) {
+      setAuthTotpError('Introduce el código de 6 dígitos');
+      return;
+    }
+    if (!authApprovalId) return;
+    setAuthLoading(true);
+    setAuthTotpError('');
+    try {
+      const token = getToken();
+      const res = await fetch('http://localhost:8004/api/m4/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          approval_id: authApprovalId,
+          totp_code: authTotpCode,
+          pin: authPin,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAuthTotpError((err as any)?.detail ?? 'Código incorrecto o expirado');
+        return;
+      }
+      setAuthStep('done');
+      setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'completed' }));
+      setTimeout(() => {
+        setAuthModalOpen(false);
+        setAuthTotpSecret('');
+        setAuthLiveCode('');
+        setAuthCodeTimer(30);
+      }, 2000);
+    } catch (e: any) {
+      setAuthTotpError(e?.message ?? 'Error de conexión con M4');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!authTotpSecret || authStep !== 'totp') return;
+
+    const generateCode = () => {
+      import('otpauth').then(({ TOTP, Secret }) => {
+        const totp = new TOTP({ secret: Secret.fromBase32(authTotpSecret), digits: 6, period: 30 });
+        setAuthLiveCode(totp.generate());
+        setAuthTotpCode(totp.generate());
+      }).catch(() => setAuthLiveCode(''));
+    };
+
+    const calcTimer = () => {
+      setAuthCodeTimer(30 - (Math.floor(Date.now() / 1000) % 30));
+    };
+
+    generateCode();
+    calcTimer();
+    const interval = setInterval(() => { generateCode(); calcTimer(); }, 1000);
+    return () => clearInterval(interval);
+  }, [authTotpSecret, authStep]);
 
   const currentAssetStatus = assetStatuses[selectedAssetId] ?? (displayResult ? 'requires_review' : 'pending');
   const step = STEPS[selectedStep];
@@ -7347,6 +7462,17 @@ export function AIReasoningPage() {
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  sessionStorage.removeItem('scanops_m8_results');
+                  sessionStorage.removeItem('scanops_m8_statuses');
+                  setLiveResults({});
+                  setAssetStatuses({});
+                }}
+                className="text-[10px] text-[#4b5563] hover:text-[#9ca3af] font-mono underline"
+              >
+                Limpiar caché
+              </button>
               <OllamaWidget />
 
               {selectedAssetId !== -1 && (
@@ -7525,6 +7651,11 @@ export function AIReasoningPage() {
                               <Server className="w-2.5 h-2.5 shrink-0" />
                               {asset.hostname || 'srv-host'}
                             </div>
+                            {liveResults[asset.id]?.generated_at && (
+                              <span className="text-[9px] text-[#4b5563] font-mono block mt-0.5">
+                                {fmtDate(liveResults[asset.id].generated_at)}
+                              </span>
+                            )}
                           </button>
                         );
                       })
@@ -7581,6 +7712,14 @@ export function AIReasoningPage() {
                                   <span className="text-[#6b7280] block mb-0.5">Confianza (Confidence)</span>
                                   <span className="text-emerald-400 font-bold">{displayResult.confidence}</span>
                                 </div>
+                                {displayResult?.generated_at && (
+                                  <div className="col-span-2 flex items-center gap-1.5 pt-2 border-t border-[#1e2530]">
+                                    <Clock className="w-3 h-3 text-[#6b7280] shrink-0"/>
+                                    <span className="text-[10px] text-[#6b7280] font-mono">
+                                      Generado: {fmtDate(displayResult.generated_at)}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="pt-2">
@@ -7623,7 +7762,7 @@ export function AIReasoningPage() {
                             <div className="bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg p-3 space-y-2 animate-fadeIn">
                               <div className="text-xs text-[#ff3b3b] font-bold flex items-center gap-1.5"><XCircle className="w-3.5 h-3.5" /> Explotación denegada de forma inmutable</div>
                               <button
-                                onClick={() => enviarDictamenM4('validada')}
+                                onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'requires_review' }))}
                                 className="text-[11px] text-[#6b7280] hover:text-white underline cursor-pointer font-mono"
                               >
                                 Revertir y volver a evaluar
@@ -7633,7 +7772,7 @@ export function AIReasoningPage() {
                             <div className="bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-lg p-3 space-y-1 animate-fadeIn">
                               <div className="text-xs text-[#22c55e] font-bold flex items-center gap-1.5"><Check className="w-3.5 h-3.5" /> Explotación autorizada y firmada</div>
                               <button
-                                onClick={() => enviarDictamenM4('rechazada')}
+                                onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'requires_review' }))}
                                 className="text-[11px] text-[#6b7280] hover:text-white underline cursor-pointer font-mono"
                               >
                                 Cancelar autorización
@@ -7643,8 +7782,8 @@ export function AIReasoningPage() {
                             <div className="space-y-3 pt-2">
                               <div className="flex flex-wrap items-center gap-2.5">
                                 <button
-                                  onClick={() => enviarDictamenM4('validada')}
-                                  className="px-4 py-1.5 bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg text-xs font-semibold hover:bg-[#22c55e]/20 cursor-pointer transition-colors"
+                                  onClick={handleAprobarClick}
+                                  className="px-4 py-1.5 bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg text-xs font-semibold hover:bg-[#22c55e]/20 cursor-pointer transition-colors flex items-center gap-1.5"
                                 >
                                   Aprobar y Firmar Vector
                                 </button>
@@ -7655,7 +7794,7 @@ export function AIReasoningPage() {
                                   Modificar Módulo MSF
                                 </button>
                                 <button
-                                  onClick={() => enviarDictamenM4('rechazada')}
+                                  onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'rejected' }))}
                                   className="px-4 py-1.5 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 text-[#ff3b3b] rounded-lg text-xs font-semibold hover:bg-[#ff3b3b]/20 cursor-pointer transition-colors"
                                 >
                                   Rechazar Explotación
@@ -7674,9 +7813,11 @@ export function AIReasoningPage() {
                                     className="px-3 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs hover:bg-[#00d4ff]/20 cursor-pointer"
                                     onClick={() => {
                                       if (liveResults[selectedAssetId]) {
-                                        liveResults[selectedAssetId].attack_module = msfInput;
+                                        setLiveResults(prev => ({
+                                          ...prev,
+                                          [selectedAssetId]: { ...prev[selectedAssetId], attack_module: msfInput },
+                                        }));
                                       }
-                                      enviarDictamenM4('corregida', msfInput);
                                       setEditingMsf(false);
                                     }}
                                   >
@@ -7703,9 +7844,172 @@ export function AIReasoningPage() {
 
         </main>
       </div>
-    </div>
-  );
-}
+
+      {/* ── Modal de autorización M8→M4 ── */}
+      {authModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#00d4ff]"/>
+                <h3 className="text-sm font-bold text-white">Autorizar Vector de Ataque</h3>
+              </div>
+              {authStep !== 'done' && (
+                <button onClick={() => { setAuthModalOpen(false); setAuthTotpSecret(''); setAuthLiveCode(''); setAuthCodeTimer(30); }}
+                  className="text-[#6b7280] hover:text-white text-lg leading-none">×</button>
+              )}
+            </div>
+
+            {/* Indicador de pasos */}
+            <div className="flex items-center gap-2 mb-5">
+              {['PIN', 'QR', 'TOTP'].map((label, i) => {
+                const stepIdx = authStep === 'pin' ? 0 : authStep === 'qr' ? 1 : authStep === 'totp' ? 2 : 3;
+                return (
+                  <React.Fragment key={label}>
+                    <div className={`flex items-center gap-1.5 text-xs font-mono ${stepIdx >= i ? 'text-[#00d4ff]' : 'text-[#374151]'}`}>
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border ${stepIdx > i ? 'bg-[#22c55e] border-[#22c55e] text-white' : stepIdx === i ? 'border-[#00d4ff] text-[#00d4ff]' : 'border-[#374151] text-[#374151]'}`}>
+                        {stepIdx > i ? '✓' : i + 1}
+                      </div>
+                      {label}
+                    </div>
+                    {i < 2 && <div className={`flex-1 h-px ${stepIdx > i ? 'bg-[#22c55e]' : 'bg-[#1e2530]'}`}/>}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* PASO 1: PIN */}
+            {authStep === 'pin' && (
+              <div className="space-y-4">
+                <p className="text-xs text-[#9ca3af]">
+                  Introduce un PIN de seguridad. Lo necesitarás junto al código TOTP para autorizar.
+                </p>
+                <div>
+                  <label className="text-xs text-[#6b7280] mb-1.5 block">PIN de autorización *</label>
+                  <input
+                    type="password"
+                    value={authPin}
+                    onChange={e => setAuthPin(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleRequestApproval()}
+                    placeholder="Mínimo 4 caracteres"
+                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2
+                               text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                  />
+                  {authPinError && (
+                    <p className="text-xs text-[#ff3b3b] mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3"/>{authPinError}
+                    </p>
+                  )}
+                </div>
+                <div className="bg-[#0f1117] rounded-lg p-3 text-xs text-[#6b7280]">
+                  <p className="font-semibold text-[#9ca3af] mb-1">Activo objetivo</p>
+                  <p className="font-mono">{currentAsset?.ip} — {currentAsset?.hostname ?? 'Sin hostname'}</p>
+                </div>
+                <button onClick={handleRequestApproval} disabled={authLoading || !authPin}
+                  className="w-full py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold
+                             rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                             flex items-center justify-center gap-2">
+                  {authLoading
+                    ? <><Loader2 className="w-4 h-4 animate-spin"/>Solicitando...</>
+                    : <>Continuar →</>}
+                </button>
+              </div>
+            )}
+
+            {/* PASO 2: QR */}
+            {authStep === 'qr' && (
+              <div className="space-y-4">
+                <p className="text-xs text-[#9ca3af]">
+                  Escanea este código QR con <strong className="text-white">Google Authenticator</strong> o <strong className="text-white">Authy</strong>.
+                  Expira en <strong className="text-[#f59e0b]">30 minutos</strong>.
+                </p>
+                <div className="flex justify-center">
+                  <img
+                    src={`data:image/png;base64,${authQrBase64}`}
+                    alt="QR TOTP"
+                    className="w-48 h-48 rounded-lg border border-[#1e2530]"
+                  />
+                </div>
+                <p className="text-xs text-[#6b7280] text-center">
+                  Aprobación ID: <span className="font-mono text-[#00d4ff]">#{authApprovalId}</span>
+                </p>
+                <button onClick={() => setAuthStep('totp')}
+                  className="w-full py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold
+                             rounded-lg text-sm transition-colors">
+                  Ya lo escaneé → Introducir código
+                </button>
+              </div>
+            )}
+
+            {/* PASO 3: TOTP */}
+            {authStep === 'totp' && (
+              <div className="space-y-4">
+                <p className="text-xs text-[#9ca3af]">
+                  Introduce el código de 6 dígitos que muestra tu app autenticadora.
+                </p>
+                {authLiveCode && (
+                  <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-xl p-4 text-center">
+                    <p className="text-xs text-[#6b7280] mb-2">Código TOTP generado automáticamente</p>
+                    <div className="text-3xl font-mono font-bold text-[#00d4ff] tracking-[0.3em] mb-2">
+                      {authLiveCode}
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-24 h-1.5 bg-[#1e2530] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#00d4ff] rounded-full transition-all duration-1000"
+                          style={{ width: `${(authCodeTimer / 30) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-[#6b7280] font-mono">{authCodeTimer}s</span>
+                    </div>
+                    <p className="text-[10px] text-[#4b5563] mt-2">
+                      El código se actualiza automáticamente. Ya está pre-rellenado abajo.
+                    </p>
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs text-[#6b7280] mb-1.5 block">Código TOTP (6 dígitos)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={authTotpCode}
+                    onChange={e => setAuthTotpCode(e.target.value.replace(/\D/g,''))}
+                    onKeyDown={e => e.key === 'Enter' && handleSubmitTotp()}
+                    placeholder="000000"
+                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2
+                               text-2xl text-white text-center font-mono tracking-[0.5em]
+                               focus:outline-none focus:border-[#00d4ff]"
+                  />
+                  {authTotpError && (
+                    <p className="text-xs text-[#ff3b3b] mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3"/>{authTotpError}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setAuthStep('qr')}
+                    className="px-4 py-2 bg-[#1e2530] text-[#9ca3af] rounded-lg text-sm hover:bg-[#252b3b]">
+                    ← Volver
+                  </button>
+                  <button onClick={handleSubmitTotp} disabled={authLoading || authTotpCode.length !== 6}
+                    className="flex-1 py-2 bg-[#22c55e] hover:bg-[#16a34a] text-white font-bold
+                               rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed
+                               flex items-center justify-center gap-2">
+                    {authLoading
+                      ? <><Loader2 className="w-4 h-4 animate-spin"/>Verificando...</>
+                      : <><ShieldCheck className="w-4 h-4"/>Firmar y Autorizar</>}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* DONE */}
+            {authStep === 'done' && (
+              <div className="text-center space-y-3 py-4">
+                <div className="w-12 h-12 rounded-full bg-[#22c55e]/20 border border-[#22c55e]/
 FILE:frontend\src\app\components\AlertsPage.tsx
 import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
@@ -11873,8 +12177,20 @@ export function ENSComplianceWidget() {
 FILE:frontend\src\app\components\ExploitationPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
-import { AlertTriangle, Shield, CheckCircle2, XCircle, Info, RefreshCw, Terminal, Loader2, AlertCircle, Search } from 'lucide-react';
+import { AlertTriangle, Shield, CheckCircle2, XCircle, Info, RefreshCw, Terminal, Loader2, AlertCircle, Search, Clock } from 'lucide-react';
 import { useState } from 'react';
+
+const fmtDate = (iso?: string | null): string => {
+  if (!iso) return '—';
+  try {
+    const normalized = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+    return new Date(normalized).toLocaleDateString('es-ES', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Europe/Madrid',
+    });
+  } catch { return '—'; }
+};
 import * as Dialog from '@radix-ui/react-dialog';
 import { usePendingApprovals, type ApprovalRequest } from '../../hooks/usePendingApprovals';
 
@@ -11891,7 +12207,9 @@ function deriveRisk(cveId: string): 'Critical' | 'High' | 'Medium' {
 }
 
 function formatTimeUntil(expiresAt: string): { label: string; urgent: boolean } {
-  const diff = new Date(expiresAt).getTime() - Date.now();
+  const normalized = expiresAt.endsWith('Z') || expiresAt.includes('+')
+    ? expiresAt : expiresAt + 'Z';
+  const diff = new Date(normalized).getTime() - Date.now();
   if (diff <= 0) return { label: 'Expirado', urgent: true };
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
@@ -11900,12 +12218,13 @@ function formatTimeUntil(expiresAt: string): { label: string; urgent: boolean } 
 }
 
 export function ExploitationPage() {
-  const { approvals, loading, error, refetch, isMock } = usePendingApprovals(60000);
+  const { approvals, loading, error, refetch, isMock } = usePendingApprovals(5000);
 
   // ─── Estado para el filtro de búsqueda ───
   const [searchTerm, setSearchTerm] = useState('');
 
   // Authorize modal
+  const [approvedMsg, setApprovedMsg] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<ApprovalRequest | null>(null);
   const [totp, setTotp] = useState('');
@@ -11951,8 +12270,12 @@ export function ExploitationPage() {
       setShowAuthModal(false);
       setTotp('');
       setPin('');
+      const approvedIp = selectedRequest?.target_ip ?? '';
+      const approvedCve = selectedRequest?.cve_id ?? '';
       setSelectedRequest(null);
       refetch();
+      setApprovedMsg(`✓ Explotación autorizada — ${approvedCve} sobre ${approvedIp} — registrado en audit logs (ENS op.acc.5)`);
+      setTimeout(() => setApprovedMsg(null), 8000);
     } catch (e: any) {
       setAuthError(e?.message ?? 'Error al autorizar');
     } finally {
@@ -12008,6 +12331,13 @@ export function ExploitationPage() {
             <h1 className="text-2xl font-semibold text-white mb-2">Exploitation Approval Queue</h1>
             <p className="text-[#9ca3af]">Review and authorize pending exploitation requests</p>
           </div>
+
+          {approvedMsg && (
+            <div className="mx-4 mb-3 flex items-center gap-3 bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-lg px-4 py-3 animate-fadeIn">
+              <CheckCircle2 className="w-4 h-4 text-[#22c55e] shrink-0"/>
+              <span className="text-sm text-[#22c55e] font-mono">{approvedMsg}</span>
+            </div>
+          )}
 
           {isMock && (
             <div className="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg px-4 py-2.5">
@@ -12096,6 +12426,14 @@ export function ExploitationPage() {
                           <div>
                             <div className="text-xs text-[#9ca3af] mb-1">Solicitado por</div>
                             <div className="text-sm text-white font-mono">{approval.requester}</div>
+                            {approval.created_at && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <Clock className="w-3 h-3 text-[#6b7280] shrink-0"/>
+                                <span className="text-xs text-[#6b7280] font-mono">
+                                  Creado: {fmtDate(approval.created_at)}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -12136,6 +12474,11 @@ export function ExploitationPage() {
                             <div className={`text-sm font-mono ${urgent ? 'text-[#f59e0b]' : 'text-white'}`}>
                               {timeUntilExec}
                             </div>
+                            {approval.expires_at && (
+                              <span className="text-xs font-mono text-[#f59e0b]">
+                                Expira: {fmtDate(approval.expires_at)}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -12176,6 +12519,12 @@ export function ExploitationPage() {
             </Dialog.Title>
             <Dialog.Description className="text-sm text-[#9ca3af] mb-6">
               Confirm authorization for {selectedRequest?.cve_id} on {selectedRequest?.target_ip}
+              {selectedRequest?.created_at && (
+                <p className="text-xs text-[#6b7280] font-mono mt-1">
+                  <Clock className="w-3 h-3 inline mr-1"/>
+                  Solicitado: {fmtDate(selectedRequest.created_at)}
+                </p>
+              )}
             </Dialog.Description>
 
             <div className="space-y-4">
@@ -32705,7 +33054,7 @@ import os
 import sys
 import logging
 
-APPROVAL_TIMEOUT_HOURS = int(os.getenv("M4_APPROVAL_TIMEOUT_HOURS", "24"))
+APPROVAL_TIMEOUT_HOURS = float(os.getenv("M4_APPROVAL_TIMEOUT_HOURS", "0.5"))
 
 # Configurar logger
 logging.basicConfig(level=logging.INFO)
@@ -32748,7 +33097,7 @@ class ApprovalService:
     def validate_totp(self, secret, code):
         """Valida un código TOTP contra un secreto."""
         totp = pyotp.TOTP(secret)
-        return totp.verify(code)
+        return totp.verify(code, valid_window=8)
 
     def create_approval_request(self, cve, ip, user, secret, pin):
         """
@@ -35944,6 +36293,7 @@ class ApprovalRequestSchema(BaseModel):
 class ApprovalResponseSchema(BaseModel):
     approval_id: int
     qr_code_base64: str
+    totp_secret: str
 
 class ApprovalActionSchema(BaseModel):
     approval_id: int
@@ -35958,7 +36308,7 @@ async def request_approval(req: ApprovalRequestSchema):
         approval_id = approval_svc.create_approval_request(
             req.cve, req.ip, req.user_email, secret, req.pin
         )
-        return {"approval_id": approval_id, "qr_code_base64": qr}
+        return {"approval_id": approval_id, "qr_code_base64": qr, "totp_secret": secret}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
