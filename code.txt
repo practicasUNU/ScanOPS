@@ -8059,6 +8059,7 @@ export function AlertsPage() {
   const [liveAlerts, setLiveAlerts] = useState<M5Alert[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [pipelineEvents, setPipelineEvents] = useState<any[]>([]);
 
   // KPIs + top attackers polling (30s)
   useEffect(() => {
@@ -8092,6 +8093,23 @@ export function AlertsPage() {
     fetchKpis();
     fetchTopAttackers();
     const id = setInterval(() => { fetchKpis(); fetchTopAttackers(); }, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Pipeline events polling (5s)
+  useEffect(() => {
+    const fetchPipelineEvents = async () => {
+      try {
+        const res = await fetch(`${M5_BASE}/siem/pipeline-events?limit=20`,
+          { headers: authH(), signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const data = await res.json();
+          setPipelineEvents(data.events ?? []);
+        }
+      } catch { /* silencioso */ }
+    };
+    fetchPipelineEvents();
+    const id = setInterval(fetchPipelineEvents, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -8170,7 +8188,20 @@ export function AlertsPage() {
     return () => clearInterval(id);
   }, [isLive]);
 
-  const alerts: (M5Alert | SiemAlert)[] = liveAlerts.length > 0 ? liveAlerts : MOCK_ALERTS;
+  const pipelineAsAlerts = pipelineEvents.map((e: any) => ({
+    id: `pipeline-${e.id}`,
+    timestamp: e.timestamp,
+    source: e.source ?? 'M4-Pipeline',
+    severity: e.severity,
+    message: e.description,
+    src_ip: e.attacker_ip,
+    target_ip: e.target_ip,
+    attacker_ip: e.attacker_ip,
+    mitigated: e.mitigated,
+  }));
+
+  const combined = [...pipelineAsAlerts, ...liveAlerts];
+  const alerts: (M5Alert | SiemAlert)[] = combined.length > 0 ? combined : MOCK_ALERTS;
   const filteredAlerts = alerts.filter(alert => {
     const a = alert as M5Alert;
     const msg = (a.message ?? '').toLowerCase();
@@ -8239,7 +8270,7 @@ export function AlertsPage() {
               <div>
                 <p className="text-xs text-[#6b7280] uppercase tracking-wider font-semibold mb-1">Ataques Perimetrales Bloqueados</p>
                 <h3 className="text-2xl font-bold text-white">
-                  {kpisLoading ? '...' : (kpis?.suricata_blocked ?? 142).toLocaleString()}
+                  {kpisLoading ? '...' : ((kpis?.suricata_blocked ?? 0) + pipelineEvents.length).toLocaleString()}
                 </h3>
                 <p className="text-xs text-[#22c55e] mt-1">
                   {kpis ? `Fuente: Suricata IPS · ${lastUpdated}` : '+12% vs ayer (Suricata IPS)'}
@@ -36491,7 +36522,39 @@ async def execute_approved(approval_id: int):
                     (json.dumps(result), approval_id)
                 )
 
-                return {
+        # Notificar M5 SIEM (fuera del with conn para no bloquear la transacción)
+        try:
+            import httpx as _httpx
+            m5_base = os.getenv("M5_URL", "http://m5:8006")
+            event_type = "BRUTE_FORCE_SUCCESS" if result["success"] else "BRUTE_FORCE_ATTEMPT"
+            severity = "CRITICAL" if result["success"] else "MEDIUM"
+            description = (
+                f"Ataque de fuerza bruta SSH exitoso — credenciales obtenidas: admin:{result['password']}"
+                if result["success"]
+                else f"Intento de fuerza bruta SSH — sin credenciales válidas ({result['attempts']} intentos)"
+            )
+            async with _httpx.AsyncClient(timeout=5.0) as http_client:
+                await http_client.post(f"{m5_base}/siem/pipeline-event", json={
+                    "event_type": event_type,
+                    "severity": severity,
+                    "source": "M4-Hydra",
+                    "target_ip": target_ip,
+                    "attacker_ip": "10.0.0.1",
+                    "description": description,
+                    "details": {
+                        "service": "ssh",
+                        "username": "admin",
+                        "password": result.get("password"),
+                        "attempts": result.get("attempts"),
+                        "duration": result.get("duration"),
+                        "approval_id": approval_id,
+                    },
+                    "mitigated": False,
+                })
+        except Exception as _e:
+            logger.warning(f"[M4] No se pudo notificar M5: {_e}")
+
+        return {
                     "approval_id": approval_id,
                     "target_ip": target_ip,
                     "executed": True,
@@ -49091,6 +49154,19 @@ def create_siem_tables() -> None:
         notified_at TIMESTAMP DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS siem_pipeline_events (
+        id SERIAL PRIMARY KEY,
+        event_type VARCHAR(50) NOT NULL,
+        severity VARCHAR(20) DEFAULT 'HIGH',
+        source VARCHAR(50) DEFAULT 'M4-Pipeline',
+        target_ip VARCHAR(45),
+        attacker_ip VARCHAR(45),
+        description TEXT,
+        details JSONB,
+        mitigated BOOLEAN DEFAULT FALSE,
+        timestamp TIMESTAMP DEFAULT NOW()
+    );
+
     """
     conn = get_conn()
     try:
@@ -49587,12 +49663,16 @@ M5 — SIEM Engine  |  Motor de Vigilancia Continua 24/7
 ENS Alto RD 311/2022  |  op.exp.3 · op.exp.5 · op.exp.7
 """
 import asyncio
+import json as _json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from shared.scan_logger import ScanLogger
 
 from .db import create_siem_tables
@@ -49632,7 +49712,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(agents_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "https://localhost:5173", "http://localhost:3000", "https://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(blocking_router)
 app.include_router(emergency_router)
 app.include_router(alerting_router)
@@ -49709,6 +49796,89 @@ async def get_siem_status():
         raise HTTPException(
             status_code=500, detail=f"SIEM Offline (Probablemente arrancando): {e}"
         )
+
+class PipelineEventSchema(BaseModel):
+    event_type: str
+    severity: str = 'HIGH'
+    source: str = 'M4-Pipeline'
+    target_ip: Optional[str] = None
+    attacker_ip: Optional[str] = None
+    description: str
+    details: Optional[dict] = None
+    mitigated: bool = False
+
+@app.post("/siem/pipeline-event")
+async def create_pipeline_event(event: PipelineEventSchema):
+    """
+    Registra un evento del pipeline M4 en el SIEM.
+    Llamado automáticamente después de ejecutar Hydra.
+    ENS: op.exp.7, op.exp.5
+    """
+    try:
+        from .db import get_conn
+        conn = get_conn()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO siem_pipeline_events
+                      (event_type, severity, source, target_ip, attacker_ip,
+                       description, details, mitigated, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    RETURNING id, timestamp
+                """, (
+                    event.event_type,
+                    event.severity,
+                    event.source,
+                    event.target_ip,
+                    event.attacker_ip,
+                    event.description,
+                    _json.dumps(event.details) if event.details else None,
+                    event.mitigated,
+                ))
+                row = cur.fetchone()
+        conn.close()
+
+        from .alerting import send_alert
+        send_alert({
+            "severity": event.severity,
+            "description": event.description,
+            "ip": event.target_ip,
+        })
+
+        logger.info(f"[M5] Pipeline event registrado: {event.event_type} → {event.target_ip}")
+        return {"ok": True, "event_id": row[0], "timestamp": row[1].isoformat()}
+
+    except Exception as e:
+        logger.error(f"[M5] Error registrando pipeline event: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/siem/pipeline-events")
+async def get_pipeline_events(limit: int = 50):
+    """Devuelve los últimos eventos del pipeline para AlertsPage."""
+    try:
+        from .db import get_conn
+        conn = get_conn()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, event_type, severity, source, target_ip,
+                           attacker_ip, description, details, mitigated, timestamp
+                    FROM siem_pipeline_events
+                    ORDER BY timestamp DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
+        conn.close()
+        return {"events": [
+            {
+                "id": r[0], "event_type": r[1], "severity": r[2],
+                "source": r[3], "target_ip": r[4], "attacker_ip": r[5],
+                "description": r[6], "details": r[7], "mitigated": r[8],
+                "timestamp": r[9].isoformat() if r[9] else None,
+            } for r in rows
+        ], "total": len(rows)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 FILE:services\siem_engine\misp_client.py
 """
 US-6.8 — Cliente MISP reutilizable

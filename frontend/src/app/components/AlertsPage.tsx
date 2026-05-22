@@ -113,6 +113,7 @@ export function AlertsPage() {
   const [liveAlerts, setLiveAlerts] = useState<M5Alert[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [pipelineEvents, setPipelineEvents] = useState<any[]>([]);
 
   // KPIs + top attackers polling (30s)
   useEffect(() => {
@@ -146,6 +147,23 @@ export function AlertsPage() {
     fetchKpis();
     fetchTopAttackers();
     const id = setInterval(() => { fetchKpis(); fetchTopAttackers(); }, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Pipeline events polling (5s)
+  useEffect(() => {
+    const fetchPipelineEvents = async () => {
+      try {
+        const res = await fetch(`${M5_BASE}/siem/pipeline-events?limit=20`,
+          { headers: authH(), signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const data = await res.json();
+          setPipelineEvents(data.events ?? []);
+        }
+      } catch { /* silencioso */ }
+    };
+    fetchPipelineEvents();
+    const id = setInterval(fetchPipelineEvents, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -224,7 +242,20 @@ export function AlertsPage() {
     return () => clearInterval(id);
   }, [isLive]);
 
-  const alerts: (M5Alert | SiemAlert)[] = liveAlerts.length > 0 ? liveAlerts : MOCK_ALERTS;
+  const pipelineAsAlerts = pipelineEvents.map((e: any) => ({
+    id: `pipeline-${e.id}`,
+    timestamp: e.timestamp,
+    source: e.source ?? 'M4-Pipeline',
+    severity: e.severity,
+    message: e.description,
+    src_ip: e.attacker_ip,
+    target_ip: e.target_ip,
+    attacker_ip: e.attacker_ip,
+    mitigated: e.mitigated,
+  }));
+
+  const combined = [...pipelineAsAlerts, ...liveAlerts];
+  const alerts: (M5Alert | SiemAlert)[] = combined.length > 0 ? combined : MOCK_ALERTS;
   const filteredAlerts = alerts.filter(alert => {
     const a = alert as M5Alert;
     const msg = (a.message ?? '').toLowerCase();
@@ -293,7 +324,7 @@ export function AlertsPage() {
               <div>
                 <p className="text-xs text-[#6b7280] uppercase tracking-wider font-semibold mb-1">Ataques Perimetrales Bloqueados</p>
                 <h3 className="text-2xl font-bold text-white">
-                  {kpisLoading ? '...' : (kpis?.suricata_blocked ?? 142).toLocaleString()}
+                  {kpisLoading ? '...' : ((kpis?.suricata_blocked ?? 0) + pipelineEvents.length).toLocaleString()}
                 </h3>
                 <p className="text-xs text-[#22c55e] mt-1">
                   {kpis ? `Fuente: Suricata IPS · ${lastUpdated}` : '+12% vs ayer (Suricata IPS)'}

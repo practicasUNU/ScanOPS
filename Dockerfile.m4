@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Wordlist: intentar descomprimir rockyou, si no existe crear lista mínima
+RUN mkdir -p /usr/share/wordlists && printf 'password\n123456\ntest123\nadmin\nroot\nadmin123\npassword123\nletmein\nqwerty\n111111\n' > /usr/share/wordlists/demo.txt
 RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
         gunzip /usr/share/wordlists/rockyou.txt.gz; \
     fi && \
