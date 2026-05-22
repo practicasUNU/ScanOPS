@@ -7045,7 +7045,6 @@ export default function App() {
   );
 }
 FILE:frontend\src\app\components\AIReasoningPage.tsx
-TRUNCATED:true SIZE:50509
 import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -7194,7 +7193,7 @@ export function AIReasoningPage() {
     } catch { return {}; }
   });
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authStep, setAuthStep] = useState<'pin'|'qr'|'totp'|'done'>('pin');
+  const [authStep, setAuthStep] = useState<'pin'|'qr'|'done'>('pin');
   const [authPin, setAuthPin] = useState('');
   const [authPinError, setAuthPinError] = useState('');
   const [authApprovalId, setAuthApprovalId] = useState<number|null>(null);
@@ -7421,27 +7420,6 @@ export function AIReasoningPage() {
       setAuthLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (!authTotpSecret || authStep !== 'totp') return;
-
-    const generateCode = () => {
-      import('otpauth').then(({ TOTP, Secret }) => {
-        const totp = new TOTP({ secret: Secret.fromBase32(authTotpSecret), digits: 6, period: 30 });
-        setAuthLiveCode(totp.generate());
-        setAuthTotpCode(totp.generate());
-      }).catch(() => setAuthLiveCode(''));
-    };
-
-    const calcTimer = () => {
-      setAuthCodeTimer(30 - (Math.floor(Date.now() / 1000) % 30));
-    };
-
-    generateCode();
-    calcTimer();
-    const interval = setInterval(() => { generateCode(); calcTimer(); }, 1000);
-    return () => clearInterval(interval);
-  }, [authTotpSecret, authStep]);
 
   const currentAssetStatus = assetStatuses[selectedAssetId] ?? (displayResult ? 'requires_review' : 'pending');
   const step = STEPS[selectedStep];
@@ -7864,8 +7842,8 @@ export function AIReasoningPage() {
 
             {/* Indicador de pasos */}
             <div className="flex items-center gap-2 mb-5">
-              {['PIN', 'QR', 'TOTP'].map((label, i) => {
-                const stepIdx = authStep === 'pin' ? 0 : authStep === 'qr' ? 1 : authStep === 'totp' ? 2 : 3;
+              {['PIN', 'QR'].map((label, i) => {
+                const stepIdx = authStep === 'pin' ? 0 : 1;
                 return (
                   <React.Fragment key={label}>
                     <div className={`flex items-center gap-1.5 text-xs font-mono ${stepIdx >= i ? 'text-[#00d4ff]' : 'text-[#374151]'}`}>
@@ -7874,7 +7852,7 @@ export function AIReasoningPage() {
                       </div>
                       {label}
                     </div>
-                    {i < 2 && <div className={`flex-1 h-px ${stepIdx > i ? 'bg-[#22c55e]' : 'bg-[#1e2530]'}`}/>}
+                    {i < 1 && <div className={`flex-1 h-px ${stepIdx > i ? 'bg-[#22c55e]' : 'bg-[#1e2530]'}`}/>}
                   </React.Fragment>
                 );
               })}
@@ -7922,8 +7900,9 @@ export function AIReasoningPage() {
             {authStep === 'qr' && (
               <div className="space-y-4">
                 <p className="text-xs text-[#9ca3af]">
-                  Escanea este código QR con <strong className="text-white">Google Authenticator</strong> o <strong className="text-white">Authy</strong>.
-                  Expira en <strong className="text-[#f59e0b]">30 minutos</strong>.
+                  Guarda este código QR en tu app autenticadora (<strong className="text-white">Google Authenticator</strong>, <strong className="text-white">Authy</strong>).
+                  El Security Officer lo necesitará para aprobar en M4 Explotación.
+                  La solicitud expira en <strong className="text-[#f59e0b]">30 minutos</strong>.
                 </p>
                 <div className="flex justify-center">
                   <img
@@ -7935,81 +7914,35 @@ export function AIReasoningPage() {
                 <p className="text-xs text-[#6b7280] text-center">
                   Aprobación ID: <span className="font-mono text-[#00d4ff]">#{authApprovalId}</span>
                 </p>
-                <button onClick={() => setAuthStep('totp')}
+                <button onClick={() => setAuthStep('done')}
                   className="w-full py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold
                              rounded-lg text-sm transition-colors">
-                  Ya lo escaneé → Introducir código
+                  Solicitud enviada a M4 ✓
                 </button>
-              </div>
-            )}
-
-            {/* PASO 3: TOTP */}
-            {authStep === 'totp' && (
-              <div className="space-y-4">
-                <p className="text-xs text-[#9ca3af]">
-                  Introduce el código de 6 dígitos que muestra tu app autenticadora.
-                </p>
-                {authLiveCode && (
-                  <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-xl p-4 text-center">
-                    <p className="text-xs text-[#6b7280] mb-2">Código TOTP generado automáticamente</p>
-                    <div className="text-3xl font-mono font-bold text-[#00d4ff] tracking-[0.3em] mb-2">
-                      {authLiveCode}
-                    </div>
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-24 h-1.5 bg-[#1e2530] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#00d4ff] rounded-full transition-all duration-1000"
-                          style={{ width: `${(authCodeTimer / 30) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-[#6b7280] font-mono">{authCodeTimer}s</span>
-                    </div>
-                    <p className="text-[10px] text-[#4b5563] mt-2">
-                      El código se actualiza automáticamente. Ya está pre-rellenado abajo.
-                    </p>
-                  </div>
-                )}
-                <div>
-                  <label className="text-xs text-[#6b7280] mb-1.5 block">Código TOTP (6 dígitos)</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={authTotpCode}
-                    onChange={e => setAuthTotpCode(e.target.value.replace(/\D/g,''))}
-                    onKeyDown={e => e.key === 'Enter' && handleSubmitTotp()}
-                    placeholder="000000"
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2
-                               text-2xl text-white text-center font-mono tracking-[0.5em]
-                               focus:outline-none focus:border-[#00d4ff]"
-                  />
-                  {authTotpError && (
-                    <p className="text-xs text-[#ff3b3b] mt-1 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3"/>{authTotpError}
-                    </p>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setAuthStep('qr')}
-                    className="px-4 py-2 bg-[#1e2530] text-[#9ca3af] rounded-lg text-sm hover:bg-[#252b3b]">
-                    ← Volver
-                  </button>
-                  <button onClick={handleSubmitTotp} disabled={authLoading || authTotpCode.length !== 6}
-                    className="flex-1 py-2 bg-[#22c55e] hover:bg-[#16a34a] text-white font-bold
-                               rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed
-                               flex items-center justify-center gap-2">
-                    {authLoading
-                      ? <><Loader2 className="w-4 h-4 animate-spin"/>Verificando...</>
-                      : <><ShieldCheck className="w-4 h-4"/>Firmar y Autorizar</>}
-                  </button>
-                </div>
               </div>
             )}
 
             {/* DONE */}
             {authStep === 'done' && (
               <div className="text-center space-y-3 py-4">
-                <div className="w-12 h-12 rounded-full bg-[#22c55e]/20 border border-[#22c55e]/
+                <div className="w-12 h-12 rounded-full bg-[#22c55e]/20 border border-[#22c55e]/30
+                                flex items-center justify-center mx-auto">
+                  <Check className="w-6 h-6 text-[#22c55e]"/>
+                </div>
+                <p className="text-sm font-bold text-[#22c55e]">Vector autorizado y firmado</p>
+                <p className="text-xs text-[#6b7280]">
+                  La solicitud está PENDING en M4 Explotación. El Security Officer debe aprobarla con su código TOTP.
+                </p>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
 FILE:frontend\src\app\components\AlertsPage.tsx
 import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
@@ -8584,14 +8517,15 @@ export function AlertsPage() {
   );
 }
 FILE:frontend\src\app\components\AssetDetailPage.tsx
-import { useState, useEffect, useCallback, useMemo } from 'react';
+TRUNCATED:true SIZE:61709
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { Badge } from './ui/badge';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle,
+  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap, CheckCircle2, ShieldAlert, Shield,
 } from 'lucide-react';
 import { useAssets, type VulnResult } from '../../hooks/useAssets';
 import { getStoredToken } from '../../hooks/useAuth';
@@ -8874,6 +8808,193 @@ export function AssetDetailPage() {
     }
   }, [asset, scanAsset, pollScanStatus]);
 
+  // ── Pipeline completo M2→M3→M8→M4 ──────────────────────────────────────────
+  type PipelinePhase = 'idle'|'m2'|'m3'|'m8'|'m4'|'done'|'error';
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+  const [pipelinePhase, setPipelinePhase] = useState<PipelinePhase>('idle');
+  const [pipelineLogs, setPipelineLogs] = useState<{ts:string; level:'info'|'success'|'warn'|'error'; msg:string}[]>([]);
+  const [pipelineOpen, setPipelineOpen] = useState(false);
+  const [pipelineQr, setPipelineQr] = useState('');
+  const [pipelineApprovalId, setPipelineApprovalId] = useState<number|null>(null);
+  const [pipelineAuthorized, setPipelineAuthorized] = useState(false);
+  const [pipelineExecResult, setPipelineExecResult] = useState<any>(null);
+  const pipelineLogRef = useRef<HTMLDivElement>(null);
+
+  const plog = (msg: string, level: 'info'|'success'|'warn'|'error' = 'info') => {
+    const ts = new Date().toLocaleTimeString('es-ES');
+    const entry = { ts, level, msg };
+    setPipelineLogs(p => {
+      const updated = [...p, entry];
+      try {
+        sessionStorage.setItem(
+          `scanops_pipeline_${asset?.id}`,
+          JSON.stringify({ logs: updated, phase: pipelinePhase })
+        );
+      } catch {}
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    if (pipelineLogRef.current) {
+      pipelineLogRef.current.scrollTop = pipelineLogRef.current.scrollHeight;
+    }
+  }, [pipelineLogs]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    try {
+      const stored = sessionStorage.getItem(`scanops_pipeline_${asset.id}`);
+      if (stored) {
+        const { logs, phase } = JSON.parse(stored);
+        if (logs?.length > 0) {
+          setPipelineLogs(logs);
+          setPipelinePhase(phase ?? 'done');
+          setPipelineOpen(true);
+        }
+      }
+    } catch {}
+  }, [asset?.id]);
+
+  const handleRunPipeline = async () => {
+    if (!asset) return;
+    setPipelineRunning(true);
+    setPipelineOpen(true);
+    setPipelineLogs([]);
+    setPipelineQr('');
+    setPipelineApprovalId(null);
+
+    try {
+      // ── FASE M2: Reconocimiento ─────────────────────────────
+      setPipelinePhase('m2');
+      plog(`[M2] Iniciando reconocimiento sobre ${asset.ip}...`);
+      const m2Res = await fetch(
+        `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(asset.ip)}`,
+        { method: 'POST', headers: authHeader(), signal: AbortSignal.timeout(120000) }
+      );
+      if (!m2Res.ok) throw new Error(`M2 falló: HTTP ${m2Res.status}`);
+      const m2Data = await m2Res.json();
+      const ports = m2Data.reconnaissance?.ports_discovered?.length ?? 0;
+      plog(`[M2] ✓ ${ports} puertos descubiertos en ${m2Data.summary?.scan_duration_seconds?.toFixed(1)}s`, 'success');
+      m2Data.reconnaissance?.ports_discovered?.forEach((p: any) => {
+        plog(`[M2]   → ${p.port}/${p.protocol} ${p.service} ${p.version ?? ''}`, 'info');
+      });
+
+      // ── FASE M3: Vulnerabilidades ───────────────────────────
+      setPipelinePhase('m3');
+      plog(`[M3] Lanzando Nmap + Nuclei + Nikto sobre ${asset.ip}...`);
+      const m3Launch = await fetch(
+        `http://localhost:8002/api/v1/scan/asset/${asset.id}`,
+        { method: 'POST', headers: authHeader(),
+          body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto'],
+            description: `Pipeline completo: ${asset.ip}` }),
+          signal: AbortSignal.timeout(15000) }
+      );
+      if (!m3Launch.ok) throw new Error(`M3 falló al lanzar: HTTP ${m3Launch.status}`);
+      plog(`[M3] Escaneo lanzado — esperando resultados (puede tardar 2-3 min)...`);
+
+      await new Promise(r => setTimeout(r, 15000));
+      let m3Findings = 0;
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        try {
+          const rRes = await fetch(`http://localhost:8002/api/v1/scan/results/${asset.id}`,
+            { headers: authHeader(), signal: AbortSignal.timeout(8000) });
+          if (rRes.ok) {
+            const rData = await rRes.json();
+            if ((rData.total_findings ?? 0) > 0) {
+              m3Findings = rData.total_findings;
+              plog(`[M3] ✓ ${m3Findings} vulnerabilidades encontradas`, 'success');
+              const allFindings = Object.values(rData.findings_by_scanner ?? {}).flat() as any[];
+              allFindings.filter((f: any) => ['CRITICAL','HIGH'].includes(f.severity))
+                .slice(0, 5)
+                .forEach((f: any) => plog(`[M3]   → [${f.severity}] ${f.title}`, f.severity === 'CRITICAL' ? 'error' : 'warn'));
+              break;
+            }
+          }
+        } catch { continue; }
+        if (i % 3 === 0) plog(`[M3] Escaneando... ${15 + (i+1)*5}s`);
+      }
+      if (m3Findings === 0) plog(`[M3] ⚠ Sin hallazgos — continuando con M8`, 'warn');
+
+      // ── FASE M8: IA Reasoning ───────────────────────────────
+      setPipelinePhase('m8');
+      plog(`[M8] Invocando Ollama/Mistral para análisis de vectores...`);
+      const m8Launch = await fetch(
+        `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector`,
+        { method: 'POST', headers: authHeader(), signal: AbortSignal.timeout(15000) }
+      );
+      if (!m8Launch.ok) throw new Error(`M8 falló: HTTP ${m8Launch.status}`);
+      const { task_id: m8TaskId } = await m8Launch.json();
+      plog(`[M8] Tarea lanzada — Mistral procesando (puede tardar 3-5 min)...`);
+
+      let m8Result: any = null;
+      for (let a = 0; a < 60; a++) {
+        await new Promise(r => setTimeout(r, 4000));
+        try {
+          const rRes = await fetch(
+            `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector/result/${m8TaskId}`,
+            { headers: authHeader(), signal: AbortSignal.timeout(8000) }
+          );
+          if (rRes.ok) {
+            const rData = await rRes.json();
+            if (rData.status === 'SUCCESS' && rData.result) {
+              m8Result = rData.result;
+              const modulo = m8Result?.msf_module ?? m8Result?.attack_module ?? 'exploit/multi/handler';
+              const riesgo = String(m8Result?.risk_level ?? m8Result?.riesgo ?? 'ALTO').toUpperCase();
+              const confianza = String(m8Result?.confidence ?? m8Result?.confianza ?? 'alto').toUpperCase();
+              const ensArt = m8Result?.ens_article ?? m8Result?.ens ?? 'op.exp.2';
+              plog(`[M8] ✓ Vector generado por Mistral/Ollama`, 'success');
+              plog(`[M8]   → Módulo: ${modulo}`, 'info');
+              plog(`[M8]   → Riesgo: ${riesgo} | Confianza: ${confianza}`, 'info');
+              plog(`[M8]   → ENS: ${ensArt} — Requiere aprobación humana (op.pl.1)`, 'info');
+              break;
+            }
+            if (rData.status === 'FAILED' || rData.status === 'FAILURE') throw new Error('M8 falló durante la inferencia');
+          }
+        } catch (e: any) {
+          if (e.message?.includes('M8 falló')) throw e;
+          continue;
+        }
+        if (a % 5 === 0) plog(`[M8] Analizando... [${a+1}/60]`);
+      }
+      if (!m8Result) throw new Error('M8 timeout — Ollama tardó demasiado');
+
+      // ── FASE M4: Solicitud de aprobación ────────────────────
+      setPipelinePhase('m4');
+      plog(`[M4] Creando solicitud de aprobación en la cola...`);
+      const cveId = m8Result.msf_module?.split('/').pop()?.toUpperCase() ?? `VECTOR-${asset.ip}`;
+      const m4Res = await fetch('http://localhost:8004/api/m4/request-approval', {
+        method: 'POST',
+        headers: authHeader(),
+        body: JSON.stringify({ cve: cveId, ip: asset.ip, user_email: 'admin@scanops.local', pin: '1234' }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!m4Res.ok) throw new Error(`M4 falló: HTTP ${m4Res.status}`);
+      const m4Data = await m4Res.json();
+      setPipelineApprovalId(m4Data.approval_id);
+      setPipelineQr(m4Data.qr_code_base64 ?? '');
+      plog(`[M4] ✓ Solicitud #${m4Data.approval_id} creada — PIN: 1234`, 'success');
+      plog(`[M4] ⏳ Esperando aprobación del Security Officer en M4 Explotación`, 'warn');
+
+      setPipelinePhase('done');
+      plog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'info');
+      plog(`[✓] PIPELINE COMPLETO — ${asset.ip}`, 'success');
+      plog(`[✓] M2: Reconocimiento completado`, 'success');
+      plog(`[✓] M3: Vulnerabilidades identificadas`, 'success');
+      plog(`[✓] M8: Vector de ataque generado por IA`, 'success');
+      plog(`[✓] M4: Solicitud #${m4Data.approval_id} en cola de aprobación`, 'success');
+      plog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'info');
+      plog(`[→] Escanea el QR y ve a M4 Explotación para autorizar`, 'warn');
+
+    } catch (e: any) {
+      setPipelinePhase('error');
+      plog(`[✗] Error: ${e.message}`, 'error');
+    } finally {
+      setPipelineRunning(false);
+    }
+  };
+
   const scanDates = useMemo(() => {
     const dates = new Set(vulns.map(v =>
       v.created_at ? new Date(v.created_at).toLocaleDateString('es-ES') : null
@@ -9005,6 +9126,15 @@ export function AssetDetailPage() {
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Eliminar
+              </button>
+              <button
+                onClick={() => { setPipelineOpen(true); if (!pipelineRunning && pipelinePhase === 'idle') handleRunPipeline(); }}
+                disabled={pipelineRunning}
+                className="flex items-center gap-2 px-4 py-1.5 bg-[#7c3aed]/10 border border-[#7c3aed]/30 text-[#a78bfa] rounded-lg text-sm font-semibold hover:bg-[#7c3aed]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {pipelineRunning
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/>Pipeline en curso...</>
+                  : <><Zap className="w-3.5 h-3.5"/>Ejecutar Pipeline</>}
               </button>
             </div>
           </div>
@@ -9403,41 +9533,27 @@ export function AssetDetailPage() {
         </main>
       </div>
 
-      {/* Delete Dialog */}
-      <Dialog.Root open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1d27] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
-            <Dialog.Title className="text-base font-semibold text-white mb-2 flex items-center gap-2">
-              <Trash2 className="w-4 h-4 text-[#ff3b3b]" />
-              Confirmar eliminación
-            </Dialog.Title>
-            <Dialog.Description className="text-sm text-[#9ca3af] mb-5">
-              Esta acción eliminará el activo{' '}
-              <span className="font-mono text-white">{asset.ip}</span>{' '}
-              del inventario. La operación quedará registrada en los logs de auditoría (ENS op.exp.1).
-            </Dialog.Description>
-            <div className="flex gap-3">
-              <button
-                onClick={handleDelete}
-                disabled={deleteLoading}
-                className="flex-1 flex items-center justify-center gap-2 py-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 text-[#ff3b3b] hover:bg-[#ff3b3b]/20 font-semibold rounded-lg transition-colors disabled:opacity-60 text-sm"
-              >
-                {deleteLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                Eliminar activo
-              </button>
-              <Dialog.Close asChild>
-                <button className="px-5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
-                  Cancelar
-                </button>
-              </Dialog.Close>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-    </div>
-  );
-}
+      {/* Pipeline Modal */}
+      {pipelineOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-2xl w-full max-w-2xl mx-4 mb-4 sm:mb-0 shadow-2xl flex flex-col max-h-[80vh]">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2530]">
+              <div className="flex items-center gap-3">
+                <Zap className="w-5 h-5 text-[#a78bfa]"/>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Pipeline Completo — {asset?.ip}</h3>
+                  <p className="text-xs text-[#6b7280]">M2 → M3 → M8 → M4</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setPipelineLogs([]);
+                    setPipelinePhase('idle');
+                    setPipelineAuthorized(false);
+               
 FILE:frontend\src\app\components\AssetManagerPage.tsx
 TRUNCATED:true SIZE:86020
 import { useState, useCallback, useEffect } from 'react';
@@ -12267,15 +12383,15 @@ export function ExploitationPage() {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as any)?.detail ?? `Error ${res.status}`);
       }
+      const approvedIp = selectedRequest?.target_ip ?? '';
+      const approvedCve = selectedRequest?.cve_id ?? '';
       setShowAuthModal(false);
       setTotp('');
       setPin('');
-      const approvedIp = selectedRequest?.target_ip ?? '';
-      const approvedCve = selectedRequest?.cve_id ?? '';
       setSelectedRequest(null);
-      refetch();
       setApprovedMsg(`✓ Explotación autorizada — ${approvedCve} sobre ${approvedIp} — registrado en audit logs (ENS op.acc.5)`);
       setTimeout(() => setApprovedMsg(null), 8000);
+      setTimeout(() => refetch(), 1000);
     } catch (e: any) {
       setAuthError(e?.message ?? 'Error al autorizar');
     } finally {
@@ -36322,6 +36438,75 @@ async def approve_request(action: ApprovalActionSchema):
         if not success:
             raise HTTPException(status_code=400, detail=message)
         return {"message": message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/execute/{approval_id}")
+async def execute_approved(approval_id: int):
+    """
+    Ejecuta el ataque aprobado usando Hydra (fuerza bruta SSH).
+    Solo funciona si la aprobación está en estado APPROVED.
+    ENS: op.exp.2, op.acc.5
+    """
+    try:
+        import psycopg2
+        import psycopg2.extras
+        import json
+        import os
+        from services.exploit_engine.hydra_client import get_hydra_client
+
+        db_url = os.getenv("DATABASE_URL", "postgresql://scanops:scanops@postgres:5432/scanops")
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = False
+
+        with conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, cve_id, target_ip, status FROM m4_approvals WHERE id = %s",
+                    (approval_id,)
+                )
+                approval = cur.fetchone()
+                if not approval:
+                    raise HTTPException(status_code=404, detail="Aprobación no encontrada")
+                if approval['status'] != 'APPROVED':
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"La aprobación no está APPROVED (estado: {approval['status']})"
+                    )
+
+                target_ip = approval['target_ip']
+                client = get_hydra_client()
+                result = client.crack_ssh(
+                    target_host=target_ip,
+                    username='admin',
+                    wordlist='/usr/share/wordlists/rockyou.txt',
+                )
+
+                cur.execute(
+                    """UPDATE m4_approvals
+                       SET execution_result = %s, executed_at = NOW()
+                       WHERE id = %s""",
+                    (json.dumps(result), approval_id)
+                )
+
+                return {
+                    "approval_id": approval_id,
+                    "target_ip": target_ip,
+                    "executed": True,
+                    "success": result["success"],
+                    "password_found": result.get("password"),
+                    "attempts": result.get("attempts", 0),
+                    "duration": result.get("duration", 0),
+                    "service": "ssh",
+                    "message": (
+                        f"✓ Acceso obtenido — usuario: admin | contraseña: {result['password']}"
+                        if result["success"]
+                        else "✗ No se encontraron credenciales válidas"
+                    )
+                }
+
     except HTTPException:
         raise
     except Exception as e:
