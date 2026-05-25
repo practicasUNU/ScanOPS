@@ -298,6 +298,7 @@ export function AssetDetailPage() {
   const [pipelineApprovalId, setPipelineApprovalId] = useState<number|null>(null);
   const [pipelineAuthorized, setPipelineAuthorized] = useState(false);
   const [pipelineExecResult, setPipelineExecResult] = useState<any>(null);
+  const [pipelineErrors, setPipelineErrors] = useState<string[]>([]);
   const pipelineLogRef = useRef<HTMLDivElement>(null);
 
   const plog = (msg: string, level: 'info'|'success'|'warn'|'error' = 'info') => {
@@ -313,6 +314,9 @@ export function AssetDetailPage() {
       } catch {}
       return updated;
     });
+    if (level === 'error') {
+      setPipelineErrors(p => [...p, msg]);
+    }
   };
 
   useEffect(() => {
@@ -341,6 +345,7 @@ export function AssetDetailPage() {
     setPipelineRunning(true);
     setPipelineOpen(true);
     setPipelineLogs([]);
+    setPipelineErrors([]);
     setPipelineQr('');
     setPipelineApprovalId(null);
 
@@ -581,8 +586,15 @@ export function AssetDetailPage() {
           {/* Header row 2: title + action buttons */}
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-mono font-semibold text-white">{asset.ip}</h1>
-              <p className="text-sm text-[#9ca3af] mt-0.5">{asset.hostname ?? 'Sin hostname'}</p>
+              <h1 className="text-2xl font-mono font-semibold text-white">
+                {asset.nombre || asset.hostname || asset.ip}
+              </h1>
+              {asset.nombre && asset.hostname && (
+                <p className="text-xs text-[#6b7280] font-mono mt-0.5">{asset.hostname}</p>
+              )}
+              {!asset.nombre && (
+                <p className="text-sm text-[#9ca3af] font-mono mt-0.5">{asset.ip}</p>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1031,6 +1043,7 @@ export function AssetDetailPage() {
                 <button
                   onClick={() => {
                     setPipelineLogs([]);
+                    setPipelineErrors([]);
                     setPipelinePhase('idle');
                     setPipelineAuthorized(false);
                     setPipelineExecResult(null);
@@ -1056,6 +1069,23 @@ export function AssetDetailPage() {
                 )}
               </div>
             </div>
+
+            {/* Error banner */}
+            {pipelineErrors.length > 0 && (
+              <div className="mx-4 mt-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg px-4 py-2.5">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <AlertCircle className="w-4 h-4 text-[#ff3b3b] shrink-0"/>
+                  <span className="text-xs font-bold text-[#ff3b3b]">
+                    {pipelineErrors.length} error{pipelineErrors.length > 1 ? 'es' : ''} en el pipeline
+                  </span>
+                </div>
+                <ul className="space-y-0.5">
+                  {pipelineErrors.map((e, i) => (
+                    <li key={i} className="text-[10px] text-[#ff3b3b] font-mono">• {e}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* Log terminal */}
             <div ref={pipelineLogRef}
@@ -1205,7 +1235,7 @@ export function AssetDetailPage() {
                 <AlertCircle className="w-4 h-4 text-[#ff3b3b]"/>
                 <span className="text-xs text-[#ff3b3b]">Pipeline fallido — revisa los logs</span>
                 <button
-                  onClick={() => { setPipelineLogs([]); setPipelinePhase('idle'); handleRunPipeline(); }}
+                  onClick={() => { setPipelineLogs([]); setPipelineErrors([]); setPipelinePhase('idle'); handleRunPipeline(); }}
                   className="ml-auto px-3 py-1.5 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 text-[#ff3b3b] rounded text-xs hover:bg-[#ff3b3b]/20">
                   Reintentar
                 </button>

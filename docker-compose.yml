@@ -95,6 +95,9 @@ services:
       OLLAMA_MODEL: "mistral:7b"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      PLATFORM_URL: ${PLATFORM_URL:-https://localhost:5173}
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,6 +114,9 @@ services:
       DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
       REDIS_URL: redis://scanops-main-redis:6379/0
       JWT_SECRET_KEY: "scanops_jwt_secret_key_ens_alto_2026"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      PLATFORM_URL: ${PLATFORM_URL:-https://localhost:5173}
     depends_on:
       postgres:
         condition: service_healthy
@@ -251,6 +257,9 @@ services:
       KILL_SWITCH_REDIS_URL: redis://scanops-main-redis:6379/0
       MONITOR_SSH_USER: admin
       MONITOR_SSH_PASSWORD: test123
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      PLATFORM_URL: ${PLATFORM_URL:-https://localhost:5173}
     depends_on:
       postgres:
         condition: service_healthy
@@ -443,6 +452,9 @@ services:
       - SERVICE_NAME=M7-Reporting
       - DATABASE_URL=postgresql://scanops:scanops@scanops-postgres:5432/scanops
       - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - PLATFORM_URL=${PLATFORM_URL:-https://localhost:5173}
     depends_on:
       postgres:
         condition: service_healthy

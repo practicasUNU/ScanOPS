@@ -34,7 +34,12 @@ export function useScanData() {
 
       // ─── PASO 1: CONSULTAR EL INVENTARIO REAL DE ACTIVOS (M1) ───
       const assetsRes = await fetch(M1_ASSETS_URL, { headers });
-      if (!assetsRes.ok) throw new Error(`Error al consultar inventario M1 (HTTP ${assetsRes.status})`);
+      if (!assetsRes.ok) {
+        if (assetsRes.status === 401) {
+          throw new Error('Token expirado — vuelve a iniciar sesión');
+        }
+        throw new Error(`M1 no disponible (HTTP ${assetsRes.status})`);
+      }
       const assetsData = await assetsRes.json();
       
       // Filtramos únicamente los activos que están operativos en producción
@@ -159,7 +164,14 @@ export function useScanData() {
       });
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al obtener datos de escaneo consolidados');
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('401') || msg.includes('Token expirado')) {
+        setError('Token expirado — vuelve a iniciar sesión');
+      } else if (msg.includes('fetch') || msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        setError('Servicio no disponible — comprueba que M1/M3 están activos');
+      } else {
+        setError(msg || 'Error al obtener datos de escaneo consolidados');
+      }
     } finally {
       setLoading(false);
     }

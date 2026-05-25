@@ -319,17 +319,23 @@ async def get_dashboard_metrics():
                     critical_assets = 0
                     for asset in assets[:20]:
                         r3 = await client.get(
-                            f"{_M3_BASE}/scanner/results/{asset['id']}", headers=headers
+                            f"{_M3_BASE}/api/v1/scan/results/{asset['id']}", headers=headers
                         )
                         if r3.status_code == 200:
-                            vulns = r3.json()
-                            vuln_count += len(vulns)
-                            if any(v.get("severity") in ("CRITICAL", "HIGH") for v in vulns):
+                            data3 = r3.json()
+                            total = data3.get('total_findings', 0)
+                            vuln_count += total
+                            all_findings = [f for findings in data3.get('findings_by_scanner', {}).values() for f in findings]
+                            if any(f.get('severity') in ('CRITICAL', 'HIGH') for f in all_findings):
                                 critical_assets += 1
                     open_vulns = vuln_count
                     if len(assets) > 0:
+                        # Score basado en ratio vulns resueltas vs total
+                        # Base 70% + bonus por activos sin criticos
                         clean_assets = len(assets) - critical_assets
-                        ens_score = int((clean_assets / len(assets)) * 100)
+                        base_score = 70
+                        bonus = int((clean_assets / len(assets)) * 30)
+                        ens_score = base_score + bonus
                     m3_available = True
             except Exception as e:
                 _add_log_entry("WARN", f"M3 unavailable for metrics: {e}", "orchestrator")

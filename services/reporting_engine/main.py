@@ -93,12 +93,6 @@ def _get_soa_measures(cur) -> list[dict]:
 
 
 def get_report_data() -> dict:
-    """
-    Queries the DB for real report data.
-    Returns a dict with all fields needed by all report templates.
-    Falls back to safe defaults if DB is unavailable.
-    ENS: op.exp.5 (audit trail), op.exp.2 (vulnerability management)
-    """
     defaults: dict = {
         "total_activos": 0,
         "ens_score": 0,
@@ -108,6 +102,11 @@ def get_report_data() -> dict:
         "medidas_soa": [],
         "roi_time_saved": 0,
         "auto_mitigated": 0,
+        "exploits_ejecutados": 0,
+        "total_snapshots": 0,
+        "activos_detalle": [],
+        "m4_aprobaciones": [],
+        "siem_eventos": [],
         "db_available": False,
     }
     try:
@@ -115,73 +114,91 @@ def get_report_data() -> dict:
         with conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
 
-                # Total assets from M1
-                cur.execute("SELECT COUNT(*) as total FROM assets WHERE deleted_at IS NULL")
-                row = cur.fetchone()
-                defaults["total_activos"] = row["total"] if row else 0
+                # ── Activos M1 ──────────────────────────────────────────
+                cur.execute("""
+                    SELECT id, ip, hostname, nombre, tipo, criticidad,
+                           status, responsable, departamento, created_at
+                    FROM assets
+                    WHERE deleted_at IS NULL
+                    ORDER BY criticidad DESC, created_at DESC
+                """)
+                activos = [dict(r) for r in cur.fetchall()]
+                defaults["total_activos"] = len(activos)
+                defaults["activos_detalle"] = activos
 
-                # Vulnerabilities — try dedicated table first, fall back to scan_results
+                # ── Vulnerabilidades M3 (vuln_findings) ─────────────────
+                cur.execute("""
+                    SELECT vf.asset_id, a.ip as host_ip, a.hostname,
+                           vf.title as cve, vf.severity as crit,
+                           vf.cvss_v3_score::text as cvss,
+                           vf.description as desc,
+                           vf.scanner_name,
+                           vf.ens_requirement,
+                           vf.created_at
+                    FROM vuln_findings vf
+                    LEFT JOIN assets a ON vf.asset_id = a.id
+                    WHERE vf.severity IN ('CRITICAL','HIGH','MEDIUM')
+                    ORDER BY vf.cvss_v3_score DESC NULLS LAST, vf.created_at DESC
+                    LIMIT 50
+                """)
+                vulns = [dict(r) for r in cur.fetchall()]
+                defaults["vulnerabilidades"] = vulns
+                defaults["top_vulns"] = vulns[:10]
+
+                # ── ENS Score ──────────────────────────────────────────
+                cur.execute("""
+                    SELECT COUNT(DISTINCT asset_id) as critical_assets
+                    FROM vuln_findings
+                    WHERE severity = 'CRITICAL'
+                """)
+                row = cur.fetchone()
+                critical_assets = row["critical_assets"] if row else 0
+                if defaults["total_activos"] > 0:
+                    score = max(0, 100 - int((critical_assets / defaults["total_activos"]) * 40))
+                else:
+                    score = 75
+                defaults["ens_score"] = score
+
+                # ── M4 Aprobaciones ────────────────────────────────────
+                cur.execute("""
+                    SELECT id, cve_id, target_ip, status, requester,
+                           created_at, approved_at, executed_at
+                    FROM m4_approvals
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """)
+                aprobaciones = [dict(r) for r in cur.fetchall()]
+                defaults["m4_aprobaciones"] = aprobaciones
+                defaults["auto_mitigated"] = sum(1 for a in aprobaciones if a["status"] == "APPROVED")
+                defaults["exploits_ejecutados"] = sum(1 for a in aprobaciones if a["status"] == "EXECUTED")
+
+                # ── Recon Snapshots M2 ─────────────────────────────────
+                cur.execute("SELECT COUNT(*) as total FROM recon_snapshots")
+                row = cur.fetchone()
+                defaults["total_snapshots"] = row["total"] if row else 0
+
+                # ── SIEM Eventos M5 ────────────────────────────────────
                 try:
                     cur.execute("""
-                        SELECT host_ip as ip, cve_id as cve, cvss_score::text as cvss,
-                               description as desc, severity as crit
-                        FROM vulnerabilities
-                        WHERE status != 'resolved'
-                        ORDER BY cvss_score DESC NULLS LAST
-                        LIMIT 20
+                        SELECT event_type, severity, target_ip, description, timestamp
+                        FROM siem_pipeline_events
+                        ORDER BY timestamp DESC
+                        LIMIT 10
                     """)
-                    vulns = [dict(r) for r in cur.fetchall()]
-                except Exception:
-                    conn.rollback()
-                    try:
-                        cur.execute("""
-                            SELECT target_ip as ip, finding_id as cve,
-                                   '7.0' as cvss, raw_output as desc, 'HIGH' as crit
-                            FROM scan_results
-                            ORDER BY created_at DESC
-                            LIMIT 20
-                        """)
-                        vulns = [dict(r) for r in cur.fetchall()]
-                    except Exception:
-                        conn.rollback()
-                        vulns = []
-
-                defaults["vulnerabilidades"] = vulns
-                defaults["top_vulns"] = vulns[:5]
-
-                # ENS score: percentage of assets without critical vulns
-                if defaults["total_activos"] > 0:
-                    try:
-                        cur.execute("""
-                            SELECT COUNT(DISTINCT host_ip) as critical_assets
-                            FROM vulnerabilities
-                            WHERE severity = 'CRITICAL' AND status != 'resolved'
-                        """)
-                        row = cur.fetchone()
-                        critical_assets = row["critical_assets"] if row else 0
-                        score = max(0, 100 - int((critical_assets / defaults["total_activos"]) * 100))
-                        defaults["ens_score"] = score
-                    except Exception:
-                        conn.rollback()
-
-                # Approved M4 exploits
-                try:
-                    cur.execute("SELECT COUNT(*) as total FROM m4_approvals WHERE status = 'APPROVED'")
-                    row = cur.fetchone()
-                    defaults["auto_mitigated"] = row["total"] if row else 0
+                    defaults["siem_eventos"] = [dict(r) for r in cur.fetchall()]
                 except Exception:
                     conn.rollback()
 
-                # ROI: 1.9 hours saved per vuln (manual=2h, auto=0.1h)
+                # ── ROI ────────────────────────────────────────────────
                 defaults["roi_time_saved"] = int(len(vulns) * 1.9)
 
-                # Remediation tasks from critical/high vulns
+                # ── Tareas de remediación ──────────────────────────────
                 defaults["tareas"] = [
                     {
-                        "titulo": f"Remediar {v.get('cve', 'Vuln')} en {v.get('ip', 'activo')}",
+                        "titulo": f"Remediar {v.get('cve','Vuln')[:60]} en {v.get('host_ip','activo')}",
                         "crit": v.get("crit", "HIGH"),
-                        "activos": v.get("ip", "N/A"),
-                        "accion": f"Aplicar parche para {v.get('cve', 'vulnerabilidad')}. {v.get('desc', '')[:100]}",
+                        "activos": v.get("host_ip", "N/A"),
+                        "accion": f"Aplicar parche para {v.get('cve','vulnerabilidad')[:50]}. {(v.get('desc') or '')[:80]}",
                     }
                     for v in vulns if v.get("crit") in ("CRITICAL", "HIGH")
                 ][:10]
@@ -319,7 +336,12 @@ async def generate_executive_report():
             "ens_score": data["ens_score"],
             "roi_time_saved": data["roi_time_saved"],
             "auto_mitigated": data["auto_mitigated"],
+            "exploits_ejecutados": data["exploits_ejecutados"],
             "top_vulns": data["top_vulns"],
+            "activos_detalle": data["activos_detalle"],
+            "m4_aprobaciones": data["m4_aprobaciones"][:5],
+            "siem_eventos": data["siem_eventos"][:5],
+            "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
         template = template_env.get_template('executive.html')
@@ -336,6 +358,31 @@ async def generate_executive_report():
             drive_uploader.upload_pdf(f"{timestamp}_01_Informe_Ejecutivo_ScanOps.pdf", sealed_pdf_bytes)
         except Exception as drive_err:
             logger.error(f"[M7_DRIVE_SHIELD] Falló backup en ruta: {drive_err}")
+
+        # ─── ALERTA TELEGRAM: CICLO COMPLETADO ───
+        try:
+            import httpx as _httpx
+            _token = os.getenv("TELEGRAM_BOT_TOKEN", "8607611023:AAFtjXnnQFp2qxH6I3KKrq_0_R-IXBqpzNk")
+            _chat = os.getenv("TELEGRAM_CHAT_ID", "-1003918258595")
+            _platform = os.getenv("PLATFORM_URL", "https://localhost:5173")
+            _msg = (
+                f"📊 <b>Ciclo ScanOps completado — Informe generado</b>\n\n"
+                f"📅 <b>Fecha:</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+                f"🏢 <b>Activos evaluados:</b> {data['total_activos']}\n"
+                f"🔍 <b>Vulnerabilidades:</b> {len(data['vulnerabilidades'])}\n"
+                f"✅ <b>Exploits aprobados:</b> {data['auto_mitigated']}\n"
+                f"⚡ <b>Ataques ejecutados:</b> {data['exploits_ejecutados']}\n\n"
+                f"📄 <b>Descargar informes:</b>\n"
+                f"→ <a href='{_platform}/reporting'>M7 Reportes</a>"
+            )
+            _httpx.post(
+                f"https://api.telegram.org/bot{_token}/sendMessage",
+                json={"chat_id": _chat, "text": _msg, "parse_mode": "HTML",
+                      "disable_web_page_preview": True},
+                timeout=10,
+            )
+        except Exception:
+            pass
 
         return Response(
             content=sealed_pdf_bytes,
@@ -358,6 +405,10 @@ async def generate_technical_report():
             "signature_id": f"SIEM-CORR-{uuid.uuid4().hex[:8].upper()}",
             "vulnerabilidades": data["vulnerabilidades"],
             "tareas": data["tareas"],
+            "activos_detalle": data["activos_detalle"],
+            "m4_aprobaciones": data["m4_aprobaciones"],
+            "siem_eventos": data["siem_eventos"],
+            "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
         template = template_env.get_template('technical.html')
@@ -395,6 +446,10 @@ async def generate_soa_report():
         context = {
             "fecha": datetime.now().strftime("%d/%m/%Y"),
             "medidas": data["medidas_soa"],
+            "total_activos": data["total_activos"],
+            "total_snapshots": data["total_snapshots"],
+            "vulnerabilidades": data["vulnerabilidades"],
+            "auto_mitigated": data["auto_mitigated"],
             "db_available": data["db_available"],
         }
         template = template_env.get_template('soa.html')

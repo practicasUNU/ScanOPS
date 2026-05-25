@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
 import { LoginPage } from './components/LoginPage';
 import { DashboardPage } from './components/DashboardPage';
-import { ScannerPage } from './components/ScannerPage';
 import { ExploitationPage } from './components/ExploitationPage';
 import { CompliancePage } from './components/CompliancePage';
 
@@ -26,9 +25,7 @@ export default function App() {
         <Route path="/dashboard" element={
           <ProtectedRoute><DashboardPage /></ProtectedRoute>
         } />
-        <Route path="/scanner" element={
-          <ProtectedRoute><ScannerPage /></ProtectedRoute>
-        } />
+        <Route path="/scanner" element={<Navigate to="/surface" replace />} />
         <Route path="/exploitation" element={
           <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
             <ExploitationPage />

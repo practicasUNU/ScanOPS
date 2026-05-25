@@ -265,7 +265,14 @@ export function UnifiedScannerLayout() {
           {error && (
             <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-400 font-mono">
               <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>M3 no disponible — mostrando datos de demostración · {error}</span>
+              <span>
+                {error.includes('Token expirado')
+                  ? `⚠ Sesión caducada — ${error}`
+                  : error.includes('no disponible') || error.includes('fetch')
+                    ? `⚠ M2/M3 sin conexión — ${error}`
+                    : `⚠ ${error}`
+                }
+              </span>
             </div>
           )}
 

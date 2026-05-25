@@ -75,12 +75,12 @@ interface M5Alert {
 
 // ─── DATOS MOCK: TELEMETRÍA EN VIVO ───
 const MOCK_ALERTS: SiemAlert[] = [
-  { id: 'AL-901', timestamp: '10:45:02', source: 'Suricata (NIDS)', severity: 'CRITICAL', message: 'ET EXPLOIT Possible CVE-2021-44228 Apache Log4j RCE', target_ip: '10.202.15.15', attacker_ip: '185.15.56.22', mitigated: true },
-  { id: 'AL-902', timestamp: '10:42:15', source: 'Wazuh (HIDS)', severity: 'HIGH', message: 'Multiple authentication failures (SSH Brute Force)', target_ip: '10.202.15.10', attacker_ip: '112.54.22.1', mitigated: true },
-  { id: 'AL-903', timestamp: '10:39:50', source: 'Cowrie (Honeypot)', severity: 'MEDIUM', message: 'Unauthorized login success in Honeypot container', target_ip: '10.202.99.99', attacker_ip: '45.33.22.12', mitigated: false },
-  { id: 'AL-904', timestamp: '10:35:12', source: 'Wazuh (HIDS)', severity: 'LOW', message: 'System package updated globally', target_ip: '10.202.15.15', mitigated: false },
-  { id: 'AL-905', timestamp: '10:30:05', source: 'Suricata (NIDS)', severity: 'HIGH', message: 'ET SCAN Nmap OS Detection Probe', target_ip: '10.202.15.20', attacker_ip: '192.168.1.100', mitigated: false },
-  { id: 'AL-906', timestamp: '10:25:33', source: 'Cowrie (Honeypot)', severity: 'CRITICAL', message: 'Malware sample dropped via wget (Mirai variant)', target_ip: '10.202.99.99', attacker_ip: '89.22.33.1', mitigated: true },
+  { id: 'AL-901', timestamp: '10:45:02', source: 'Suricata (NIDS)', severity: 'CRITICAL', message: '[DEMO] ET EXPLOIT Possible CVE-2021-44228 Apache Log4j RCE', target_ip: '10.202.15.15', attacker_ip: '185.15.56.22', mitigated: true },
+  { id: 'AL-902', timestamp: '10:42:15', source: 'Wazuh (HIDS)', severity: 'HIGH', message: '[DEMO] Multiple authentication failures (SSH Brute Force)', target_ip: '10.202.15.10', attacker_ip: '112.54.22.1', mitigated: true },
+  { id: 'AL-903', timestamp: '10:39:50', source: 'Cowrie (Honeypot)', severity: 'MEDIUM', message: '[DEMO] Unauthorized login success in Honeypot container', target_ip: '10.202.99.99', attacker_ip: '45.33.22.12', mitigated: false },
+  { id: 'AL-904', timestamp: '10:35:12', source: 'Wazuh (HIDS)', severity: 'LOW', message: '[DEMO] System package updated globally', target_ip: '10.202.15.15', mitigated: false },
+  { id: 'AL-905', timestamp: '10:30:05', source: 'Suricata (NIDS)', severity: 'HIGH', message: '[DEMO] ET SCAN Nmap OS Detection Probe', target_ip: '10.202.15.20', attacker_ip: '192.168.1.100', mitigated: false },
+  { id: 'AL-906', timestamp: '10:25:33', source: 'Cowrie (Honeypot)', severity: 'CRITICAL', message: '[DEMO] Malware sample dropped via wget (Mirai variant)', target_ip: '10.202.99.99', attacker_ip: '89.22.33.1', mitigated: true },
 ];
 
 // ─── COMPONENTES AUXILIARES ───
@@ -114,6 +114,8 @@ export function AlertsPage() {
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [pipelineEvents, setPipelineEvents] = useState<any[]>([]);
+  const [refetchTick, setRefetchTick] = useState(0);
+  const refetch = () => setRefetchTick(t => t + 1);
 
   // KPIs + top attackers polling (30s)
   useEffect(() => {
@@ -240,7 +242,7 @@ export function AlertsPage() {
     fetchAlerts();
     const id = setInterval(fetchAlerts, 15000);
     return () => clearInterval(id);
-  }, [isLive]);
+  }, [isLive, refetchTick]);
 
   const pipelineAsAlerts = pipelineEvents.map((e: any) => ({
     id: `pipeline-${e.id}`,
@@ -255,7 +257,8 @@ export function AlertsPage() {
   }));
 
   const combined = [...pipelineAsAlerts, ...liveAlerts];
-  const alerts: (M5Alert | SiemAlert)[] = combined.length > 0 ? combined : MOCK_ALERTS;
+  const isMock = combined.length === 0;
+  const alerts: (M5Alert | SiemAlert)[] = isMock ? MOCK_ALERTS : combined;
   const filteredAlerts = alerts.filter(alert => {
     const a = alert as M5Alert;
     const msg = (a.message ?? '').toLowerCase();
@@ -396,10 +399,23 @@ export function AlertsPage() {
           </div>
 
           {/* Banner datos mock */}
-          {liveAlerts.length === 0 && !alertsLoading && (
-            <div className="px-4 py-2 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg text-xs text-[#f59e0b] flex items-center gap-2">
-              <AlertTriangle className="w-3 h-3 shrink-0" />
-              M5 no disponible — mostrando datos de demostración
+          {isMock && !alertsLoading && (
+            <div className="mx-4 mb-3 flex items-center gap-3 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0" />
+              <div className="flex-1">
+                <span className="text-sm font-bold text-[#f59e0b]">
+                  Datos de demostración — M5 no disponible
+                </span>
+                <p className="text-xs text-[#f59e0b]/70 mt-0.5">
+                  Los eventos mostrados son ficticios. Conecta M5 para ver alertas reales del pipeline.
+                </p>
+              </div>
+              <button
+                onClick={refetch}
+                className="text-xs text-[#f59e0b] underline hover:no-underline shrink-0 cursor-pointer"
+              >
+                Reintentar
+              </button>
             </div>
           )}
 
