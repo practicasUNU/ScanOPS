@@ -73,6 +73,9 @@ class ScannerTypeEnum(str, Enum):
     nmap = "nmap"
     nuclei = "nuclei"
     nikto = "nikto"
+    ffuf = "ffuf"
+    whatweb = "whatweb"
+    testssl = "testssl"
 
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""

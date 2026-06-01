@@ -94,11 +94,38 @@ export function UnifiedScannerLayout() {
         if (m2Data.reconnaissance?.os_information?.detected_family)
           log(`[M2] OS detectado: ${m2Data.reconnaissance.os_information.detected_family}`);
 
-        setAdhocPhase('M3');
-        log(`[M3] Lanzando Nuclei + Nikto + Nmap sobre ${cleanTarget}...`);
-        const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/10`, {
+        // Register asset in M1 (or reuse if already exists)
+        setAdhocPhase('M1');
+        log(`[M1] Registrando activo ${cleanTarget} en inventario...`);
+        let assetId;
+        const m1Register = await fetch('http://localhost:8001/api/v1/assets', {
           method: 'POST', headers: authH(),
-          body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto'], description: `Ad-hoc IP: ${cleanTarget}` }),
+          body: JSON.stringify({ ip: cleanTarget, hostname: cleanTarget, tipo: 'OTRO', criticidad: 'PENDIENTE_CLASIFICAR', responsable: 'adhoc-scan' }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (m1Register.ok) {
+          const m1Asset = await m1Register.json();
+          assetId = m1Asset.id;
+          log(`[M1] ✓ Activo registrado — asset_id=${assetId}`);
+        } else if (m1Register.status === 409) {
+          // Asset already exists — fetch it by IP to get its id
+          const m1Find = await fetch(`http://localhost:8001/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=1`,
+            { headers: authH(), signal: AbortSignal.timeout(10000) });
+          if (!m1Find.ok) throw new Error(`M1 lookup HTTP ${m1Find.status}`);
+          const m1List = await m1Find.json();
+          const existing = (m1List.items ?? [])[0];
+          if (!existing) throw new Error(`M1: activo no encontrado para ${cleanTarget}`);
+          assetId = existing.id;
+          log(`[M1] Activo ya registrado — asset_id=${assetId}`);
+        } else {
+          throw new Error(`M1 HTTP ${m1Register.status}`);
+        }
+
+        setAdhocPhase('M3');
+        log(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${cleanTarget}...`);
+        const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/${assetId}`, {
+          method: 'POST', headers: authH(),
+          body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto', 'ffuf', 'whatweb', 'testssl'], description: `Ad-hoc IP: ${cleanTarget}` }),
           signal: AbortSignal.timeout(15000),
         });
         if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
@@ -107,7 +134,7 @@ export function UnifiedScannerLayout() {
         await new Promise(r => setTimeout(r, 15000));
         for (let i = 0; i < 30; i++) {
           await new Promise(r => setTimeout(r, 5000));
-          const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/10`,
+          const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/${assetId}`,
             { headers: authH(), signal: AbortSignal.timeout(8000) });
           if (resultsRes.ok) {
             const results = await resultsRes.json();

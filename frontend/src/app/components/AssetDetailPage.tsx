@@ -367,11 +367,11 @@ export function AssetDetailPage() {
 
       // ── FASE M3: Vulnerabilidades ───────────────────────────
       setPipelinePhase('m3');
-      plog(`[M3] Lanzando Nmap + Nuclei + Nikto sobre ${asset.ip}...`);
+      plog(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${asset.ip}...`);
       const m3Launch = await fetch(
         `http://localhost:8002/api/v1/scan/asset/${asset.id}`,
         { method: 'POST', headers: authHeader(),
-          body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto'],
+          body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto','ffuf','whatweb','testssl'],
             description: `Pipeline completo: ${asset.ip}` }),
           signal: AbortSignal.timeout(15000) }
       );

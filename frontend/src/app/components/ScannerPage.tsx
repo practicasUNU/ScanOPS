@@ -33,6 +33,13 @@ export function ScannerPage() {
   const [taskIds, setTaskIds] = useState<Record<number, string>>({});
   const [reconData, setReconData] = useState<Record<number, any>>({});
 
+  // Ad-hoc scan state
+  const [adhocTarget, setAdhocTarget] = useState('');
+  const [adhocScanTypes, setAdhocScanTypes] = useState('nikto,nuclei,nmap,ffuf,whatweb,testssl');
+  const [adhocScanning, setAdhocScanning] = useState(false);
+  const [adhocError, setAdhocError] = useState<string | null>(null);
+  const [adhocStatus, setAdhocStatus] = useState<string | null>(null);
+
   const handleAddAsset = async () => {
     if (!newIP.trim()) return;
     setAdding(true);
@@ -50,6 +57,38 @@ export function ScannerPage() {
       setAddError(e instanceof Error ? e.message : 'Error al añadir activo');
     } finally {
       setAdding(false);
+    }
+  };
+
+  const handleAdhocScan = async () => {
+    const target = adhocTarget.trim();
+    if (!target) return;
+    setAdhocScanning(true);
+    setAdhocError(null);
+    setAdhocStatus('Registrando activo en M1...');
+    try {
+      // Reuse existing asset if already registered
+      let asset = assets.find(a => a.ip === target || a.hostname === target);
+      if (!asset) {
+        asset = await createAsset({
+          ip: target,
+          hostname: target,
+          tipo: 'OTRO',
+          criticidad: 'PENDIENTE_CLASIFICAR',
+          responsable: 'adhoc-scan',
+        });
+        await refetch();
+      }
+      setAdhocStatus('Lanzando escaneo en M3...');
+      const types = adhocScanTypes.split(',').map(s => s.trim()).filter(Boolean);
+      const task = await scanAsset(asset.id, types);
+      setAdhocStatus(`Escaneo lanzado — task ${task.task_id.slice(0, 8)}… (puede tardar 2-3 min)`);
+      setAdhocTarget('');
+    } catch (e) {
+      setAdhocError(e instanceof Error ? e.message : 'Error en escaneo ad-hoc');
+      setAdhocStatus(null);
+    } finally {
+      setAdhocScanning(false);
     }
   };
 
@@ -155,6 +194,53 @@ export function ScannerPage() {
             </div>
           )}
 
+          {/* ── Escaneo Ad-hoc ── */}
+          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4 space-y-3">
+            <div className="text-xs font-semibold text-[#9ca3af] uppercase tracking-widest">
+              Escaneo Ad-hoc — IP o Dominio externo
+            </div>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={adhocTarget}
+                onChange={e => setAdhocTarget(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAdhocScan()}
+                placeholder="82.223.9.162 o beta.unuware.com"
+                disabled={adhocScanning}
+                className="flex-1 bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors font-mono disabled:opacity-50"
+              />
+              <select
+                value={adhocScanTypes}
+                onChange={e => setAdhocScanTypes(e.target.value)}
+                disabled={adhocScanning}
+                className="text-xs bg-[#0f1117] border border-[#1e2530] text-[#9ca3af] rounded-lg px-2 py-2 focus:outline-none focus:border-[#00d4ff] disabled:opacity-50"
+              >
+                <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl">Full Web Scan (all)</option>
+                <option value="ffuf,whatweb,testssl">Web-only (ffuf+whatweb+testssl)</option>
+                <option value="nikto,nuclei,nmap">Legacy (nikto+nuclei+nmap)</option>
+                <option value="ffuf">ffuf — Endpoint Fuzzing</option>
+                <option value="whatweb">whatweb — Tech Fingerprint</option>
+                <option value="testssl">testssl — TLS/SSL Analysis</option>
+              </select>
+              <button
+                onClick={handleAdhocScan}
+                disabled={adhocScanning || !adhocTarget.trim()}
+                className="flex items-center gap-2 px-4 py-2 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 border border-[#00d4ff]/30 text-[#00d4ff] text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                {adhocScanning ? <Activity className="w-4 h-4 animate-pulse" /> : <Play className="w-4 h-4" />}
+                {adhocScanning ? 'Escaneando...' : 'Iniciar Análisis'}
+              </button>
+            </div>
+            {adhocError && (
+              <div className="flex items-center gap-2 text-xs text-[#ff3b3b]">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />{adhocError}
+              </div>
+            )}
+            {adhocStatus && !adhocError && (
+              <div className="text-xs text-[#22c55e] font-mono">{adhocStatus}</div>
+            )}
+          </div>
+
           {error && (
             <div className="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-3 py-2 text-sm text-[#f59e0b]">
               <AlertCircle className="w-4 h-4 shrink-0" />M1 no disponible — {error}
@@ -212,9 +298,13 @@ export function ScannerPage() {
                         <option value="nikto">Nikto</option>
                         <option value="nuclei">Nuclei</option>
                         <option value="nmap">Nmap</option>
+                        <option value="ffuf">ffuf — Endpoint Fuzzing</option>
+                        <option value="whatweb">whatweb — Tech Fingerprint</option>
+                        <option value="testssl">testssl — TLS/SSL Analysis</option>
                         <option value="nikto,nuclei">Nikto + Nuclei</option>
                         <option value="nikto,nmap">Nikto + Nmap</option>
-                        <option value="nikto,nuclei,nmap">Todo</option>
+                        <option value="nikto,nuclei,nmap">Todo (legacy)</option>
+                        <option value="nuclei,nikto,nmap,ffuf,whatweb,testssl">Full Web Scan (all)</option>
                       </select>
                       <button
                         onClick={() => handleScan(asset)}

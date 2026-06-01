@@ -100,11 +100,11 @@ export function DashboardPage() {
 
         // M3
         setImmPhase('m3');
-        ilog(`[M3] Lanzando Nmap+Nuclei+Nikto sobre ${asset.ip}...`);
+        ilog(`[M3] Lanzando Nmap+Nuclei+Nikto+ffuf+whatweb+testssl sobre ${asset.ip}...`);
         try {
           const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/${asset.id}`,
             { method: 'POST', headers: authH(),
-              body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto'],
+              body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto','ffuf','whatweb','testssl'],
                 description: `Ciclo inmediato: ${asset.ip}` }),
               signal: AbortSignal.timeout(15000) });
           if (m3Launch.ok) {

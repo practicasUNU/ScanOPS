@@ -4,8 +4,8 @@ import { TopBar } from './TopBar';
 import {
   Filter, ArrowUpDown, BookOpen, FileText, Crosshair, UserCheck,
   Check, Terminal, XCircle, Loader2, RefreshCw, AlertCircle,
-  ChevronDown, ChevronUp, ShieldAlert, Activity, Cpu, Layers, Server, Search,
-  ShieldCheck, Clock
+  ShieldAlert, Activity, Cpu, Layers, Server, Search,
+  ShieldCheck
 } from 'lucide-react';
 
 
@@ -132,7 +132,6 @@ export function AIReasoningPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [pollingAttempt, setPollingAttempt] = useState(0);
   const [regenError, setRegenError] = useState<string | null>(null);
-  const [showRationale, setShowRationale] = useState(false);
 
   const [liveResults, setLiveResults] = useState<Record<number, any>>(() => {
     try {
@@ -259,13 +258,19 @@ export function AIReasoningPage() {
           setLiveResults(prev => ({
             ...prev,
             [selectedAssetId]: {
-              attack_module: r.msf_module ?? r.attack_module ?? 'exploit/multi/handler',
-              attack_payload: r.msf_payload ?? r.attack_payload ?? 'linux/x64/shell_reverse_tcp',
-              target_ip: r.msf_options?.RHOSTS ?? currentAsset?.ip ?? '10.202.15.15',
-              confidence: String(r.confidence ?? '0.85'),
-              risk_level: r.risk_level ?? 'ALTO',
-              attack_rationale: r.attack_rationale ?? 'Inferencia de vector completada de forma real utilizando la base de conocimiento local.',
-              ens_article: r.ens_article ?? 'op.exp.4',
+              attack_module:    r.suggested_tool       ?? r.msf_module    ?? r.attack_module    ?? 'N/A',
+              attack_payload:   r.tool_params          ?? r.msf_payload   ?? r.attack_payload   ?? {},
+              attack_technique: r.attack_technique     ?? 'N/A',
+              mitre_tactic:     r.mitre_tactic         ?? 'N/A',
+              attack_vector:    r.attack_vector        ?? 'N/A',
+              alternative:      r.alternative_technique ?? null,
+              technical_steps:  r.technical_steps      ?? [],
+              attack_rationale: r.attack_rationale     ?? r.rationale     ?? '',
+              target_ip:        r.tool_params?.target  ?? r.msf_options?.RHOSTS ?? currentAsset?.ip ?? '',
+              confidence:       String(r.confidence    ?? '0.85'),
+              risk_level:       r.risk_level           ?? 'ALTO',
+              ens_article:      r.ens_article          ?? 'op.exp.2',
+              status:           r.status               ?? 'pending_human_approval',
             }
           }));
 
@@ -619,62 +624,183 @@ export function AIReasoningPage() {
                   ) : (
                     <>
                       {/* SUB-PASO 4: Renderizado de la Ficha del Vector */}
-                      {selectedStep === 4 && (() => {
-                        const conf = parseFloat(displayResult.confidence);
-                        return (
-                          <div className="space-y-3 flex-1 flex flex-col justify-between">
-                            <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-3 flex-1">
-                              <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
-                                <Terminal className="w-4 h-4" /> Configuración de Payload Real
-                              </div>
-                              
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
-                                <div className="bg-[#16171d] p-2.5 border border-[#1e2530] rounded-lg">
-                                  <span className="text-[#6b7280] block mb-0.5">Módulo de Ataque</span>
-                                  <span className="text-white font-bold break-all">{displayResult.attack_module}</span>
-                                </div>
-                                <div className="bg-[#16171d] p-2.5 border border-[#1e2530] rounded-lg">
-                                  <span className="text-[#6b7280] block mb-0.5">Payload</span>
-                                  <span className="text-white font-bold break-all">{displayResult.attack_payload}</span>
-                                </div>
-                                <div className="bg-[#16171d] p-2.5 border border-[#1e2530] rounded-lg">
-                                  <span className="text-[#6b7280] block mb-0.5">target_ip (RHOSTS)</span>
-                                  <span className="text-[#00d4ff] font-bold">{displayResult.target_ip}</span>
-                                </div>
-                                <div className="bg-[#16171d] p-2.5 border border-[#1e2530] rounded-lg">
-                                  <span className="text-[#6b7280] block mb-0.5">Confianza (Confidence)</span>
-                                  <span className="text-emerald-400 font-bold">{displayResult.confidence}</span>
-                                </div>
-                                {displayResult?.generated_at && (
-                                  <div className="col-span-2 flex items-center gap-1.5 pt-2 border-t border-[#1e2530]">
-                                    <Clock className="w-3 h-3 text-[#6b7280] shrink-0"/>
-                                    <span className="text-[10px] text-[#6b7280] font-mono">
-                                      Generado: {fmtDate(displayResult.generated_at)}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
+                      {selectedStep === 4 && displayResult && (() => {
+                        const riskColor: Record<string, string> = {
+                          CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#22c55e'
+                        };
+                        const confPct = isNaN(parseFloat(displayResult.confidence))
+                          ? displayResult.confidence
+                          : `${Math.round(parseFloat(displayResult.confidence) * 100)}%`;
+                        const risk = String(displayResult.risk_level ?? 'HIGH').toUpperCase();
+                        const steps: string[] = Array.isArray(displayResult.technical_steps)
+                          ? displayResult.technical_steps
+                          : [];
+                        const params = typeof displayResult.attack_payload === 'object' && displayResult.attack_payload !== null
+                          ? displayResult.attack_payload as Record<string, string>
+                          : {};
 
-                              <div className="pt-2">
-                                <button
-                                  onClick={() => setShowRationale(p => !p)}
-                                  className="flex items-center gap-1 text-xs text-[#6b7280] hover:text-white cursor-pointer mb-1"
-                                >
-                                  {showRationale ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />} Justificación de Explotación
-                                </button>
-                                {showRationale && (
-                                  <p className="text-xs text-[#9ca3af] font-mono bg-[#16171d] p-3 rounded-lg border border-[#1e2530] leading-relaxed">
-                                    {displayResult.attack_rationale}
-                                  </p>
-                                )}
+                        return (
+                          <div className="space-y-4 flex-1 flex flex-col">
+
+                            {/* ── CABECERA: técnica + táctica MITRE ── */}
+                            <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-2">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <span className="text-xs font-mono text-[#6b7280] uppercase tracking-widest">Técnica de Ataque</span>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="px-2 py-0.5 rounded text-xs font-bold font-mono"
+                                    style={{ backgroundColor: `${riskColor[risk] ?? '#f97316'}22`, color: riskColor[risk] ?? '#f97316', border: `1px solid ${riskColor[risk] ?? '#f97316'}44` }}
+                                  >
+                                    {risk}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded text-xs font-bold font-mono bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/30">
+                                    {confPct} confianza
+                                  </span>
+                                </div>
+                              </div>
+                              <p className="text-white font-semibold text-sm font-mono">{displayResult.attack_technique ?? '—'}</p>
+                              <p className="text-[#9ca3af] text-xs">{displayResult.attack_vector ?? '—'}</p>
+                              <div className="flex items-center gap-1.5 pt-1">
+                                <span className="text-[#6b7280] text-xs">Táctica MITRE:</span>
+                                <span className="text-[#a78bfa] text-xs font-mono font-semibold">{displayResult.mitre_tactic ?? '—'}</span>
+                                <span className="ml-auto text-[#6b7280] text-xs">ENS:</span>
+                                <span className="text-[#00d4ff] text-xs font-mono">{displayResult.ens_article ?? 'op.exp.2'}</span>
                               </div>
                             </div>
 
-                            {conf < 0.75 && (
-                              <div className="flex items-start gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-2.5 text-xs text-[#f59e0b] font-mono shrink-0">
-                                ⚠ Confianza baja ({displayResult.confidence}) — requiere validación humana obligatoria en el paso 6.
+                            {/* ── HERRAMIENTA + PARÁMETROS ── */}
+                            <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-3">
+                              <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
+                                <Terminal className="w-4 h-4" />
+                                Herramienta de Validación
+                              </div>
+                              <div className="bg-[#16171d] border border-[#1e2530] rounded-lg p-3 font-mono text-xs text-white break-all">
+                                {displayResult.attack_module ?? '—'}
+                              </div>
+                              {Object.keys(params).length > 0 && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  {Object.entries(params).map(([k, v]) => v && (
+                                    <div key={k} className="bg-[#16171d] border border-[#1e2530] rounded-lg p-2.5">
+                                      <span className="text-[#6b7280] text-xs block mb-0.5 uppercase tracking-wide">{k}</span>
+                                      <span className="text-white font-mono text-xs font-bold break-all">{String(v)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {displayResult.alternative && (
+                                <div className="flex items-start gap-2 pt-1">
+                                  <span className="text-[#6b7280] text-xs shrink-0 mt-0.5">Alternativa:</span>
+                                  <span className="text-[#f59e0b] text-xs font-mono">{displayResult.alternative}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* ── PASOS TÉCNICOS ── */}
+                            {steps.length > 0 && (
+                              <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-2">
+                                <div className="text-xs font-semibold text-[#6b7280] uppercase tracking-widest mb-1">
+                                  Secuencia Operativa
+                                </div>
+                                {steps.map((step, i) => (
+                                  <div key={i} className="flex items-start gap-3">
+                                    <span className="w-5 h-5 rounded-full bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                                      {i + 1}
+                                    </span>
+                                    <p className="text-[#d1d5db] text-xs leading-relaxed">{step}</p>
+                                  </div>
+                                ))}
                               </div>
                             )}
+
+                            {/* ── RATIONALE ── */}
+                            {displayResult.attack_rationale && (() => {
+                              const raw: string = displayResult.attack_rationale;
+
+                              const SECTION_LABELS: { regex: RegExp; label: string; color: string }[] = [
+                                { regex: /An[aá]lisis\s+de\s+Superficie\s*:/i,  label: 'Análisis de Superficie', color: '#00d4ff' },
+                                { regex: /Vector\s+Cr[ií]tico\s*:/i,             label: 'Vector Crítico',         color: '#a78bfa' },
+                                { regex: /Evaluaci[oó]n\s+de\s+Riesgo\s*:/i,     label: 'Evaluación de Riesgo',   color: '#f59e0b' },
+                                { regex: /Analysis\s+of\s+Surface\s*:/i,          label: 'Análisis de Superficie', color: '#00d4ff' },
+                                { regex: /Critical\s+Vector\s*:/i,                label: 'Vector Crítico',         color: '#a78bfa' },
+                                { regex: /Risk\s+Evaluation\s*:/i,                label: 'Evaluación de Riesgo',   color: '#f59e0b' },
+                              ];
+
+                              const splitRegex = new RegExp(
+                                `(${SECTION_LABELS.map(s => s.regex.source).join('|')})`,
+                                'gi'
+                              );
+
+                              const parts = raw.split(splitRegex).map(s => s.trim()).filter(Boolean);
+
+                              type Section = { label: string; color: string; body: string };
+                              let sections: Section[] = [];
+
+                              if (parts.length > 1) {
+                                for (let i = 0; i < parts.length; i++) {
+                                  const matched = SECTION_LABELS.find(s => s.regex.test(parts[i]));
+                                  if (matched && parts[i + 1]) {
+                                    const body = parts[i + 1]
+                                      .replace(/\b(Risk Level|ENS Article|Confidence|Estimated Service Impact)[^\n.]*/gi, '')
+                                      .trim();
+                                    if (body.length > 10) {
+                                      sections.push({ label: matched.label, color: matched.color, body });
+                                      i++;
+                                    }
+                                  }
+                                }
+                              }
+
+                              if (sections.length === 0) {
+                                const fallbackLabels = ['Análisis de Superficie', 'Vector Crítico', 'Evaluación de Riesgo'];
+                                const fallbackColors = ['#00d4ff', '#a78bfa', '#f59e0b'];
+                                const sentences = raw.match(/[^.!?]+[.!?]+/g) ?? [raw];
+                                const chunkSize = Math.ceil(sentences.length / 3);
+                                for (let i = 0; i < 3; i++) {
+                                  const body = sentences.slice(i * chunkSize, (i + 1) * chunkSize).join(' ').trim();
+                                  if (body.length > 10) {
+                                    sections.push({ label: fallbackLabels[i], color: fallbackColors[i], body });
+                                  }
+                                }
+                              }
+
+                              return (
+                                <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-4 flex-1">
+                                  <div className="text-xs font-semibold text-[#6b7280] uppercase tracking-widest">
+                                    Análisis Técnico Red Team
+                                  </div>
+                                  {sections.map((sec, i) => (
+                                    <div key={i} className="flex gap-3">
+                                      <div
+                                        className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5"
+                                        style={{
+                                          backgroundColor: `${sec.color}18`,
+                                          color: sec.color,
+                                          border: `1px solid ${sec.color}33`,
+                                        }}
+                                      >
+                                        {i + 1}
+                                      </div>
+                                      <div className="flex-1 space-y-1 border-b border-[#1e2530] pb-3 last:border-0 last:pb-0">
+                                        <span className="text-xs font-semibold block" style={{ color: sec.color }}>
+                                          {sec.label}
+                                        </span>
+                                        <p className="text-[#9ca3af] text-xs leading-relaxed">{sec.body}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+
+                            {/* ── ESTADO ENS ── */}
+                            <div className="flex items-center gap-2 px-3 py-2 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-lg">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse shrink-0" />
+                              <span className="text-[#f59e0b] text-xs font-mono font-semibold">
+                                {displayResult.status ?? 'pending_human_approval'}
+                              </span>
+                              <span className="text-[#6b7280] text-xs ml-auto">op.pl.1 — Requiere TOTP+PIN</span>
+                            </div>
+
                           </div>
                         );
                       })()}

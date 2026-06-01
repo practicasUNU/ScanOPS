@@ -17,6 +17,9 @@ from shared.scan_logger import ScanLogger
 from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
 from services.scanner_engine.clients.nmap_client import run_nmap_scan
+from services.scanner_engine.clients.ffuf_client import run_ffuf_scan
+from services.scanner_engine.clients.whatweb_client import run_whatweb_scan
+from services.scanner_engine.clients.testssl_client import run_testssl_scan
 
 logger = ScanLogger("scanner_tasks")
 
@@ -76,6 +79,47 @@ def run_nikto_task(asset_id: int, ip: str) -> List[Dict]:
         return [{"scanner": "Nikto", **f} for f in findings]
     except Exception as e:
         logger.error("NIKTO_TASK_ERROR", error=str(e))
+        return []
+
+# --- TAREA: FFUF (endpoint fuzzing) ---
+@app.task(name="tasks.run_ffuf_scan", queue="vulnerabilities")
+def run_ffuf_task(asset_id: int, ip: str) -> List[Dict]:
+    logger.info("FFUF_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        target_url = f"http://{ip}"
+        findings = run_ffuf_scan(asset_id, target_url)
+        return [{"scanner": "ffuf", **f} for f in findings]
+    except Exception as e:
+        logger.error("FFUF_TASK_ERROR", error=str(e))
+        return []
+
+# --- TAREA: WHATWEB (technology fingerprinting) ---
+@app.task(name="tasks.run_whatweb_scan", queue="vulnerabilities")
+def run_whatweb_task(asset_id: int, ip: str) -> List[Dict]:
+    logger.info("WHATWEB_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        # Try HTTPS first (most modern servers), fall back to HTTP
+        https_findings = run_whatweb_scan(asset_id, f"https://{ip}")
+        if https_findings:
+            return [{"scanner": "whatweb", **f} for f in https_findings]
+        http_findings = run_whatweb_scan(asset_id, f"http://{ip}")
+        return [{"scanner": "whatweb", **f} for f in http_findings]
+    except Exception as e:
+        logger.error("WHATWEB_TASK_ERROR", error=str(e))
+        return []
+
+# --- TAREA: TESTSSL (TLS/SSL deep analysis) ---
+@app.task(name="tasks.run_testssl_scan", queue="vulnerabilities")
+def run_testssl_task(asset_id: int, ip: str) -> List[Dict]:
+    logger.info("TESTSSL_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        # testssl always targets HTTPS; run_testssl_scan handles port extraction internally
+        findings = run_testssl_scan(asset_id, f"https://{ip}")
+        if not findings:
+            logger.info("TESTSSL_NO_FINDINGS_ON_443", target=ip)
+        return [{"scanner": "testssl", **f} for f in findings]
+    except Exception as e:
+        logger.error("TESTSSL_TASK_ERROR", error=str(e))
         return []
 
 # --- CALLBACK: MERGE & PERSIST (US-3.4) ---
@@ -140,6 +184,12 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
         tasks.append(run_nmap_task.s(asset_id, asset_ip))
     if "nikto" in scan_types:
         tasks.append(run_nikto_task.s(asset_id, asset_ip))
+    if "ffuf" in scan_types:
+        tasks.append(run_ffuf_task.s(asset_id, asset_ip))
+    if "whatweb" in scan_types:
+        tasks.append(run_whatweb_task.s(asset_id, asset_ip))
+    if "testssl" in scan_types:
+        tasks.append(run_testssl_task.s(asset_id, asset_ip))
 
     if not tasks:
         return {"status": "no_scans_selected"}
