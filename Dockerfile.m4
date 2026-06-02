@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y \
     hydra \
     sqlmap \
     sshpass \
+    gobuster \
+    wget \
     iputils-ping \
     git \
     gcc \
@@ -24,7 +26,10 @@ RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
         mkdir -p /usr/share/wordlists && \
         printf 'admin\npassword\n123456\nroot\ntoor\nletmein\nqwerty\n12345678\nadmin123\npassword1\ntest\nguest\nubuntu\nchangeme\nscanops\ntest123\n'  \
         > /usr/share/wordlists/rockyou.txt; \
-    fi
+    fi \
+    && wget -q "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt" \
+       -O /usr/share/wordlists/common.txt \
+    || echo "common.txt no descargado — usar docker cp"
 
 # Instalar NetExec desde GitHub
 RUN pip install --no-cache-dir git+https://github.com/Pennyw0rth/NetExec

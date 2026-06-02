@@ -16,7 +16,7 @@ from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
-from services.scanner_engine.clients.nmap_client import run_nmap_scan
+from services.scanner_engine.clients.nmap_client import run_nmap_scan, extract_http_ports
 from services.scanner_engine.clients.ffuf_client import run_ffuf_scan
 from services.scanner_engine.clients.whatweb_client import run_whatweb_scan
 from services.scanner_engine.clients.testssl_client import run_testssl_scan
@@ -70,25 +70,51 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
 
 
 @app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities")
-def run_nikto_task(asset_id: int, ip: str) -> List[Dict]:
+def run_nikto_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
-    logger.info("NIKTO_TASK_START", target=ip)
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("NIKTO_TASK_START", target=target_url)
     try:
-        target_url = f"http://{ip}"
         findings = run_nikto_scan(asset_id, target_url)
-        return [{"scanner": "Nikto", **f} for f in findings]
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "Nikto",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
     except Exception as e:
         logger.error("NIKTO_TASK_ERROR", error=str(e))
         return []
 
 # --- TAREA: FFUF (endpoint fuzzing) ---
 @app.task(name="tasks.run_ffuf_scan", queue="vulnerabilities")
-def run_ffuf_task(asset_id: int, ip: str) -> List[Dict]:
-    logger.info("FFUF_TASK_START", asset_id=asset_id, target=ip)
+def run_ffuf_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("FFUF_TASK_START", asset_id=asset_id, target=target_url)
     try:
-        target_url = f"http://{ip}"
         findings = run_ffuf_scan(asset_id, target_url)
-        return [{"scanner": "ffuf", **f} for f in findings]
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "ffuf",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
     except Exception as e:
         logger.error("FFUF_TASK_ERROR", error=str(e))
         return []
@@ -167,35 +193,69 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     finally:
         db.close()
 
+@app.task(name="tasks.return_precomputed", queue="vulnerabilities")
+def return_precomputed(findings: List[Dict]) -> List[Dict]:
+    """Identity task — passes already-computed findings into a chord group."""
+    return findings
+
+
 # --- ORQUESTADOR PARALELO (US-3.4) ---
 @app.task(name="services.scanner_engine.tasks.vuln_tasks.scan_asset_parallel")
 def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_types: List[str] = None):
     """
-    Lanza múltiples scanners en paralelo usando un Chord de Celery.
-    Nuclei || OpenVAS || Nikto -> merge_and_persist_results
+    Flujo en dos fases:
+      Fase 1 — Nmap (bloqueante): descubre puertos y servicios.
+      Fase 2 — Resto de scanners en paralelo. Nikto y ffuf se lanzan una vez
+                por cada puerto HTTP descubierto por Nmap.
     """
     if not scan_types:
         scan_types = ["nuclei", "nmap", "nikto"]
-    
+
+    # --- Fase 1: Nmap ---
+    nmap_findings = []
+    if "openvas" in scan_types or "nmap" in scan_types:
+        logger.info("NMAP_PHASE_START", asset_id=asset_id, target=asset_ip)
+        try:
+            nmap_findings = run_nmap_scan(asset_id, asset_ip)
+        except Exception as e:
+            logger.error("NMAP_PHASE_ERROR", error=str(e))
+
+    http_ports = extract_http_ports(nmap_findings)
+    logger.info("HTTP_PORTS_DISCOVERED", asset_id=asset_id, ports=http_ports)
+
+    # --- Fase 2: resto de scanners ---
     tasks = []
+
+    # Nmap findings ya obtenidos en fase 1 — se pasan como lista directa al chord
+    # usando una tarea identity para que merge_and_persist_results los reciba igual
+    # que los demás resultados del grupo.
+    if nmap_findings:
+        tasks.append(return_precomputed.s(nmap_findings))
+
     if "nuclei" in scan_types:
         tasks.append(run_nuclei_task.s(asset_id, asset_ip, asset_name))
-    if "openvas" in scan_types or "nmap" in scan_types:
-        tasks.append(run_nmap_task.s(asset_id, asset_ip))
-    if "nikto" in scan_types:
-        tasks.append(run_nikto_task.s(asset_id, asset_ip))
-    if "ffuf" in scan_types:
-        tasks.append(run_ffuf_task.s(asset_id, asset_ip))
+    if "openvas" in scan_types:
+        tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
+
+    # Nikto y ffuf: una tarea por puerto HTTP descubierto
+    for port in http_ports:
+        if "nikto" in scan_types:
+            tasks.append(run_nikto_task.s(asset_id, asset_ip, port))
+        if "ffuf" in scan_types:
+            tasks.append(run_ffuf_task.s(asset_id, asset_ip, port))
+
     if "whatweb" in scan_types:
         tasks.append(run_whatweb_task.s(asset_id, asset_ip))
     if "testssl" in scan_types:
         tasks.append(run_testssl_task.s(asset_id, asset_ip))
 
     if not tasks:
+        # Solo nmap se ejecutó, persistir sus findings directamente
+        if nmap_findings:
+            return merge_and_persist_results([nmap_findings], asset_id)
         return {"status": "no_scans_selected"}
 
-    # Ejecutar en paralelo y llamar al callback al finalizar
     workflow = chord(group(tasks))(merge_and_persist_results.s(asset_id))
-    
-    logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types, hostname=asset_name)
+    logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types,
+                http_ports=http_ports, hostname=asset_name)
     return {"status": "parallel_scans_initiated", "task_id": workflow.id}

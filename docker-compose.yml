@@ -247,8 +247,11 @@ services:
       REDIS_URL: redis://scanops-main-redis:6379/0
       M4_DRY_RUN: "false"
       HYDRA_WORDLIST: "/usr/share/wordlists/rockyou.txt"
-      HYDRA_THREADS: "4"
-      HYDRA_TIMEOUT: "120"
+      HYDRA_THREADS: "2"
+      HYDRA_TIMEOUT: "600"
+      GOBUSTER_WORDLIST: "/usr/share/wordlists/common.txt"
+      GOBUSTER_THREADS: "10"
+      GOBUSTER_TIMEOUT: "300"
       UBUNTU_TEST_TARGET_IP: "10.202.15.100"
       UBUNTU_TEST_SSH_USER: "admin"
       NXC_TIMEOUT: 30
@@ -294,7 +297,7 @@ services:
       redis:
         condition: service_healthy
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:host-gateway"                                                                                                                                             
     networks:
       - scanops
     restart: unless-stopped
@@ -389,7 +392,7 @@ services:
       - "8006:8006"
     environment:
       - DATABASE_URL=postgresql://scanops:scanops@postgres:5432/scanops
-      - JWT_SECRET_KEY=scanops-secret-ens-alto-2026
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-scanops-secret-ens-alto-2026}
       - WAZUH_API_URL=https://wazuh-manager:55000
       - WAZUH_USER=wazuh
       - WAZUH_PASSWORD=wazuh
@@ -451,7 +454,7 @@ services:
       - ./services/reporting_engine:/app
     environment:
       - SERVICE_NAME=M7-Reporting
-      - JWT_SECRET_KEY=scanops-secret-ens-alto-2026
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-scanops-secret-ens-alto-2026}
       - DATABASE_URL=postgresql://scanops:scanops@scanops-postgres:5432/scanops
       - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
@@ -465,6 +468,36 @@ services:
 
 
 
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    container_name: scanops-orchestrator
+    ports:
+      - "8009:8009"
+    environment:
+      DATABASE_URL: postgresql://scanops:scanops@postgres:5432/scanops
+      REDIS_URL: redis://scanops-main-redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-scanops-secret-ens-alto-2026}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      PLATFORM_URL: ${PLATFORM_URL:-https://localhost:5173}
+      M1_URL: http://m1:8001
+      M2_URL: http://m2:8003
+      M3_URL: http://scanner-engine:8002
+      M4_URL: http://m4:8004
+      M5_URL: http://m5:8006
+      M7_URL: http://m7:8000
+      M8_URL: http://m8:8005
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scanops
+    restart: unless-stopped
 
 volumes:
   pgdata:
