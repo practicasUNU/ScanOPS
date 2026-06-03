@@ -63,6 +63,7 @@ app.add_middleware(
 )
 
 
+app.include_router(agents_router)
 app.include_router(blocking_router)
 app.include_router(emergency_router)
 app.include_router(alerting_router)
@@ -227,3 +228,4 @@ async def get_pipeline_events(limit: int = 50):
         ], "total": len(rows)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

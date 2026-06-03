@@ -3,10 +3,12 @@ US-6.5 — Correlación IA eventos SIEM
 ENS: op.exp.4 | Pts: 8
 """
 import json
+import re
 import uuid
 import os
 import asyncio
-from datetime import datetime, timedelta
+import paramiko
+from datetime import datetime, timedelta, timezone as _tz
 from typing import Optional, List
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -315,3 +317,138 @@ async def auto_correlate():
         logger.info("[US-6.5] Auto-correlación completada")
     except Exception as e:
         logger.warning(f"[US-6.5] Auto-correlación fallida: {e}")
+
+
+# Formato clásico: "Jun  3 10:01:03 hostname sshd[pid]: msg"
+_AUTH_LOG_RE_CLASSIC = re.compile(
+    r'(?P<month>\w+)\s+(?P<day>\d+)\s+(?P<time>\S+)\s+\S+\s+(?:sshd|pam_unix|sudo|systemd-logind)\[.*?\]:\s+(?P<msg>.+)'
+)
+# Formato ISO: "2026-06-03T10:01:03.123456+02:00 hostname sshd[pid]: msg"
+_AUTH_LOG_RE_ISO = re.compile(
+    r'(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+\S+\s+(?:sshd|pam_unix|sudo|systemd-logind)\[.*?\]:\s+(?P<msg>.+)'
+)
+_AUTH_KEYWORDS = [
+    'Accepted password', 'Accepted publickey',
+    'Failed password', 'Invalid user',
+    'authentication failure', 'FAILED LOGIN',
+    'session opened', 'session closed',
+    'Connection closed', 'Disconnected',
+]
+
+
+def _parse_auth_log_line(line: str, year: int) -> dict | None:
+    if not any(k in line for k in _AUTH_KEYWORDS):
+        return None
+
+    # Intentar formato ISO primero, luego clásico
+    m_iso = _AUTH_LOG_RE_ISO.match(line)
+    m_classic = _AUTH_LOG_RE_CLASSIC.match(line)
+
+    if m_iso:
+        try:
+            ts_raw = m_iso.group('ts')
+            # Normalizar a UTC isoformat
+            ts = datetime.fromisoformat(ts_raw).astimezone(_tz.utc)
+            timestamp = ts.isoformat()
+        except Exception:
+            timestamp = datetime.now(_tz.utc).isoformat()
+        msg = m_iso.group('msg')
+    elif m_classic:
+        try:
+            ts_str = f"{m_classic.group('month')} {m_classic.group('day')} {m_classic.group('time')} {year}"
+            ts = datetime.strptime(ts_str, "%b %d %H:%M:%S %Y").replace(tzinfo=_tz.utc)
+            timestamp = ts.isoformat()
+        except Exception:
+            timestamp = datetime.now(_tz.utc).isoformat()
+        msg = m_classic.group('msg')
+    else:
+        return None
+
+    success = any(k in msg for k in ['Accepted password', 'Accepted publickey', 'session opened'])
+    if 'Invalid user' in msg or 'FAILED LOGIN' in msg:
+        severity = 'HIGH'
+    elif 'Failed password' in msg or 'authentication failure' in msg:
+        severity = 'MEDIUM'
+    elif success:
+        severity = 'LOW'
+    else:
+        severity = 'INFO'
+
+    user_match = re.search(r'(?:for|user)\s+(\S+)', msg)
+    ip_match   = re.search(r'from\s+([\d\.]+)', msg)
+
+    return {
+        'raw_log':   line.strip(),
+        'timestamp': timestamp,
+        'message':   msg,
+        'success':   success,
+        'severity':  severity,
+        'src_user':  user_match.group(1) if user_match else None,
+        'src_ip':    ip_match.group(1) if ip_match else None,
+    }
+
+
+def _ssh_read_auth_log(ip: str, user: str, password: str, lines: int = 500) -> list[dict]:
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(ip, username=user, password=password, timeout=10)
+        # Intentar con sudo -S (lee password desde stdin)
+        cmd = f'echo {password} | sudo -S tail -n {lines} /var/log/auth.log 2>/dev/null'
+        _, stdout, stderr = client.exec_command(cmd, get_pty=False)
+        raw = stdout.read().decode('utf-8', errors='ignore')
+        # Fallback: intentar sin sudo por si el usuario tiene permisos directos
+        if not raw.strip():
+            _, stdout2, _ = client.exec_command(f'tail -n {lines} /var/log/auth.log 2>/dev/null')
+            raw = stdout2.read().decode('utf-8', errors='ignore')
+        client.close()
+        year = datetime.now().year
+        return [ev for line in raw.splitlines() if (ev := _parse_auth_log_line(line, year))]
+    except Exception as e:
+        return [{'error': str(e), 'ip': ip}]
+
+
+@router.get("/siem/auth-events")
+async def list_auth_events(limit: int = 100):
+    """
+    Lee auth.log de los activos registrados en M1 vía SSH.
+    Devuelve eventos de autenticación SSH/PAM estructurados.
+    ENS: op.exp.5
+    """
+    assets = []
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=8) as client:
+            r = await client.get("http://m1:8001/api/v1/assets?page=1&page_size=100")
+            if r.status_code == 200:
+                assets = r.json().get('items', [])
+    except Exception:
+        pass
+
+    if not assets:
+        assets = [{'id': 1, 'ip': '10.202.15.100', 'name': 'srv-target'}]
+
+    results = []
+    for asset in assets:
+        ip = asset.get('ip')
+        if not ip:
+            continue
+        ssh_user = asset.get('ssh_user') or 'admin'
+        ssh_pass = asset.get('ssh_password') or 'test123'
+        events = _ssh_read_auth_log(ip, ssh_user, ssh_pass, lines=limit)
+        for ev in events:
+            if 'error' in ev:
+                continue
+            ev['agent_name']      = asset.get('name') or asset.get('hostname') or ip
+            ev['agent_ip']        = ip
+            ev['agent_id']        = str(asset.get('id', ''))
+            ev['alert_id']        = f"ssh-{ip}-{ev.get('timestamp', '')}"
+            ev['rule_id']         = 'auth.log'
+            ev['rule_desc']       = ev.get('message', '')
+            ev['mitre_tactic']    = 'TA0006' if not ev.get('success') else ''
+            ev['mitre_technique'] = 'T1110' if 'Failed password' in ev.get('message', '') else ''
+            results.append(ev)
+
+    results.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    results = results[:limit]
+
+    return {'total': len(results), 'events': results}
