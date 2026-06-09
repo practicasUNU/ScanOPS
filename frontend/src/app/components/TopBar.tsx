@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { getCycleState } from '../utils/cycleState';
 import type { DotColor } from '../utils/cycleState';
 import { useAuth } from '../../hooks/useAuth';
+import { useCriticalAlerts } from '../../hooks/useCriticalAlerts';
 
 interface TopBarProps {
   role?: string;
@@ -20,6 +21,7 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifLoading, setNotifLoading] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
+  const { alerts: criticalAlerts, unreadCount: criticalCount, markAllRead } = useCriticalAlerts();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -81,10 +83,13 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
 
   const handleBellClick = () => {
     setNotifOpen(p => !p);
-    if (!notifOpen) fetchNotifications();
+    if (!notifOpen) {
+      fetchNotifications();
+      markAllRead();
+    }
   };
 
-  const unreadCount = notifications.length;
+  const unreadCount = notifications.length + criticalCount;
 
   const handleLogout = () => {
     logout();
@@ -148,7 +153,9 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
           >
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
-              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 bg-[#ff3b3b] rounded-full flex items-center justify-center text-[9px] font-bold text-white px-1">
+              <span className={`absolute top-0.5 right-0.5 min-w-[16px] h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white px-1 bg-[#ff3b3b] ${
+                criticalCount > 0 ? 'animate-pulse' : ''
+              }`}>
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -173,12 +180,20 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
                   <div className="flex items-center justify-center py-6 gap-2 text-[#6b7280] text-xs">
                     <span className="animate-spin">⟳</span> Cargando...
                   </div>
-                ) : notifications.length === 0 ? (
+                ) : notifications.length === 0 && criticalAlerts.length === 0 ? (
                   <div className="text-center py-6 text-xs text-[#6b7280]">
                     Sin notificaciones recientes
                   </div>
                 ) : (
-                  notifications.map(n => (
+                  [...criticalAlerts.map(a => ({
+                    id: a.id,
+                    type: 'critical' as const,
+                    severity: 'CRITICAL',
+                    title: a.title,
+                    message: a.message,
+                    timestamp: a.timestamp,
+                    link: a.link,
+                  })), ...notifications].map(n => (
                     <button
                       key={n.id}
                       onClick={() => { navigate(n.link); setNotifOpen(false); }}

@@ -1,9 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
+import { CriticalToast } from './components/CriticalToast';
+import { useCriticalAlerts } from '../hooks/useCriticalAlerts';
 import { LoginPage } from './components/LoginPage';
 import { DashboardPage } from './components/DashboardPage';
 import { ExploitationPage } from './components/ExploitationPage';
 import { CompliancePage } from './components/CompliancePage';
-
 import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AssetManagerPage } from './components/AssetManagerPage';
@@ -16,9 +17,10 @@ import { AlertsPage } from './components/AlertsPage';
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
 
-export default function App() {
+function AppInner() {
+  const { toastQueue, dismissToast } = useCriticalAlerts();
   return (
-    <BrowserRouter>
+    <>
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
@@ -60,7 +62,6 @@ export default function App() {
         <Route path="/ai-reasoning" element={
           <ProtectedRoute><AIReasoningPage /></ProtectedRoute>
         } />
-        
         <Route path="/reporting" element={
           <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
             <ReportingPage />
@@ -72,6 +73,15 @@ export default function App() {
           </ProtectedRoute>
         } />
       </Routes>
+      <CriticalToast toasts={toastQueue} onDismiss={dismissToast} />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppInner />
     </BrowserRouter>
   );
 }
