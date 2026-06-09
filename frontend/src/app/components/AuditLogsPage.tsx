@@ -4,7 +4,7 @@ import { TopBar } from './TopBar';
 import {
   Search, Loader2, AlertTriangle, Trash2, Eye,
   Plus, Pencil, Activity, LogIn, ShieldAlert, RefreshCw,
-  CheckCircle2, XCircle, User, Monitor, Download,
+  CheckCircle2, XCircle, User, Monitor, Download, Filter,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
@@ -52,6 +52,22 @@ interface SIEMAlert {
   success?: boolean;
   src_ip?: string;
   src_user?: string;
+  action_type?: string;
+  command?: string;
+  port?: string;
+}
+
+interface ServerStat {
+  agent_name: string;
+  agent_ip: string;
+  total: number;
+  failures: number;
+  successes: number;
+  sudo_cmds: number;
+  unique_ips: string[];
+  unique_users: string[];
+  critical_count: number;
+  high_count: number;
 }
 
 function fmtTime(ts: string): string {
@@ -84,14 +100,22 @@ function LoginSessionsTab() {
   const [srvLoading, setSrvLoading]   = useState(true);
   const [srvError, setSrvError]       = useState(false);
   const [srvExpanded, setSrvExpanded] = useState<string | null>(null);
+  const [srvStats, setSrvStats]           = useState<ServerStat[]>([]);
+  const [srvBruteIPs, setSrvBruteIPs]     = useState<string[]>([]);
+  const [srvLastLoad, setSrvLastLoad]     = useState<Date | null>(null);
 
   const [srvSearch, setSrvSearch]               = useState('');
   const [srvFilterServer, setSrvFilterServer]   = useState('ALL');
   const [srvFilterSeverity, setSrvFilterSeverity] = useState('ALL');
   const [srvFilterResult, setSrvFilterResult]   = useState<'ALL' | 'SUCCESS' | 'FAIL'>('ALL');
   const [srvFilterIP, setSrvFilterIP]           = useState('ALL');
+  const [srvDateFrom, setSrvDateFrom]           = useState('');
+  const [srvDateTo, setSrvDateTo]               = useState('');
+  const [srvFilterAction, setSrvFilterAction]   = useState('ALL');
   const [srvPage, setSrvPage]                   = useState(1);
   const SRV_PAGE_SIZE = 20;
+  const [liveMode, setLiveMode]           = useState(false);
+  const [liveCountdown, setLiveCountdown] = useState(60);
 
   const load = async () => {
     setLoading(true); setError(false);
@@ -106,25 +130,41 @@ function LoginSessionsTab() {
 
   useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    const loadSrv = async () => {
-      setSrvLoading(true); setSrvError(false);
-      try {
-        const res = await fetch(
-          'http://localhost:8006/siem/auth-events?limit=200',
-          { headers: authH(), signal: AbortSignal.timeout(8000) }
-        );
-        if (!res.ok) throw new Error();
-        const data = await res.json() as { events?: SIEMAlert[] };
-        const all = data.events ?? [];
-        setSrvEvents(all);
-      } catch { setSrvError(true); }
-      finally { setSrvLoading(false); }
-    };
-    loadSrv();
-  }, []);
+  const loadSrv = async () => {
+    setSrvLoading(true); setSrvError(false);
+    try {
+      const res = await fetch(
+        'http://localhost:8006/siem/auth-events?limit=500',
+        { headers: authH(), signal: AbortSignal.timeout(15000) }
+      );
+      if (!res.ok) throw new Error();
+      const data = await res.json() as {
+        total: number;
+        events: SIEMAlert[];
+        server_stats?: ServerStat[];
+        brute_force_ips?: string[];
+      };
+      setSrvEvents(data.events ?? []);
+      setSrvStats(data.server_stats ?? []);
+      setSrvBruteIPs(data.brute_force_ips ?? []);
+      setSrvLastLoad(new Date());
+    } catch { setSrvError(true); }
+    finally { setSrvLoading(false); }
+  };
 
-  useEffect(() => { setSrvPage(1); }, [srvSearch, srvFilterServer, srvFilterSeverity, srvFilterResult, srvFilterIP]);
+  useEffect(() => { loadSrv(); }, []);
+
+  useEffect(() => { setSrvPage(1); }, [srvSearch, srvFilterServer, srvFilterSeverity, srvFilterResult, srvFilterIP, srvDateFrom, srvDateTo, srvFilterAction]);
+
+  useEffect(() => {
+    if (!liveMode) { setLiveCountdown(60); return; }
+    setLiveCountdown(60);
+    const countdown = setInterval(() => {
+      setLiveCountdown(prev => (prev <= 1 ? 60 : prev - 1));
+    }, 1000);
+    const refresh = setInterval(() => { loadSrv(); }, 60000);
+    return () => { clearInterval(countdown); clearInterval(refresh); };
+  }, [liveMode]);
 
   const srvServers    = [...new Set(srvEvents.map(e => e.agent_name).filter(Boolean))];
   const srvSeverities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
@@ -136,14 +176,19 @@ function LoginSessionsTab() {
       (e.agent_name ?? '').toLowerCase().includes(q) ||
       (e.rule_desc ?? '').toLowerCase().includes(q) ||
       (e.raw_log ?? '').toLowerCase().includes(q) ||
-      (e.src_ip ?? '').toLowerCase().includes(q);
+      (e.src_ip ?? '').toLowerCase().includes(q) ||
+      (e.src_user ?? '').toLowerCase().includes(q) ||
+      (e.command ?? '').toLowerCase().includes(q);
     const matchServer   = srvFilterServer === 'ALL' || e.agent_name === srvFilterServer;
     const matchSeverity = srvFilterSeverity === 'ALL' || e.severity === srvFilterSeverity;
     const matchResult   = srvFilterResult === 'ALL' ||
       (srvFilterResult === 'SUCCESS' && !!e.success) ||
       (srvFilterResult === 'FAIL' && !e.success);
-    const matchIP = srvFilterIP === 'ALL' || e.src_ip === srvFilterIP;
-    return matchSearch && matchServer && matchSeverity && matchResult && matchIP;
+    const matchIP     = srvFilterIP === 'ALL' || e.src_ip === srvFilterIP;
+    const matchAction = srvFilterAction === 'ALL' || e.action_type === srvFilterAction;
+    const matchDateFrom = !srvDateFrom || e.timestamp >= srvDateFrom;
+    const matchDateTo   = !srvDateTo   || e.timestamp <= srvDateTo + 'T23:59:59';
+    return matchSearch && matchServer && matchSeverity && matchResult && matchIP && matchAction && matchDateFrom && matchDateTo;
   });
 
   const srvTotalPages = Math.max(1, Math.ceil(srvFiltered.length / SRV_PAGE_SIZE));
@@ -152,45 +197,30 @@ function LoginSessionsTab() {
   const exportSrvCSV = () => {
     const headers = [
       'Timestamp', 'Servidor', 'IP Servidor', 'Agent ID',
-      'Resultado', 'Severidad', 'IP Origen', 'Usuario',
-      'Evento', 'Raw Log', 'MITRE Táctica', 'MITRE Técnica'
+      'Tipo Acción', 'Resultado', 'Severidad',
+      'IP Origen', 'Puerto', 'Usuario', 'Comando',
+      'Evento', 'MITRE Táctica', 'MITRE Técnica', 'Raw Log',
     ];
-
     const escape = (val: unknown): string => {
       const str = val == null ? '' : String(val);
-      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      if (str.includes(',') || str.includes('"') || str.includes('\n'))
         return `"${str.replace(/"/g, '""')}"`;
-      }
       return str;
     };
-
     const rows = srvFiltered.map(e => [
-      escape(e.timestamp),
-      escape(e.agent_name),
-      escape(e.agent_ip),
-      escape(e.agent_id),
-      escape(e.success ? 'EXITOSO' : 'FALLIDO'),
-      escape(e.severity),
-      escape(e.src_ip ?? ''),
-      escape(e.src_user ?? ''),
-      escape(e.rule_desc),
-      escape(e.raw_log),
-      escape(e.mitre_tactic ?? ''),
-      escape(e.mitre_technique ?? ''),
+      escape(e.timestamp), escape(e.agent_name), escape(e.agent_ip), escape(e.agent_id),
+      escape(e.action_type ?? ''), escape(e.success ? 'EXITOSO' : 'FALLIDO'), escape(e.severity),
+      escape(e.src_ip ?? ''), escape(e.port ?? ''), escape(e.src_user ?? ''), escape(e.command ?? ''),
+      escape(e.rule_desc), escape(e.mitre_tactic ?? ''), escape(e.mitre_technique ?? ''), escape(e.raw_log),
     ].join(','));
-
     const csv = [headers.join(','), ...rows].join('\n');
-    const bom = '﻿';
-    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const date = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `scanops_server_logins_${date}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    a.download = `scanops_server_logins_ENS_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
   const total       = events.length;
@@ -213,6 +243,37 @@ function LoginSessionsTab() {
     const matchUser   = filterUser === 'ALL' || e.username === filterUser;
     return matchSearch && matchResult && matchUser;
   });
+
+  const actionBadgeSrv = (action: string | undefined) => {
+    const cfg: Record<string, { cls: string; label: string }> = {
+      SSH_LOGIN_OK:     { cls: 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',   label: '✓ SSH OK' },
+      SSH_LOGIN_FAIL:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SSH FAIL' },
+      SSH_INVALID_USER: { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ INVÁLIDO' },
+      SSH_ABORT:        { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '⚡ ABORT' },
+      SESSION_OPEN:     { cls: 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',   label: '▶ SESIÓN' },
+      SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',   label: '■ FIN SESIÓN' },
+      SUDO_COMMAND:     { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',   label: '⚡ SUDO' },
+      SUDO_FAIL:        { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SUDO FAIL' },
+      SU_OK:            { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',   label: '▲ SU OK' },
+      SU_FAIL:          { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SU FAIL' },
+      USER_CREATED:     { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '+ USUARIO' },
+      USER_DELETED:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '− USUARIO' },
+      USER_MODIFIED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '✎ USUARIO' },
+      GROUP_CREATED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '+ GRUPO' },
+      PASSWORD_CHANGED: { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '🔑 PASSWD' },
+      ACCOUNT_LOCKED:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '🔒 BLOQUEADO' },
+      ACCOUNT_LOCKOUT:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '🔒 LOCKOUT' },
+      AUTH_FAILURE:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ AUTH FAIL' },
+      PRIV_ESCALATION:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '⚠ ESCALADA' },
+      OTHER:            { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]',   label: 'OTRO' },
+    };
+    const c = cfg[action ?? 'OTHER'] ?? cfg['OTHER'];
+    return (
+      <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${c.cls}`}>
+        {c.label}
+      </span>
+    );
+  };
 
   const roleBadge = (role: string | null) => {
     if (!role) return <span className="text-[#4b5563]">—</span>;
@@ -371,179 +432,348 @@ function LoginSessionsTab() {
         </div>
       </div>
 
-      {/* ── Logins en Servidores (Wazuh/M5) ── */}
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
-          <div className="flex items-center gap-2">
-            <Monitor className="w-4 h-4 text-[#a78bfa]" />
-            <span className="text-sm font-semibold text-white">Logins en Servidores</span>
-            <span className="text-xs text-[#4b5563]">· SSH · ENS op.exp.5</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {srvLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#9ca3af]" />}
-            {!srvLoading && srvFiltered.length > 0 && (
-              <button
-                onClick={exportSrvCSV}
-                className="flex items-center gap-1.5 text-xs text-[#9ca3af] hover:text-[#a78bfa] transition-colors px-2 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa]"
-                title={`Exportar ${srvFiltered.length} eventos a CSV`}
-              >
-                <Download className="w-3.5 h-3.5" />
-                Exportar CSV
-              </button>
-            )}
-          </div>
-        </div>
+      {/* ── Logins en Servidores ── */}
+      <div className="space-y-3">
 
-        {/* Filtros servidores */}
-        <div className="px-4 py-3 border-b border-[#1e2530] flex flex-wrap gap-2">
-          <div className="relative flex-1 min-w-32">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
-            <input
-              value={srvSearch}
-              onChange={e => setSrvSearch(e.target.value)}
-              placeholder="Buscar usuario, mensaje, IP..."
-              className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]"
-            />
-          </div>
-          <select value={srvFilterServer} onChange={e => setSrvFilterServer(e.target.value)}
-            className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
-            <option value="ALL">Todos los servidores</option>
-            {srvServers.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={srvFilterSeverity} onChange={e => setSrvFilterSeverity(e.target.value)}
-            className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
-            <option value="ALL">Todas las severidades</option>
-            {srvSeverities.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={srvFilterResult} onChange={e => setSrvFilterResult(e.target.value as 'ALL' | 'SUCCESS' | 'FAIL')}
-            className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
-            <option value="ALL">Todos los resultados</option>
-            <option value="SUCCESS">Solo exitosos</option>
-            <option value="FAIL">Solo fallidos</option>
-          </select>
-          <select value={srvFilterIP} onChange={e => setSrvFilterIP(e.target.value)}
-            className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
-            <option value="ALL">Todas las IPs origen</option>
-            {srvSourceIPs.map(ip => <option key={ip} value={ip}>{ip}</option>)}
-          </select>
-        </div>
-
-        <div className="flex-1 overflow-auto min-h-[200px]">
-          {srvLoading && (
-            <div className="flex justify-center items-center py-10">
-              <Loader2 className="w-5 h-5 animate-spin text-[#a78bfa]" />
-            </div>
-          )}
-          {!srvLoading && srvError && (
-            <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg text-sm text-[#ff3b3b]">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              M5 SIEM no disponible — no se pudo conectar a <code className="font-mono text-xs">localhost:8006</code>.
-            </div>
-          )}
-          {!srvLoading && !srvError && srvEvents.length === 0 && (
-            <p className="text-[#6b7280] text-sm text-center py-8">Sin eventos de autenticación en servidores.</p>
-          )}
-          {!srvLoading && !srvError && srvEvents.length > 0 && srvFiltered.length === 0 && (
-            <p className="text-[#6b7280] text-sm text-center py-8">Sin resultados para los filtros aplicados.</p>
-          )}
-          {!srvLoading && !srvError && srvFiltered.length > 0 && (
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-[#1a1d27]">
-                <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
-                  <th className="px-3 py-2 font-medium">Timestamp</th>
-                  <th className="px-3 py-2 font-medium">Servidor</th>
-                  <th className="px-3 py-2 font-medium">Evento</th>
-                  <th className="px-3 py-2 font-medium">Severidad</th>
-                  <th className="px-3 py-2 font-medium">MITRE</th>
-                  <th className="px-3 py-2 font-medium">Det.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1e2530]">
-                {srvPaged.map(ev => {
-                  const sevColor: Record<string, string> = {
-                    CRITICAL: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',
-                    HIGH:     'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
-                    MEDIUM:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
-                    LOW:      'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',
-                    INFO:     'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',
-                  };
-                  return (
-                    <>
-                      <tr key={ev.alert_id} className="hover:bg-[#1e2530]/40 transition-colors">
-                        <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1.5">
-                            <Monitor className="w-3 h-3 text-[#4b5563] shrink-0" />
-                            <span className="text-[#a78bfa] font-mono">{ev.agent_name}</span>
-                            {ev.agent_ip && <span className="text-[#4b5563] font-mono text-[10px]">{ev.agent_ip}</span>}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-white max-w-xs truncate" title={ev.rule_desc}>{ev.rule_desc}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold ${sevColor[ev.severity] ?? sevColor.INFO}`}>
-                            {ev.severity}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[#6b7280] text-[10px]">
-                          {ev.mitre_technique ?? '—'}
-                        </td>
-                        <td className="px-3 py-2">
-                          <button onClick={() => setSrvExpanded(srvExpanded === ev.alert_id ? null : ev.alert_id)}
-                            className="text-[#6b7280] hover:text-[#a78bfa] transition-colors">
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                      {srvExpanded === ev.alert_id && (
-                        <tr key={`${ev.alert_id}-detail`}>
-                          <td colSpan={6} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#a78bfa]">
-                            <div className="space-y-2 text-xs">
-                              <div>
-                                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Raw Log</span>
-                                <code className="text-[#9ca3af] font-mono break-all">{ev.raw_log}</code>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Rule ID</span><span className="text-white font-mono">{ev.rule_id}</span></div>
-                                <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Agent ID</span><span className="text-white font-mono">{ev.agent_id}</span></div>
-                                {ev.mitre_tactic && <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Tactic</span><span className="text-white">{ev.mitre_tactic}</span></div>}
-                                {ev.mitre_technique && <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Technique</span><span className="text-white font-mono">{ev.mitre_technique}</span></div>}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {srvTotalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530]">
-            <button
-              onClick={() => setSrvPage(p => Math.max(1, p - 1))}
-              disabled={srvPage === 1}
-              className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-2 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors"
-            >
-              ← Anterior
-            </button>
-            <span className="text-xs text-[#6b7280]">
-              Página {srvPage} de {srvTotalPages} · {srvFiltered.length} eventos
-            </span>
-            <button
-              onClick={() => setSrvPage(p => Math.min(srvTotalPages, p + 1))}
-              disabled={srvPage === srvTotalPages}
-              className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-2 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors"
-            >
-              Siguiente →
-            </button>
+        {/* KPIs por servidor */}
+        {srvStats.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {srvStats.map(s => (
+              <div key={s.agent_ip} className={`bg-[#1a1d27] border rounded-xl p-4 ${s.critical_count > 0 ? 'border-[#ff3b3b]/40' : s.high_count > 0 ? 'border-[#f59e0b]/30' : 'border-[#1e2530]'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#a78bfa]">{s.agent_name}</div>
+                    <div className="text-[10px] font-mono text-[#4b5563]">{s.agent_ip}</div>
+                  </div>
+                  {(s.critical_count > 0 || s.high_count > 0) && (
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${s.critical_count > 0 ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]' : 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]'}`}>
+                      {s.critical_count > 0 ? `${s.critical_count} CRITICAL` : `${s.high_count} HIGH`}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-[#0f1117] rounded-lg p-2">
+                    <div className="text-lg font-bold text-white">{s.total}</div>
+                    <div className="text-[10px] text-[#6b7280]">Total</div>
+                  </div>
+                  <div className="bg-[#0f1117] rounded-lg p-2">
+                    <div className={`text-lg font-bold ${s.failures > 0 ? 'text-[#ff3b3b]' : 'text-white'}`}>{s.failures}</div>
+                    <div className="text-[10px] text-[#6b7280]">Fallos</div>
+                  </div>
+                  <div className="bg-[#0f1117] rounded-lg p-2">
+                    <div className={`text-lg font-bold ${s.sudo_cmds > 0 ? 'text-[#a78bfa]' : 'text-white'}`}>{s.sudo_cmds}</div>
+                    <div className="text-[10px] text-[#6b7280]">Sudo</div>
+                  </div>
+                </div>
+                <div className="mt-2 flex gap-3 text-[10px] text-[#6b7280]">
+                  <span>{s.unique_users.length} usuario{s.unique_users.length !== 1 ? 's' : ''}</span>
+                  <span>·</span>
+                  <span>{s.unique_ips.length} IP{s.unique_ips.length !== 1 ? 's' : ''} origen</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
-        <div className="px-4 py-2 border-t border-[#1e2530] text-[10px] text-[#4b5563] font-mono">
-          {srvFiltered.length} eventos · mostrando {srvPaged.length} · págs {srvTotalPages} · ENS op.exp.5
+        {/* Alerta brute force servidores */}
+        {srvBruteIPs.length > 0 && (
+          <div className="flex items-start gap-3 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-xl">
+            <ShieldAlert className="w-4 h-4 text-[#ff3b3b] mt-0.5 shrink-0" />
+            <div>
+              <div className="text-sm font-semibold text-[#ff3b3b]">⚠ Ataque de fuerza bruta detectado en servidores</div>
+              <div className="text-xs text-[#9ca3af] mt-0.5">
+                IPs con ≥5 fallos SSH en los últimos 10 min:{' '}
+                <span className="font-mono text-white">{srvBruteIPs.join(', ')}</span>
+              </div>
+              <div className="text-[10px] text-[#6b7280] mt-1">ENS op.acc.6 — Bloqueo recomendado · Registrar como incidente</div>
+            </div>
+          </div>
+        )}
+
+        {/* Tabla principal */}
+        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+            <div className="flex items-center gap-2">
+              <Monitor className="w-4 h-4 text-[#a78bfa]" />
+              <span className="text-sm font-semibold text-white">Logins en Servidores</span>
+              <span className="text-xs text-[#4b5563]">· SSH auth.log · ENS op.acc.1, op.acc.6, op.exp.5</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {srvLastLoad && (
+                <span className="text-[10px] text-[#4b5563] font-mono">
+                  Última carga: {fmtTime(srvLastLoad.toISOString())}
+                </span>
+              )}
+              <button
+                onClick={() => setLiveMode(m => !m)}
+                className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors ${
+                  liveMode
+                    ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]'
+                    : 'border-[#1e2530] text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                }`}
+                title={liveMode ? 'Desactivar refresco automático' : 'Activar refresco automático cada 60s'}
+              >
+                {liveMode && <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse" />}
+                {liveMode ? `Live · ${liveCountdown}s` : 'Live'}
+              </button>
+              <button
+                onClick={() => { setSrvLoading(true); loadSrv(); }}
+                disabled={srvLoading}
+                className="flex items-center gap-1.5 text-xs text-[#9ca3af] hover:text-[#a78bfa] transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${srvLoading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </button>
+              {!srvLoading && srvFiltered.length > 0 && (
+                <button
+                  onClick={exportSrvCSV}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#a78bfa] hover:bg-[#9061f9] transition-colors px-3 py-1.5 rounded-lg"
+                  title={`Exportar ${srvFiltered.length} eventos a CSV — evidencia ENS`}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Exportar CSV
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filtros */}
+          <div className="px-4 py-3 border-b border-[#1e2530] grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 items-end">
+            <div className="col-span-2 flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Búsqueda</label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
+                <input value={srvSearch} onChange={e => setSrvSearch(e.target.value)}
+                  placeholder="usuario, IP, comando..."
+                  className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Desde</label>
+              <input type="date" value={srvDateFrom} onChange={e => setSrvDateFrom(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Hasta</label>
+              <input type="date" value={srvDateTo} onChange={e => setSrvDateTo(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Servidor</label>
+              <select value={srvFilterServer} onChange={e => setSrvFilterServer(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                <option value="ALL">Todos</option>
+                {srvServers.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Tipo acción</label>
+              <select value={srvFilterAction} onChange={e => setSrvFilterAction(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                <option value="ALL">Todas</option>
+                <option value="SSH_LOGIN_OK">SSH OK</option>
+                <option value="SSH_LOGIN_FAIL">SSH Fail</option>
+                <option value="SSH_INVALID_USER">Inválido</option>
+                <option value="SESSION_OPEN">Sesión abierta</option>
+                <option value="SESSION_CLOSE">Sesión cerrada</option>
+                <option value="SUDO_COMMAND">Sudo</option>
+                <option value="SUDO_FAIL">Sudo fail</option>
+                <option value="SU_OK">Su OK</option>
+                <option value="SU_FAIL">Su fail</option>
+                <option value="USER_CREATED">Usuario creado</option>
+                <option value="USER_DELETED">Usuario eliminado</option>
+                <option value="USER_MODIFIED">Usuario modificado</option>
+                <option value="PASSWORD_CHANGED">Passwd cambiada</option>
+                <option value="ACCOUNT_LOCKED">Cuenta bloqueada</option>
+                <option value="AUTH_FAILURE">Auth failure</option>
+                <option value="PRIV_ESCALATION">Escalada</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Severidad</label>
+              <select value={srvFilterSeverity} onChange={e => setSrvFilterSeverity(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                <option value="ALL">Todas</option>
+                {srvSeverities.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-1.5 items-end">
+              <button onClick={() => setSrvPage(1)}
+                className="flex-1 text-xs font-semibold text-white bg-[#00d4ff] hover:bg-[#00b8d9] transition-colors px-3 py-1.5 rounded-lg">
+                Filtrar
+              </button>
+              <button onClick={() => {
+                setSrvSearch(''); setSrvFilterServer('ALL'); setSrvFilterSeverity('ALL');
+                setSrvFilterResult('ALL'); setSrvFilterIP('ALL'); setSrvFilterAction('ALL');
+                setSrvDateFrom(''); setSrvDateTo(''); setSrvPage(1);
+              }}
+                className="text-xs text-[#9ca3af] hover:text-white border border-[#1e2530] hover:border-[#4b5563] transition-colors px-2 py-1.5 rounded-lg"
+                title="Limpiar filtros">
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Contenido tabla */}
+          <div className="flex-1 overflow-auto min-h-[200px]">
+            {srvLoading && <div className="flex justify-center items-center py-10"><Loader2 className="w-5 h-5 animate-spin text-[#a78bfa]" /></div>}
+            {!srvLoading && srvError && (
+              <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg text-sm text-[#ff3b3b]">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                M5 SIEM no disponible — no se pudo conectar a <code className="font-mono text-xs">localhost:8006/siem/auth-events</code>
+              </div>
+            )}
+            {!srvLoading && !srvError && srvFiltered.length === 0 && (
+              <p className="text-[#6b7280] text-sm text-center py-8">
+                {srvEvents.length === 0 ? 'Sin eventos de autenticación en servidores.' : 'Sin resultados para los filtros aplicados.'}
+              </p>
+            )}
+            {!srvLoading && !srvError && srvFiltered.length > 0 && (
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-[#1a1d27] z-10">
+                  <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
+                    <th className="px-3 py-2 font-medium">Fecha / Hora</th>
+                    <th className="px-3 py-2 font-medium">Servidor</th>
+                    <th className="px-3 py-2 font-medium">Usuario</th>
+                    <th className="px-3 py-2 font-medium">Tipo Acción</th>
+                    <th className="px-3 py-2 font-medium">Severidad</th>
+                    <th className="px-3 py-2 font-medium">IP Origen</th>
+                    <th className="px-3 py-2 font-medium">Puerto</th>
+                    <th className="px-3 py-2 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1e2530]">
+                  {srvPaged.map(ev => {
+                    const sevColor: Record<string, string> = {
+                      CRITICAL: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',
+                      HIGH:     'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
+                      MEDIUM:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
+                      LOW:      'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',
+                      INFO:     'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',
+                    };
+                    const isExpanded = srvExpanded === ev.alert_id;
+                    const isBF = !!(ev.src_ip && srvBruteIPs.includes(ev.src_ip));
+                    return (
+                      <>
+                        <tr
+                          key={ev.alert_id}
+                          onClick={() => setSrvExpanded(isExpanded ? null : ev.alert_id)}
+                          className={`hover:bg-[#1e2530]/40 transition-colors cursor-pointer ${
+                            ev.severity === 'CRITICAL' ? 'border-l-2 border-[#ff3b3b]' :
+                            ev.severity === 'HIGH'     ? 'border-l-2 border-[#f59e0b]' : ''
+                          }`}
+                        >
+                          <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col">
+                              <span className="text-[#a78bfa] font-mono font-medium">{ev.agent_name}</span>
+                              <span className="text-[#4b5563] font-mono text-[10px]">{ev.agent_ip}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-white">{ev.src_user ?? <span className="text-[#4b5563]">—</span>}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1">
+                              <span className={`text-[10px] text-[#4b5563] transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                              {actionBadgeSrv(ev.action_type)}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold ${sevColor[ev.severity] ?? sevColor.INFO}`}>
+                              {ev.severity}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {ev.src_ip ? (
+                              <span className={isBF ? 'text-[#ff3b3b] font-semibold' : 'text-[#9ca3af]'}>
+                                {ev.src_ip}{isBF && <span className="ml-1" title="IP en brute force activo">⚠</span>}
+                              </span>
+                            ) : <span className="text-[#4b5563]">—</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[#6b7280]">{ev.port ?? '—'}</td>
+                          <td className="px-3 py-2 w-4" />
+                        </tr>
+                        {isExpanded && (
+                          <tr key={`${ev.alert_id}-detail`}>
+                            <td colSpan={8} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#a78bfa]">
+                              <div className="space-y-3 text-xs">
+                                <div>
+                                  <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-1">Raw Log</span>
+                                  <code className="text-[#9ca3af] font-mono break-all leading-5">{ev.raw_log}</code>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Resultado</span>
+                                    <span className={ev.success ? 'text-[#22c55e] font-semibold' : 'text-[#ff3b3b] font-semibold'}>
+                                      {ev.success ? '✓ EXITOSO' : '✗ FALLIDO'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Timestamp UTC</span>
+                                    <span className="text-white font-mono">{ev.timestamp}</span>
+                                  </div>
+                                  {ev.command && (
+                                    <div className="col-span-2">
+                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Comando ejecutado</span>
+                                      <code className="text-[#a78bfa] font-mono">{ev.command}</code>
+                                    </div>
+                                  )}
+                                  {ev.mitre_tactic && (
+                                    <div>
+                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Táctica</span>
+                                      <span className="text-white">{ev.mitre_tactic}</span>
+                                    </div>
+                                  )}
+                                  {ev.mitre_technique && (
+                                    <div>
+                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Técnica</span>
+                                      <span className="text-white font-mono">{ev.mitre_technique}</span>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Agent ID (M1)</span>
+                                    <span className="text-white font-mono">{ev.agent_id}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Norma ENS</span>
+                                    <span className="text-[#00d4ff]">op.acc.1 · op.acc.6 · op.exp.5</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Paginación */}
+          {srvTotalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530]">
+              <button onClick={() => setSrvPage(p => Math.max(1, p - 1))} disabled={srvPage === 1}
+                className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                ← Anterior
+              </button>
+              <span className="text-xs text-[#6b7280]">
+                Página {srvPage} de {srvTotalPages} · {srvFiltered.length} de {srvEvents.length} eventos
+              </span>
+              <button onClick={() => setSrvPage(p => Math.min(srvTotalPages, p + 1))} disabled={srvPage === srvTotalPages}
+                className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                Siguiente →
+              </button>
+            </div>
+          )}
+
+          {/* Footer ENS */}
+          <div className="px-4 py-2 border-t border-[#1e2530] flex items-center justify-between text-[10px] text-[#4b5563] font-mono">
+            <span>{srvFiltered.length} eventos filtrados · {srvEvents.length} total · pág {srvPage}/{srvTotalPages}</span>
+            <span>ENS RD 311/2022 · op.acc.1 · op.acc.6 · op.exp.5 · Retención ≥2 años</span>
+          </div>
         </div>
       </div>
     </div>

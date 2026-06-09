@@ -604,6 +604,163 @@ async def download_historical_report(filename: str):
     return FileResponse(path=file_path, filename=filename, media_type="application/zip")
 
 
+@app.get("/report/asset/{asset_id}")
+async def generate_asset_report(asset_id: int):
+    """
+    US-7.10: Informe técnico detallado de un activo específico.
+    Consolida datos de M1+M2+M3+M8+M4+M5 en un único PDF firmado AES-256.
+    ENS: op.exp.2, mp.info.4, op.exp.5
+    """
+    try:
+        conn = get_db_connection()
+        with conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+
+                # Activo M1
+                cur.execute("""
+                    SELECT id, ip, hostname, nombre, tipo, criticidad, status,
+                           responsable, departamento, ubicacion, tags_ens, notas,
+                           os_family, os_version, created_at
+                    FROM assets WHERE id = %s AND deleted_at IS NULL
+                """, (asset_id,))
+                activo_row = cur.fetchone()
+                if not activo_row:
+                    raise HTTPException(status_code=404, detail="Activo no encontrado")
+
+                # ── Recon M2 ──────────────────────────────────────────────────
+                recon_data = None
+                recon_findings_list = []
+                recon_subdomains_list = []
+
+                cur.execute("""
+                    SELECT id, cycle_id, target, started_at, finished_at,
+                           status, os_family, os_version, mac_address, mac_vendor,
+                           latency_ms, webcheck_data
+                    FROM recon_snapshots
+                    WHERE target = %s
+                    ORDER BY started_at DESC LIMIT 1
+                """, (activo_row["ip"],))
+                snap_row = cur.fetchone()
+
+                if snap_row:
+                    recon_data = dict(snap_row)
+                    snap_id = snap_row["id"]
+
+                    cur.execute("""
+                        SELECT port, service, version, state, source
+                        FROM recon_findings
+                        WHERE snapshot_id = %s AND state = 'open'
+                        ORDER BY port
+                    """, (snap_id,))
+                    recon_findings_list = [dict(r) for r in cur.fetchall()]
+
+                    cur.execute("""
+                        SELECT subdomain, source
+                        FROM recon_subdomains
+                        WHERE snapshot_id = %s
+                        ORDER BY subdomain
+                    """, (snap_id,))
+                    recon_subdomains_list = [dict(r) for r in cur.fetchall()]
+
+                # Vulnerabilidades M3
+                cur.execute("""
+                    SELECT title, vulnerability_id AS cve_id, severity, cvss_v3_score,
+                           description, affected_port AS port, affected_protocol AS protocol,
+                           scanner_name, ens_requirement, created_at
+                    FROM vuln_findings
+                    WHERE asset_id = %s
+                    ORDER BY cvss_v3_score DESC NULLS LAST, created_at DESC
+                """, (asset_id,))
+                vuln_rows = cur.fetchall()
+
+                # ── AI Reasoning M8 ───────────────────────────────────────
+                ai_result = None
+                try:
+                    cur.execute("""
+                        SELECT suggested_tool, tool_params, mitre_tactic,
+                               risk_level, attack_rationale, confidence,
+                               status, created_at
+                        FROM m8_results
+                        WHERE asset_id = %s
+                        ORDER BY created_at DESC LIMIT 1
+                    """, (asset_id,))
+                    ai_row = cur.fetchone()
+                    if ai_row:
+                        ai_result = dict(ai_row)
+                except Exception:
+                    conn.rollback()
+
+                # M4
+                m4_row = None
+                cur.execute("""
+                    SELECT id, cve_id, target_ip, status, requester,
+                           created_at, approved_at, executed_at, execution_result AS exploit_result
+                    FROM m4_approvals
+                    WHERE target_ip = (SELECT ip FROM assets WHERE id = %s)
+                      AND status IN ('APPROVED', 'EXECUTED')
+                    ORDER BY created_at DESC LIMIT 1
+                """, (asset_id,))
+                m4_row = cur.fetchone()
+
+                # SIEM M5
+                siem_rows = []
+                try:
+                    cur.execute("""
+                        SELECT event_type, severity, target_ip, description, timestamp, source
+                        FROM siem_pipeline_events
+                        WHERE target_ip = (SELECT ip FROM assets WHERE id = %s)
+                        ORDER BY timestamp DESC LIMIT 50
+                    """, (asset_id,))
+                    siem_rows = cur.fetchall()
+                except Exception:
+                    conn.rollback()
+
+        conn.close()
+
+        vuln_list = [dict(r) for r in vuln_rows]
+        context = {
+            "fecha":            datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "report_id":        f"ACT-{asset_id}-{uuid.uuid4().hex[:8].upper()}",
+            "activo":           dict(activo_row),
+            "recon_data":           recon_data,
+            "recon_findings":       recon_findings_list,
+            "recon_subdomains":     recon_subdomains_list,
+            "vulnerabilidades": vuln_list,
+            "ai_result":        ai_result,
+            "m4_result":        dict(m4_row) if m4_row else None,
+            "siem_eventos":     [dict(r) for r in siem_rows],
+            "total_vulns":      len(vuln_list),
+            "critical_count":   sum(1 for v in vuln_list if v["severity"] == "CRITICAL"),
+            "high_count":       sum(1 for v in vuln_list if v["severity"] == "HIGH"),
+        }
+
+        template = template_env.get_template('asset_detail.html')
+        html_content = template.render(context)
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_pdf_bytes)
+
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_05_Informe_Activo_{asset_id}.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup activo {asset_id}: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=ScanOps_Activo_{asset_id}.pdf"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando informe de activo: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

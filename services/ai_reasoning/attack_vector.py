@@ -12,18 +12,18 @@ logger = logging.getLogger(__name__)
 
 async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Sugiere el módulo de Metasploit y el vector de ataque óptimo.
-    
-    Este es el último paso automatizado (Paso 5) antes del proceso human-in-the-loop 
-    obligatorio (US-4.8). Analiza el contexto completo del activo y sus vulnerabilidades 
+    Sugiere el vector de ataque óptimo con terminología MITRE ATT&CK.
+
+    Este es el último paso automatizado (Paso 5) antes del proceso human-in-the-loop
+    obligatorio (US-4.8). Analiza el contexto completo del activo y sus vulnerabilidades
     confirmadas para proponer una validación segura y efectiva.
-    
+
     Args:
         ficha_unica: Diccionario con todos los datos del activo, hallazgos,
                      servicios y restricciones operacionales.
-        
+
     Returns:
-        Dict con la propuesta de ataque estructurada para Metasploit y metadatos de auditoría.
+        Dict con la propuesta de ataque estructurada con técnica MITRE ATT&CK y metadatos de auditoría.
     """
     asset_id = ficha_unica.get("asset_id")
     cve_id = ficha_unica.get("cve_id")
@@ -87,21 +87,24 @@ async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
         result = json.loads(clean_json)
         
         # VALIDACIÓN OBLIGATORIA DEL OUTPUT
-        msf_module = result.get("msf_module")
-        if not msf_module or not msf_module.strip():
-            raise ValueError("El LLM devolvió un msf_module vacío o inválido")
-            
+        attack_technique = result.get("attack_technique")
+        suggested_tool = result.get("suggested_tool")
+        if not attack_technique or not str(attack_technique).strip():
+            raise ValueError("El LLM devolvió un attack_technique vacío o inválido")
+        if not suggested_tool or not str(suggested_tool).strip():
+            raise ValueError("El LLM devolvió un suggested_tool vacío o inválido")
+
         # Lógica de revisión manual (Human-in-the-loop)
         requires_manual_review = False
-        if msf_module == "UNKNOWN":
+        if "UNKNOWN" in str(attack_technique).upper():
             requires_manual_review = True
-            logger.info(f"[{asset_id}] Módulo sugerido como UNKNOWN - Marcado para revisión manual")
-            
+            logger.info(f"[{asset_id}] Técnica sugerida como UNKNOWN - Marcado para revisión manual")
+
         confidence = str(result.get("confidence", "bajo")).lower()
         if confidence == "bajo":
             requires_manual_review = True
             logger.warning(f"[{asset_id}] Baja confianza en la sugerencia - Requiere revisión manual")
-        
+
         # Enriquecer resultado con metadatos de auditoría ENS
         final_result = {
             **result,
@@ -112,8 +115,8 @@ async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
             "prompt_version": prompt_config.get("version", "unknown"),
             "generated_at": datetime.utcnow().isoformat()
         }
-        
-        logger.info(f"[{asset_id}] Vector de ataque sugerido: {msf_module} (Confianza: {confidence})")
+
+        logger.info(f"[{asset_id}] Vector de ataque sugerido: {attack_technique} | Tool: {suggested_tool} (Confianza: {confidence})")
         return final_result
 
     except Exception as e:

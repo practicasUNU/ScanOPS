@@ -2701,6 +2701,8 @@ FILE:test
 {"detail":"Not Found"}
 FILE:test-weasy
 {"detail":"Error generando reporte: PDF.__init__() takes 1 positional argument but 3 were given"}
+FILE:test_activo.pdf
+{"detail":"Error generando informe de activo: column \"cve_id\" does not exist\nLINE 2:                     SELECT title, cve_id, severity, cvss_v3_...\n                                          ^\nHINT:  Perhaps you meant to reference the column \"vuln_findings.scan_id\".\n"}
 FILE:vault.exe
 BINARY:true
 
@@ -8095,8 +8097,13 @@ import {
   Filter,
   Wifi,
   AlertTriangle,
-  Skull,
-  Terminal
+  Bug,
+  ChevronDown,
+  ChevronRight,
+  Globe,
+  Clock,
+  Layers,
+  Database
 } from 'lucide-react';
 
 const ORCHESTRATOR_BASE = 'http://localhost:8009';
@@ -8138,9 +8145,27 @@ interface SiemKpis {
   sensors_total: number;
 }
 
-interface TopAttacker {
+interface HoneypotStatus {
+  cowrie: { status: string; ports: number[]; type: string };
+  beelzebub: { status: string; ports: number[]; type: string };
+  isolation_network: string;
+  ens_compliance: { op_exp_4: boolean; description: string };
+  timestamp: string;
+}
+
+interface HoneypotEvent {
+  source: 'cowrie' | 'beelzebub';
+  timestamp: string;
+  src_ip: string;
+  event_type: string;
+  detail: string;
+}
+
+interface HoneypotAttacker {
   ip: string;
-  count: number;
+  attempts: number;
+  first_seen: string;
+  last_seen: string;
 }
 
 interface M5Alert {
@@ -8193,13 +8218,18 @@ export function AlertsPage() {
   const [filterSource, setFilterSource] = useState<string>('ALL');
   const [kpis, setKpis] = useState<SiemKpis | null>(null);
   const [kpisLoading, setKpisLoading] = useState(true);
-  const [topAttackers, setTopAttackers] = useState<TopAttacker[]>([]);
   const [liveAlerts, setLiveAlerts] = useState<M5Alert[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [pipelineEvents, setPipelineEvents] = useState<any[]>([]);
   const [refetchTick, setRefetchTick] = useState(0);
   const refetch = () => setRefetchTick(t => t + 1);
+  const [honeypotStatus, setHoneypotStatus] = useState<HoneypotStatus | null>(null);
+  const [honeypotEvents, setHoneypotEvents] = useState<HoneypotEvent[]>([]);
+  const [honeypotAttackers, setHoneypotAttackers] = useState<HoneypotAttacker[]>([]);
+  const [honeypotLoading, setHoneypotLoading] = useState(true);
+  const [expandedSession, setExpandedSession] = useState<number | null>(null);
+  const [honeypotTab, setHoneypotTab] = useState<'cowrie' | 'beelzebub'>('cowrie');
 
   // KPIs + top attackers polling (30s)
   useEffect(() => {
@@ -8217,22 +8247,38 @@ export function AlertsPage() {
       finally { setKpisLoading(false); }
     };
 
-    const fetchTopAttackers = async () => {
+    fetchKpis();
+    const id = setInterval(fetchKpis, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Honeypot polling (30s)
+  useEffect(() => {
+    const fetchHoneypot = async () => {
       try {
-        const res = await fetch(`${ORCHESTRATOR_BASE}/orchestrator/siem/top-attackers`, {
-          headers: authH(),
-          signal: AbortSignal.timeout(8000),
-        });
-        if (res.ok) {
-          const data = await res.json() as { attackers?: TopAttacker[] };
-          setTopAttackers(data.attackers ?? []);
+        const [statusRes, eventsRes, attackersRes] = await Promise.allSettled([
+          fetch(`${M5_BASE}/siem/honeypots/status`, { headers: authH(), signal: AbortSignal.timeout(5000) }),
+          fetch(`${M5_BASE}/siem/honeypots/events`, { headers: authH(), signal: AbortSignal.timeout(5000) }),
+          fetch(`${M5_BASE}/siem/honeypots/attackers`, { headers: authH(), signal: AbortSignal.timeout(5000) }),
+        ]);
+
+        if (statusRes.status === 'fulfilled' && statusRes.value.ok) {
+          setHoneypotStatus(await statusRes.value.json() as HoneypotStatus);
+        }
+        if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
+          const d = await eventsRes.value.json() as { events: HoneypotEvent[] };
+          setHoneypotEvents(d.events ?? []);
+        }
+        if (attackersRes.status === 'fulfilled' && attackersRes.value.ok) {
+          const d = await attackersRes.value.json() as { attackers: HoneypotAttacker[] };
+          setHoneypotAttackers(d.attackers ?? []);
         }
       } catch { /* silencioso */ }
+      finally { setHoneypotLoading(false); }
     };
 
-    fetchKpis();
-    fetchTopAttackers();
-    const id = setInterval(() => { fetchKpis(); fetchTopAttackers(); }, 30000);
+    fetchHoneypot();
+    const id = setInterval(fetchHoneypot, 30000);
     return () => clearInterval(id);
   }, []);
 
@@ -8356,7 +8402,20 @@ export function AlertsPage() {
     return matchesSearch && matchesSource;
   });
 
-  const maxAttackerCount = topAttackers.length > 0 ? topAttackers[0].count : 1;
+  const cowrieEvents = honeypotEvents.filter(e => e.source === 'cowrie');
+  const beelzebubEvents = honeypotEvents.filter(e => e.source === 'beelzebub');
+  const maxAttacks = honeypotAttackers.length > 0 ? honeypotAttackers[0].attempts : 1;
+
+  const fmtDate = (iso: string) => {
+    try { return new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+    catch { return iso; }
+  };
+
+  const containerStatusColor = (s: string) =>
+    s === 'running' ? '#22c55e' : s === 'stopped' ? '#ff3b3b' : '#f59e0b';
+
+  const containerStatusLabel = (s: string) =>
+    s === 'running' ? 'ACTIVO' : s === 'stopped' ? 'DETENIDO' : 'DESCONOCIDO';
 
   return (
     <div className="flex h-screen bg-[#0f1117]">
@@ -8597,100 +8656,247 @@ export function AlertsPage() {
               </div>
             </div>
 
-            {/* ─── PANEL DERECHO: CONTEXTO Y AMENAZAS ─── */}
-            <div className="flex-1 flex flex-col gap-6 min-h-0 overflow-y-auto custom-scrollbar">
+            {/* ─── PANEL DERECHO: HONEYPOT INTEL ─── */}
+            <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto custom-scrollbar">
 
-              {/* Top Atacantes */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                  <Skull className="w-4 h-4 text-[#ff3b3b]" /> Top IPs Agresoras (24h)
-                </h3>
-                {topAttackers.length === 0 ? (
-                  <p className="text-xs text-[#6b7280]">Sin datos de atacantes. M5 no disponible o sin eventos.</p>
+              {/* ── TÍTULO DEL PANEL ── */}
+              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl px-5 py-3 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <Bug className="w-4 h-4 text-[#ff3b3b]" />
+                  <span className="text-sm font-semibold text-white">Honeypot Intelligence</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 text-[#ff3b3b] font-mono uppercase">ENS op.exp.4</span>
+                </div>
+                {honeypotLoading && (
+                  <span className="text-[10px] text-[#6b7280] font-mono animate-pulse">cargando...</span>
+                )}
+              </div>
+
+              {/* ── SECCIÓN 1: ESTADO DE CONTENEDORES ── */}
+              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 shrink-0">
+                <h4 className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5" /> Estado de Contenedores
+                </h4>
+                <div className="space-y-2">
+                  {/* Cowrie */}
+                  <div className="flex items-center justify-between p-3 bg-[#0f1117] rounded-lg border border-[#1e2530]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-[#ff3b3b]/10 flex items-center justify-center">
+                        <Flame className="w-4 h-4 text-[#ff3b3b]" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-white">Cowrie SSH/Telnet</div>
+                        <div className="text-[10px] text-[#6b7280] font-mono">
+                          {honeypotStatus ? `Puertos: ${honeypotStatus.cowrie.ports.join(', ')}` : 'puertos: 2222, 2223'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="text-[10px] font-bold px-2 py-0.5 rounded border"
+                        style={{
+                          color: containerStatusColor(honeypotStatus?.cowrie.status ?? 'unknown'),
+                          borderColor: containerStatusColor(honeypotStatus?.cowrie.status ?? 'unknown') + '40',
+                          backgroundColor: containerStatusColor(honeypotStatus?.cowrie.status ?? 'unknown') + '15',
+                        }}
+                      >
+                        {containerStatusLabel(honeypotStatus?.cowrie.status ?? 'unknown')}
+                      </span>
+                      {(honeypotStatus?.cowrie.status ?? 'unknown') === 'running' && (
+                        <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22c55e] opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e]"></span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Beelzebub */}
+                  <div className="flex items-center justify-between p-3 bg-[#0f1117] rounded-lg border border-[#1e2530]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-[#a855f7]/10 flex items-center justify-center">
+                        <Database className="w-4 h-4 text-[#a855f7]" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-white">Beelzebub HTTP/MySQL</div>
+                        <div className="text-[10px] text-[#6b7280] font-mono">
+                          {honeypotStatus ? `Puertos: ${honeypotStatus.beelzebub.ports.join(', ')}` : 'puertos: 8880, 3306'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="text-[10px] font-bold px-2 py-0.5 rounded border"
+                        style={{
+                          color: containerStatusColor(honeypotStatus?.beelzebub.status ?? 'unknown'),
+                          borderColor: containerStatusColor(honeypotStatus?.beelzebub.status ?? 'unknown') + '40',
+                          backgroundColor: containerStatusColor(honeypotStatus?.beelzebub.status ?? 'unknown') + '15',
+                        }}
+                      >
+                        {containerStatusLabel(honeypotStatus?.beelzebub.status ?? 'unknown')}
+                      </span>
+                      {(honeypotStatus?.beelzebub.status ?? 'unknown') === 'running' && (
+                        <span className="flex h-2 w-2 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22c55e] opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e]"></span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Red de aislamiento */}
+                  {honeypotStatus && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0f1117] rounded-lg border border-[#1e2530]">
+                      <Globe className="w-3 h-3 text-[#6b7280]" />
+                      <span className="text-[10px] text-[#6b7280] font-mono">
+                        Red aislada: <span className="text-[#9ca3af]">{honeypotStatus.isolation_network}</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── SECCIÓN 2: SESIONES CAPTURADAS (TABS Cowrie / Beelzebub) ── */}
+              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl flex flex-col">
+                {/* Tab switcher */}
+                <div className="flex border-b border-[#1e2530]">
+                  <button
+                    onClick={() => { setHoneypotTab('cowrie'); setExpandedSession(null); }}
+                    className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer rounded-tl-xl ${
+                      honeypotTab === 'cowrie'
+                        ? 'text-[#ff3b3b] border-b-2 border-[#ff3b3b] bg-[#ff3b3b]/5'
+                        : 'text-[#6b7280] hover:text-white'
+                    }`}
+                  >
+                    <Flame className="w-3.5 h-3.5" />
+                    Cowrie SSH
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] bg-[#ff3b3b]/20 text-[#ff3b3b] font-mono">{cowrieEvents.length}</span>
+                  </button>
+                  <button
+                    onClick={() => { setHoneypotTab('beelzebub'); setExpandedSession(null); }}
+                    className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer rounded-tr-xl ${
+                      honeypotTab === 'beelzebub'
+                        ? 'text-[#a855f7] border-b-2 border-[#a855f7] bg-[#a855f7]/5'
+                        : 'text-[#6b7280] hover:text-white'
+                    }`}
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    Beelzebub HTTP
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] bg-[#a855f7]/20 text-[#a855f7] font-mono">{beelzebubEvents.length}</span>
+                  </button>
+                </div>
+
+                {/* Lista de eventos del tab activo */}
+                <div className="overflow-y-auto max-h-64 custom-scrollbar p-2 space-y-1">
+                  {(honeypotTab === 'cowrie' ? cowrieEvents : beelzebubEvents).length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-[#6b7280]">
+                      <Bug className="w-8 h-8 mb-2 opacity-20" />
+                      <p className="text-xs">
+                        {honeypotLoading ? 'Cargando eventos...' : 'Sin eventos capturados'}
+                      </p>
+                    </div>
+                  ) : (
+                    (honeypotTab === 'cowrie' ? cowrieEvents : beelzebubEvents).slice(0, 20).map((ev, idx) => {
+                      const isExpanded = expandedSession === idx;
+                      const commands = ev.detail ? ev.detail.split('\n').filter(Boolean) : [];
+                      const accentColor = honeypotTab === 'cowrie' ? '#ff3b3b' : '#a855f7';
+
+                      return (
+                        <div key={idx} className="rounded-lg overflow-hidden border border-[#1e2530]">
+                          {/* Fila principal */}
+                          <button
+                            onClick={() => setExpandedSession(isExpanded ? null : idx)}
+                            className="w-full flex items-center gap-3 p-2.5 bg-[#0f1117] hover:bg-[#1e2530]/60 transition-colors cursor-pointer text-left"
+                          >
+                            <div
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: accentColor }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono text-[#9ca3af]" style={{ color: accentColor }}>
+                                  {ev.src_ip ?? '—'}
+                                </span>
+                                <span className="text-[10px] text-[#6b7280] truncate">{ev.event_type}</span>
+                              </div>
+                              {ev.detail && (
+                                <p className="text-[10px] text-[#6b7280] truncate mt-0.5">{ev.detail}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className="text-[9px] text-[#4b5563] font-mono">
+                                {ev.timestamp ? fmtDate(ev.timestamp) : ''}
+                              </span>
+                              {commands.length > 1
+                                ? (isExpanded
+                                    ? <ChevronDown className="w-3 h-3 text-[#6b7280]" />
+                                    : <ChevronRight className="w-3 h-3 text-[#6b7280]" />)
+                                : null
+                              }
+                            </div>
+                          </button>
+
+                          {/* Panel expandible — comandos ejecutados */}
+                          {isExpanded && commands.length > 0 && (
+                            <div className="bg-[#0a0d14] border-t border-[#1e2530] p-2.5">
+                              <p className="text-[9px] text-[#6b7280] uppercase tracking-wider mb-1.5 font-semibold">Comandos ejecutados</p>
+                              <div className="space-y-1">
+                                {commands.map((cmd, ci) => (
+                                  <div key={ci} className="flex items-start gap-2">
+                                    <span className="text-[#22c55e] text-[10px] font-mono shrink-0">$</span>
+                                    <code className="text-[10px] font-mono text-[#e5e7eb] break-all">{cmd}</code>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* ── SECCIÓN 3: TIMELINE DE ATACANTES ── */}
+              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4">
+                <h4 className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5" /> Timeline Atacantes (7d)
+                </h4>
+                {honeypotAttackers.length === 0 ? (
+                  <p className="text-xs text-[#6b7280] text-center py-4">
+                    {honeypotLoading ? 'Cargando...' : 'Sin datos de atacantes'}
+                  </p>
                 ) : (
-                  <div className="space-y-4">
-                    {topAttackers.map((atk, idx) => {
-                      const pct = Math.round((atk.count / maxAttackerCount) * 100);
+                  <div className="space-y-3">
+                    {honeypotAttackers.slice(0, 5).map((atk, idx) => {
+                      const pct = Math.round((atk.attempts / maxAttacks) * 100);
                       return (
                         <div key={idx}>
-                          <div className="flex justify-between text-xs mb-1.5">
-                            <span className="font-mono text-[#9ca3af]">{atk.ip}</span>
-                            <span className="text-[#ff3b3b] font-semibold">{atk.count} evts</span>
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="text-[11px] font-mono text-[#9ca3af]">{atk.ip}</span>
+                            <span className="text-[10px] font-bold" style={{ color: idx === 0 ? '#ff3b3b' : '#f59e0b' }}>
+                              {atk.attempts} intentos
+                            </span>
                           </div>
-                          <div className="w-full bg-[#0f1117] rounded-full h-1.5">
+                          <div className="w-full bg-[#0f1117] rounded-full h-1.5 mb-1">
                             <div
-                              className="bg-gradient-to-r from-[#ff3b3b]/50 to-[#ff3b3b] h-1.5 rounded-full"
-                              style={{ width: `${pct}%` }}
-                            ></div>
+                              className="h-1.5 rounded-full transition-all"
+                              style={{
+                                width: `${pct}%`,
+                                background: idx === 0
+                                  ? 'linear-gradient(to right, #ff3b3b80, #ff3b3b)'
+                                  : 'linear-gradient(to right, #f59e0b60, #f59e0b)',
+                              }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[9px] text-[#4b5563] font-mono">
+                            <span>Primero: {fmtDate(atk.first_seen)}</span>
+                            <span>Último: {fmtDate(atk.last_seen)}</span>
                           </div>
                         </div>
                       );
                     })}
                   </div>
                 )}
-              </div>
-
-              {/* Status de Sensores */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-5">
-                <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-[#00d4ff]" /> Estado de Sensores
-                </h3>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-[#0f1117] rounded-lg border border-[#1e2530]">
-                    <div className="flex items-center gap-3">
-                      <Activity className="w-4 h-4 text-[#00d4ff]" />
-                      <div>
-                        <div className="text-sm text-white font-medium">Suricata IPS (NIDS)</div>
-                        <div className="text-[10px] text-[#6b7280]">eth0 promiscuous mode</div>
-                      </div>
-                    </div>
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22c55e] opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e]"></span>
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-[#0f1117] rounded-lg border border-[#1e2530]">
-                    <div className="flex items-center gap-3">
-                      <Lock className="w-4 h-4 text-[#22c55e]" />
-                      <div>
-                        <div className="text-sm text-white font-medium">Wazuh Manager</div>
-                        <div className="text-[10px] text-[#6b7280]">15 Active Agents</div>
-                      </div>
-                    </div>
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22c55e] opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e]"></span>
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-[#0f1117] rounded-lg border border-[#1e2530]">
-                    <div className="flex items-center gap-3">
-                      <Flame className="w-4 h-4 text-[#ff3b3b]" />
-                      <div>
-                        <div className="text-sm text-white font-medium">Cowrie SSH Honeypot</div>
-                        <div className="text-[10px] text-[#6b7280]">Port 22 (Redirected)</div>
-                      </div>
-                    </div>
-                    <span className="flex h-2 w-2 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#22c55e] opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[#22c55e]"></span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Action */}
-              <div className="mt-auto p-4 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-xl">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-[#f59e0b] shrink-0" />
-                  <div>
-                    <h4 className="text-sm font-semibold text-[#f59e0b]">Integración IPS Activa</h4>
-                    <p className="text-xs text-[#f59e0b]/80 mt-1">
-                      Las IPs con más de 50 intentos fallidos están siendo bloqueadas automáticamente por Suricata mediante IP-Tables en el firewall perimetral (ENS op.pl.3).
-                    </p>
-                  </div>
-                </div>
               </div>
 
             </div>
@@ -8702,7 +8908,7 @@ export function AlertsPage() {
   );
 }
 FILE:frontend\src\app\components\AssetDetailPage.tsx
-TRUNCATED:true SIZE:63087
+TRUNCATED:true SIZE:94169
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
@@ -8710,7 +8916,9 @@ import { TopBar } from './TopBar';
 import { Badge } from './ui/badge';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap, CheckCircle2, ShieldAlert, Shield,
+  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap,
+  CheckCircle2, ShieldAlert, Shield, Monitor, Search, Download,
+  RefreshCw, XCircle,
 } from 'lucide-react';
 import { useAssets, type VulnResult } from '../../hooks/useAssets';
 import { getStoredToken } from '../../hooks/useAuth';
@@ -8820,6 +9028,89 @@ function statusDotClass(status: string) {
 const inputClass =
   'w-full bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00d4ff] transition-colors';
 
+// ── Interfaces logs ──────────────────────────────────────────────
+interface SIEMAlertAsset {
+  alert_id: string;
+  timestamp: string;
+  agent_id: string;
+  agent_name: string;
+  agent_ip: string;
+  rule_id: string;
+  rule_desc: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+  raw_log: string;
+  mitre_tactic?: string;
+  mitre_technique?: string;
+  success?: boolean;
+  src_ip?: string;
+  src_user?: string;
+  action_type?: string;
+  command?: string;
+  port?: string;
+}
+
+interface ServerStatAsset {
+  agent_name: string;
+  agent_ip: string;
+  total: number;
+  failures: number;
+  successes: number;
+  sudo_cmds: number;
+  unique_ips: string[];
+  unique_users: string[];
+  critical_count: number;
+  high_count: number;
+}
+
+// ── Helpers logs ─────────────────────────────────────────────────
+function fmtDatetimeAsset(ts: string): string {
+  try {
+    return new Date(ts).toLocaleString('es-ES', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch { return ts; }
+}
+
+function fmtTimeAsset(ts: string): string {
+  try {
+    return new Date(ts).toLocaleTimeString('es-ES', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch { return ts; }
+}
+
+function actionBadgeAsset(action: string | undefined) {
+  const cfg: Record<string, { cls: string; label: string }> = {
+    SSH_LOGIN_OK:     { cls: 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',  label: '✓ SSH OK' },
+    SSH_LOGIN_FAIL:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SSH FAIL' },
+    SSH_INVALID_USER: { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ INVÁLIDO' },
+    SSH_ABORT:        { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '⚡ ABORT' },
+    SESSION_OPEN:     { cls: 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',  label: '▶ SESIÓN' },
+    SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',  label: '■ FIN SESIÓN' },
+    SUDO_COMMAND:     { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',  label: '⚡ SUDO' },
+    SUDO_FAIL:        { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SUDO FAIL' },
+    SU_OK:            { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',  label: '▲ SU OK' },
+    SU_FAIL:          { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SU FAIL' },
+    USER_CREATED:     { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '+ USUARIO' },
+    USER_DELETED:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '− USUARIO' },
+    USER_MODIFIED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '✎ USUARIO' },
+    GROUP_CREATED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '+ GRUPO' },
+    PASSWORD_CHANGED: { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '🔑 PASSWD' },
+    ACCOUNT_LOCKED:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '🔒 BLOQUEADO' },
+    ACCOUNT_LOCKOUT:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '🔒 LOCKOUT' },
+    AUTH_FAILURE:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ AUTH FAIL' },
+    PRIV_ESCALATION:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '⚠ ESCALADA' },
+    OTHER:            { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]',  label: 'OTRO' },
+  };
+  const c = cfg[action ?? 'OTHER'] ?? cfg['OTHER'];
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${c.cls}`}>
+      {c.label}
+    </span>
+  );
+}
+
 export function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -8852,6 +9143,29 @@ export function AssetDetailPage() {
 
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  // ── Tab activa ───────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<'info' | 'vulns' | 'pipeline' | 'logs'>('info');
+
+  // ── Estados logs de acceso ───────────────────────────────────────────────────
+  const [logEvents, setLogEvents]       = useState<SIEMAlertAsset[]>([]);
+  const [logStat, setLogStat]           = useState<ServerStatAsset | null>(null);
+  const [logBruteIPs, setLogBruteIPs]   = useState<string[]>([]);
+  const [logLoading, setLogLoading]     = useState(false);
+  const [logError, setLogError]         = useState(false);
+  const [logLastLoad, setLogLastLoad]   = useState<Date | null>(null);
+  const [logExpanded, setLogExpanded]   = useState<string | null>(null);
+  const [logSearch, setLogSearch]       = useState('');
+  const [logFilterAction, setLogFilterAction] = useState('ALL');
+  const [logFilterSeverity, setLogFilterSeverity] = useState('ALL');
+  const [logFilterResult, setLogFilterResult] = useState<'ALL'|'SUCCESS'|'FAIL'>('ALL');
+  const [logFilterIP, setLogFilterIP]   = useState('ALL');
+  const [logDateFrom, setLogDateFrom]   = useState('');
+  const [logDateTo, setLogDateTo]       = useState('');
+  const [logPage, setLogPage]           = useState(1);
+  const LOG_PAGE_SIZE = 20;
+  const [logLiveMode, setLogLiveMode]           = useState(false);
+  const [logLiveCountdown, setLogLiveCountdown] = useState(60);
+
   const showToast = useCallback((ok: boolean, msg: string) => {
     setToast({ ok, msg });
     setTimeout(() => setToast(null), 4000);
@@ -8875,6 +9189,46 @@ export function AssetDetailPage() {
   }, [id]);
 
   useEffect(() => { fetchAsset(); }, [fetchAsset]);
+
+  const loadLogs = useCallback(async () => {
+    if (!asset) return;
+    setLogLoading(true); setLogError(false);
+    try {
+      const token = getStoredToken();
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(
+        'http://localhost:8006/siem/auth-events?limit=500',
+        { headers, signal: AbortSignal.timeout(15000) }
+      );
+      if (!res.ok) throw new Error();
+      const data = await res.json() as {
+        events: SIEMAlertAsset[];
+        server_stats?: ServerStatAsset[];
+        brute_force_ips?: string[];
+      };
+      const myEvents = (data.events ?? []).filter(e => e.agent_ip === asset.ip);
+      setLogEvents(myEvents);
+      const myStat = (data.server_stats ?? []).find(s => s.agent_ip === asset.ip) ?? null;
+      setLogStat(myStat);
+      setLogBruteIPs(data.brute_force_ips ?? []);
+      setLogLastLoad(new Date());
+    } catch { setLogError(true); }
+    finally { setLogLoading(false); }
+  }, [asset]);
+
+  useEffect(() => {
+    if (activeTab === 'logs' && asset) loadLogs();
+  }, [activeTab, asset]);
+
+  useEffect(() => {
+    if (!logLiveMode) { setLogLiveCountdown(60); return; }
+    setLogLiveCountdown(60);
+    const countdown = setInterval(() => {
+      setLogLiveCountdown(prev => (prev <= 1 ? 60 : prev - 1));
+    }, 1000);
+    const refresh = setInterval(() => { loadLogs(); }, 60000);
+    return () => { clearInterval(countdown); clearInterval(refresh); };
+  }, [logLiveMode, loadLogs]);
 
   useEffect(() => {
     if (!asset) return;
@@ -9204,6 +9558,53 @@ export function AssetDetailPage() {
     return dateMatch && toolMatch;
   }), [vulns, filterDate, filterTool]);
 
+  // ── Filtrado logs ────────────────────────────────────────────────────────────
+  const logFiltered = logEvents.filter(e => {
+    const q = logSearch.toLowerCase();
+    const matchSearch = !q ||
+      (e.rule_desc ?? '').toLowerCase().includes(q) ||
+      (e.raw_log ?? '').toLowerCase().includes(q) ||
+      (e.src_ip ?? '').toLowerCase().includes(q) ||
+      (e.src_user ?? '').toLowerCase().includes(q) ||
+      (e.command ?? '').toLowerCase().includes(q);
+    const matchAction   = logFilterAction === 'ALL' || e.action_type === logFilterAction;
+    const matchSeverity = logFilterSeverity === 'ALL' || e.severity === logFilterSeverity;
+    const matchResult   = logFilterResult === 'ALL' ||
+      (logFilterResult === 'SUCCESS' && !!e.success) ||
+      (logFilterResult === 'FAIL' && !e.success);
+    const matchIP       = logFilterIP === 'ALL' || e.src_ip === logFilterIP;
+    const matchDateFrom = !logDateFrom || e.timestamp >= logDateFrom;
+    const matchDateTo   = !logDateTo   || e.timestamp <= logDateTo + 'T23:59:59';
+    return matchSearch && matchAction && matchSeverity && matchResult && matchIP && matchDateFrom && matchDateTo;
+  });
+
+  const logTotalPages = Math.max(1, Math.ceil(logFiltered.length / LOG_PAGE_SIZE));
+  const logPaged = logFiltered.slice((logPage - 1) * LOG_PAGE_SIZE, logPage * LOG_PAGE_SIZE);
+  const logSeverities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
+
+  const exportLogsCSV = () => {
+    const headers = ['Timestamp','Tipo Acción','Resultado','Severidad','IP Origen','Puerto','Usuario','Comando','MITRE Táctica','MITRE Técnica','Raw Log'];
+    const escape = (val: unknown) => {
+      const s = val == null ? '' : String(val);
+      return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const rows = logFiltered.map(e => [
+      escape(e.timestamp), escape(e.action_type ?? ''),
+      escape(e.success ? 'EXITOSO' : 'FALLIDO'), escape(e.severity),
+      escape(e.src_ip ?? ''), escape(e.port ?? ''), escape(e.src_user ?? ''),
+      escape(e.command ?? ''), escape(e.mitre_tactic ?? ''), escape(e.mitre_technique ?? ''),
+      escape(e.raw_log),
+    ].join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scanops_logs_${asset?.ip}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
   if (pageLoading) {
     return (
       <div className="flex h-screen bg-[#0f1117]">
@@ -9336,7 +9737,29 @@ export function AssetDetailPage() {
             </div>
           </div>
 
-          {/* Main 2-col grid */}
+          {/* ── Tab bar ── */}
+          <div className="border-b border-[#1e2530] flex gap-0">
+            {([
+              { id: 'info',     label: 'Información' },
+              { id: 'vulns',    label: 'Vulnerabilidades' },
+              { id: 'pipeline', label: 'Pipeline' },
+              { id: 'logs',     label: 'Logs de Acceso' },
+            ] as const).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'border-[#00d4ff] text-[#00d4ff]'
+                    : 'border-transparent text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'info' && (
           <div className="grid grid-cols-12 gap-5">
 
             {/* LEFT: col-span-7 */}
@@ -9560,186 +9983,7 @@ export function AssetDetailPage() {
                 {vulnsLoading ? (
                   <div className="flex items-center gap-2 text-xs text-[#6b7280] py-4">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Cargando resultados...
-                  </div>
-                ) : vulns.length === 0 ? (
-                  <div className="text-center py-6 space-y-3">
-                    <p className="text-sm text-[#6b7280]">Sin resultados de escaneo.</p>
-                    <button
-                      onClick={handleFullScan}
-                      disabled={fullScanState.status === 'scanning'}
-                      className="flex items-center gap-2 px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] hover:text-white rounded-lg text-sm transition-colors mx-auto disabled:opacity-60"
-                    >
-                      {fullScanState.status === 'scanning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                      Lanzar escaneo completo
-                    </button>
-                  </div>
-                ) : filteredVulns.length === 0 ? (
-                  <p className="text-sm text-[#6b7280] py-4 text-center">Sin resultados para los filtros seleccionados.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {filteredVulns.map((v) => (
-                      <div
-                        key={v.id}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-3 space-y-1.5 cursor-pointer hover:border-[#374151] transition-colors"
-                        onClick={() => setExpandedVuln(expandedVuln === v.id ? null : v.id)}
-                      >
-                        <div className="flex items-start gap-2 justify-between">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded border font-semibold ${vulnSeverityClass(v.severity)}`}>
-                              {v.severity}
-                            </span>
-                            <span className="text-xs text-white truncate">{v.title}</span>
-                          </div>
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[#1e2530] text-[#6b7280] font-mono">
-                            {v.tool_source}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {v.cve_id && (
-                            <span className="text-[10px] font-mono text-[#00d4ff]">{v.cve_id}</span>
-                          )}
-                          {v.created_at && (
-                            <span className="text-[10px] text-[#6b7280] font-mono">
-                              {fmt.format(new Date(v.created_at))}
-                            </span>
-                          )}
-                        </div>
-                        {expandedVuln === v.id && (
-                          <div className="text-xs text-[#9ca3af] mt-2 pt-2 border-t border-[#1e2530]">
-                            <p className="font-mono text-[10px] text-[#6b7280] mb-1">
-                              IP: {asset.ip} · Herramienta: {v.tool_source} · {new Date(v.created_at).toLocaleDateString('es-ES')}
-                            </p>
-                            <p className="line-clamp-none">{v.title}</p>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* RIGHT: col-span-5 */}
-            <div className="col-span-5 space-y-5">
-
-              {/* Card 3: Launch Scan */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
-                <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Lanzar escaneo</h2>
-
-                <div className="flex items-center gap-2 mb-4">
-                  {SCAN_TOOLS.map((tool) => (
-                    <button
-                      key={tool}
-                      onClick={() => setSelectedTool(tool)}
-                      className={`px-3 py-1.5 text-xs rounded border transition-colors ${
-                        selectedTool === tool
-                          ? 'border-[#00d4ff]/50 text-[#00d4ff] bg-[#00d4ff]/10'
-                          : 'border-[#1e2530] text-[#6b7280] bg-[#1a1d27] hover:border-[#374151] hover:text-[#9ca3af]'
-                      }`}
-                    >
-                      {tool}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  onClick={handleScan}
-                  disabled={scanState.status === 'scanning'}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] hover:bg-[#00d4ff]/20 rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed mb-3"
-                >
-                  {scanState.status === 'scanning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Iniciar escaneo
-                </button>
-
-                {scanState.status === 'scanning' && scanState.msg && <p className="text-xs text-[#00d4ff] font-mono text-center mb-2 animate-pulse">{scanState.msg}</p>}
-                {scanState.status === 'done' && <p className="text-xs text-[#22c55e] font-mono text-center mb-2">{scanState.msg}</p>}
-                {scanState.status === 'error' && <p className="text-xs text-[#ff3b3b] font-mono text-center mb-2">{scanState.msg}</p>}
-
-                <button
-                  onClick={handleFullScan}
-                  disabled={fullScanState.status === 'scanning'}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] hover:text-white rounded-lg text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {fullScanState.status === 'scanning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Escaneo completo (nuclei + nikto)
-                </button>
-
-                {fullScanState.status === 'scanning' && fullScanState.msg && <p className="text-xs text-[#00d4ff] font-mono text-center mt-2 animate-pulse">{fullScanState.msg}</p>}
-                {fullScanState.status === 'done' && <p className="text-xs text-[#22c55e] font-mono text-center mt-2">{fullScanState.msg}</p>}
-                {fullScanState.status === 'error' && <p className="text-xs text-[#ff3b3b] font-mono text-center mt-2">{fullScanState.msg}</p>}
-              </div>
-
-              {/* Card 4: ENS Metadata */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
-                <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Trazabilidad ENS Alto</h2>
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  {([
-                    ['ID interno',            String(asset.id)],
-                    ['Fecha de registro',     asset.created_at  ? fmt.format(new Date(asset.created_at))  : '—'],
-                    ['Última actualización',  asset.updated_at  ? fmt.format(new Date(asset.updated_at))  : '—'],
-                    ['Descubierto por',       asset.discovered_by ?? 'Registro manual'],
-                    ['Fuente externa',        asset.external_source ?? '—'],
-                    ['Rango de red',          asset.network_range   ?? '—'],
-                  ] as [string, string][]).map(([label, value]) => (
-                    <div key={label}>
-                      <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">{label}</div>
-                      <div className="text-white font-mono">{value}</div>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-[10px] text-[#6b7280] mt-4 pt-3 border-t border-[#1e2530]">
-                  ENS op.exp.1 · RD 311/2022
-                </p>
-              </div>
-
-              {/* Card 5: Quick Actions */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
-                <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Acciones rápidas</h2>
-                <div className="space-y-2">
-                  {([
-                    ['Ver en M2+M3 Scanner',  '/surface'],
-                    ['Ver en M8 IA Reasoning', '/ai-reasoning'],
-                    ['Ver en M4 Explotación',  '/exploitation'],
-                  ] as [string, string][]).map(([label, path]) => (
-                    <button
-                      key={path}
-                      onClick={() => {
-                        if (path === '/surface') {
-                          // Enviamos la IP y la pestaña destino en el estado de la navegación
-                          navigate(path, {
-                            state: {
-                              searchIp: asset.ip,
-                              defaultTab: 'findings'
-                            }
-                          });
-                        } else {
-                          navigate(path);
-                        }
-                      }}
-                      className="w-full px-4 py-2.5 text-sm text-[#9ca3af] border border-[#1e2530] rounded-lg hover:text-white hover:border-[#374151] transition-colors text-left cursor-pointer"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </main>
-      </div>
-
-      {/* Pipeline Modal */}
-      {pipelineOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-2xl w-full max-w-2xl mx-4 mb-4 sm:mb-0 shadow-2xl flex flex-col max-h-[80vh]">
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2530]">
-              <div className="flex items-center gap-3">
-                <Zap className="w-5 h-5 text-[#a78bfa]"/>
-                <
+                    Cargando resu
 FILE:frontend\src\app\components\AssetManagerPage.tsx
 TRUNCATED:true SIZE:86020
 import { useState, useCallback, useEffect } from 'react';
@@ -10796,13 +11040,14 @@ export function AssetManagerPage() {
                               <div className="text-white font-mono">{asset.ip}</div>
                               <div className="text-xs text-[#9ca3af] m
 FILE:frontend\src\app\components\AuditLogsPage.tsx
+TRUNCATED:true SIZE:60674
 // frontend/src/app/components/AuditLogsPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   Search, Loader2, AlertTriangle, Trash2, Eye,
   Plus, Pencil, Activity, LogIn, ShieldAlert, RefreshCw,
-  CheckCircle2, XCircle, User, Monitor,
+  CheckCircle2, XCircle, User, Monitor, Download, Filter,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
@@ -10847,6 +11092,25 @@ interface SIEMAlert {
   raw_log: string;
   mitre_tactic?: string;
   mitre_technique?: string;
+  success?: boolean;
+  src_ip?: string;
+  src_user?: string;
+  action_type?: string;
+  command?: string;
+  port?: string;
+}
+
+interface ServerStat {
+  agent_name: string;
+  agent_ip: string;
+  total: number;
+  failures: number;
+  successes: number;
+  sudo_cmds: number;
+  unique_ips: string[];
+  unique_users: string[];
+  critical_count: number;
+  high_count: number;
 }
 
 function fmtTime(ts: string): string {
@@ -10879,6 +11143,22 @@ function LoginSessionsTab() {
   const [srvLoading, setSrvLoading]   = useState(true);
   const [srvError, setSrvError]       = useState(false);
   const [srvExpanded, setSrvExpanded] = useState<string | null>(null);
+  const [srvStats, setSrvStats]           = useState<ServerStat[]>([]);
+  const [srvBruteIPs, setSrvBruteIPs]     = useState<string[]>([]);
+  const [srvLastLoad, setSrvLastLoad]     = useState<Date | null>(null);
+
+  const [srvSearch, setSrvSearch]               = useState('');
+  const [srvFilterServer, setSrvFilterServer]   = useState('ALL');
+  const [srvFilterSeverity, setSrvFilterSeverity] = useState('ALL');
+  const [srvFilterResult, setSrvFilterResult]   = useState<'ALL' | 'SUCCESS' | 'FAIL'>('ALL');
+  const [srvFilterIP, setSrvFilterIP]           = useState('ALL');
+  const [srvDateFrom, setSrvDateFrom]           = useState('');
+  const [srvDateTo, setSrvDateTo]               = useState('');
+  const [srvFilterAction, setSrvFilterAction]   = useState('ALL');
+  const [srvPage, setSrvPage]                   = useState(1);
+  const SRV_PAGE_SIZE = 20;
+  const [liveMode, setLiveMode]           = useState(false);
+  const [liveCountdown, setLiveCountdown] = useState(60);
 
   const load = async () => {
     setLoading(true); setError(false);
@@ -10893,23 +11173,98 @@ function LoginSessionsTab() {
 
   useEffect(() => { load(); }, []);
 
+  const loadSrv = async () => {
+    setSrvLoading(true); setSrvError(false);
+    try {
+      const res = await fetch(
+        'http://localhost:8006/siem/auth-events?limit=500',
+        { headers: authH(), signal: AbortSignal.timeout(15000) }
+      );
+      if (!res.ok) throw new Error();
+      const data = await res.json() as {
+        total: number;
+        events: SIEMAlert[];
+        server_stats?: ServerStat[];
+        brute_force_ips?: string[];
+      };
+      setSrvEvents(data.events ?? []);
+      setSrvStats(data.server_stats ?? []);
+      setSrvBruteIPs(data.brute_force_ips ?? []);
+      setSrvLastLoad(new Date());
+    } catch { setSrvError(true); }
+    finally { setSrvLoading(false); }
+  };
+
+  useEffect(() => { loadSrv(); }, []);
+
+  useEffect(() => { setSrvPage(1); }, [srvSearch, srvFilterServer, srvFilterSeverity, srvFilterResult, srvFilterIP, srvDateFrom, srvDateTo, srvFilterAction]);
+
   useEffect(() => {
-    const loadSrv = async () => {
-      setSrvLoading(true); setSrvError(false);
-      try {
-        const res = await fetch(
-          'http://localhost:8006/siem/auth-events?limit=200',
-          { headers: authH(), signal: AbortSignal.timeout(8000) }
-        );
-        if (!res.ok) throw new Error();
-        const data = await res.json() as { events?: SIEMAlert[] };
-        const all = data.events ?? [];
-        setSrvEvents(all);
-      } catch { setSrvError(true); }
-      finally { setSrvLoading(false); }
+    if (!liveMode) { setLiveCountdown(60); return; }
+    setLiveCountdown(60);
+    const countdown = setInterval(() => {
+      setLiveCountdown(prev => (prev <= 1 ? 60 : prev - 1));
+    }, 1000);
+    const refresh = setInterval(() => { loadSrv(); }, 60000);
+    return () => { clearInterval(countdown); clearInterval(refresh); };
+  }, [liveMode]);
+
+  const srvServers    = [...new Set(srvEvents.map(e => e.agent_name).filter(Boolean))];
+  const srvSeverities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
+  const srvSourceIPs  = [...new Set(srvEvents.map(e => e.src_ip).filter(Boolean))] as string[];
+
+  const srvFiltered = srvEvents.filter(e => {
+    const q = srvSearch.toLowerCase();
+    const matchSearch = !q ||
+      (e.agent_name ?? '').toLowerCase().includes(q) ||
+      (e.rule_desc ?? '').toLowerCase().includes(q) ||
+      (e.raw_log ?? '').toLowerCase().includes(q) ||
+      (e.src_ip ?? '').toLowerCase().includes(q) ||
+      (e.src_user ?? '').toLowerCase().includes(q) ||
+      (e.command ?? '').toLowerCase().includes(q);
+    const matchServer   = srvFilterServer === 'ALL' || e.agent_name === srvFilterServer;
+    const matchSeverity = srvFilterSeverity === 'ALL' || e.severity === srvFilterSeverity;
+    const matchResult   = srvFilterResult === 'ALL' ||
+      (srvFilterResult === 'SUCCESS' && !!e.success) ||
+      (srvFilterResult === 'FAIL' && !e.success);
+    const matchIP     = srvFilterIP === 'ALL' || e.src_ip === srvFilterIP;
+    const matchAction = srvFilterAction === 'ALL' || e.action_type === srvFilterAction;
+    const matchDateFrom = !srvDateFrom || e.timestamp >= srvDateFrom;
+    const matchDateTo   = !srvDateTo   || e.timestamp <= srvDateTo + 'T23:59:59';
+    return matchSearch && matchServer && matchSeverity && matchResult && matchIP && matchAction && matchDateFrom && matchDateTo;
+  });
+
+  const srvTotalPages = Math.max(1, Math.ceil(srvFiltered.length / SRV_PAGE_SIZE));
+  const srvPaged = srvFiltered.slice((srvPage - 1) * SRV_PAGE_SIZE, srvPage * SRV_PAGE_SIZE);
+
+  const exportSrvCSV = () => {
+    const headers = [
+      'Timestamp', 'Servidor', 'IP Servidor', 'Agent ID',
+      'Tipo Acción', 'Resultado', 'Severidad',
+      'IP Origen', 'Puerto', 'Usuario', 'Comando',
+      'Evento', 'MITRE Táctica', 'MITRE Técnica', 'Raw Log',
+    ];
+    const escape = (val: unknown): string => {
+      const str = val == null ? '' : String(val);
+      if (str.includes(',') || str.includes('"') || str.includes('\n'))
+        return `"${str.replace(/"/g, '""')}"`;
+      return str;
     };
-    loadSrv();
-  }, []);
+    const rows = srvFiltered.map(e => [
+      escape(e.timestamp), escape(e.agent_name), escape(e.agent_ip), escape(e.agent_id),
+      escape(e.action_type ?? ''), escape(e.success ? 'EXITOSO' : 'FALLIDO'), escape(e.severity),
+      escape(e.src_ip ?? ''), escape(e.port ?? ''), escape(e.src_user ?? ''), escape(e.command ?? ''),
+      escape(e.rule_desc), escape(e.mitre_tactic ?? ''), escape(e.mitre_technique ?? ''), escape(e.raw_log),
+    ].join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scanops_server_logins_ENS_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
 
   const total       = events.length;
   const failures    = events.filter(e => !e.success).length;
@@ -10931,6 +11286,37 @@ function LoginSessionsTab() {
     const matchUser   = filterUser === 'ALL' || e.username === filterUser;
     return matchSearch && matchResult && matchUser;
   });
+
+  const actionBadgeSrv = (action: string | undefined) => {
+    const cfg: Record<string, { cls: string; label: string }> = {
+      SSH_LOGIN_OK:     { cls: 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',   label: '✓ SSH OK' },
+      SSH_LOGIN_FAIL:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SSH FAIL' },
+      SSH_INVALID_USER: { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ INVÁLIDO' },
+      SSH_ABORT:        { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '⚡ ABORT' },
+      SESSION_OPEN:     { cls: 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',   label: '▶ SESIÓN' },
+      SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',   label: '■ FIN SESIÓN' },
+      SUDO_COMMAND:     { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',   label: '⚡ SUDO' },
+      SUDO_FAIL:        { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SUDO FAIL' },
+      SU_OK:            { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',   label: '▲ SU OK' },
+      SU_FAIL:          { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SU FAIL' },
+      USER_CREATED:     { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '+ USUARIO' },
+      USER_DELETED:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '− USUARIO' },
+      USER_MODIFIED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '✎ USUARIO' },
+      GROUP_CREATED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '+ GRUPO' },
+      PASSWORD_CHANGED: { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '🔑 PASSWD' },
+      ACCOUNT_LOCKED:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '🔒 BLOQUEADO' },
+      ACCOUNT_LOCKOUT:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '🔒 LOCKOUT' },
+      AUTH_FAILURE:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ AUTH FAIL' },
+      PRIV_ESCALATION:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '⚠ ESCALADA' },
+      OTHER:            { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]',   label: 'OTRO' },
+    };
+    const c = cfg[action ?? 'OTHER'] ?? cfg['OTHER'];
+    return (
+      <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${c.cls}`}>
+        {c.label}
+      </span>
+    );
+  };
 
   const roleBadge = (role: string | null) => {
     if (!role) return <span className="text-[#4b5563]">—</span>;
@@ -11089,108 +11475,348 @@ function LoginSessionsTab() {
         </div>
       </div>
 
-      {/* ── Logins en Servidores (Wazuh/M5) ── */}
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
-          <div className="flex items-center gap-2">
-            <Monitor className="w-4 h-4 text-[#a78bfa]" />
-            <span className="text-sm font-semibold text-white">Logins en Servidores</span>
-            <span className="text-xs text-[#4b5563]">· Wazuh M5 · ENS op.exp.5</span>
-          </div>
-          {srvLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#9ca3af]" />}
-        </div>
+      {/* ── Logins en Servidores ── */}
+      <div className="space-y-3">
 
-        <div className="flex-1 overflow-auto min-h-[200px]">
-          {srvLoading && (
-            <div className="flex justify-center items-center py-10">
-              <Loader2 className="w-5 h-5 animate-spin text-[#a78bfa]" />
+        {/* KPIs por servidor */}
+        {srvStats.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {srvStats.map(s => (
+              <div key={s.agent_ip} className={`bg-[#1a1d27] border rounded-xl p-4 ${s.critical_count > 0 ? 'border-[#ff3b3b]/40' : s.high_count > 0 ? 'border-[#f59e0b]/30' : 'border-[#1e2530]'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#a78bfa]">{s.agent_name}</div>
+                    <div className="text-[10px] font-mono text-[#4b5563]">{s.agent_ip}</div>
+                  </div>
+                  {(s.critical_count > 0 || s.high_count > 0) && (
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${s.critical_count > 0 ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]' : 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]'}`}>
+                      {s.critical_count > 0 ? `${s.critical_count} CRITICAL` : `${s.high_count} HIGH`}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-[#0f1117] rounded-lg p-2">
+                    <div className="text-lg font-bold text-white">{s.total}</div>
+                    <div className="text-[10px] text-[#6b7280]">Total</div>
+                  </div>
+                  <div className="bg-[#0f1117] rounded-lg p-2">
+                    <div className={`text-lg font-bold ${s.failures > 0 ? 'text-[#ff3b3b]' : 'text-white'}`}>{s.failures}</div>
+                    <div className="text-[10px] text-[#6b7280]">Fallos</div>
+                  </div>
+                  <div className="bg-[#0f1117] rounded-lg p-2">
+                    <div className={`text-lg font-bold ${s.sudo_cmds > 0 ? 'text-[#a78bfa]' : 'text-white'}`}>{s.sudo_cmds}</div>
+                    <div className="text-[10px] text-[#6b7280]">Sudo</div>
+                  </div>
+                </div>
+                <div className="mt-2 flex gap-3 text-[10px] text-[#6b7280]">
+                  <span>{s.unique_users.length} usuario{s.unique_users.length !== 1 ? 's' : ''}</span>
+                  <span>·</span>
+                  <span>{s.unique_ips.length} IP{s.unique_ips.length !== 1 ? 's' : ''} origen</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Alerta brute force servidores */}
+        {srvBruteIPs.length > 0 && (
+          <div className="flex items-start gap-3 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-xl">
+            <ShieldAlert className="w-4 h-4 text-[#ff3b3b] mt-0.5 shrink-0" />
+            <div>
+              <div className="text-sm font-semibold text-[#ff3b3b]">⚠ Ataque de fuerza bruta detectado en servidores</div>
+              <div className="text-xs text-[#9ca3af] mt-0.5">
+                IPs con ≥5 fallos SSH en los últimos 10 min:{' '}
+                <span className="font-mono text-white">{srvBruteIPs.join(', ')}</span>
+              </div>
+              <div className="text-[10px] text-[#6b7280] mt-1">ENS op.acc.6 — Bloqueo recomendado · Registrar como incidente</div>
             </div>
-          )}
-          {!srvLoading && srvError && (
-            <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg text-sm text-[#ff3b3b]">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              M5 SIEM no disponible — no se pudo conectar a <code className="font-mono text-xs">localhost:8006</code>.
+          </div>
+        )}
+
+        {/* Tabla principal */}
+        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+            <div className="flex items-center gap-2">
+              <Monitor className="w-4 h-4 text-[#a78bfa]" />
+              <span className="text-sm font-semibold text-white">Logins en Servidores</span>
+              <span className="text-xs text-[#4b5563]">· SSH auth.log · ENS op.acc.1, op.acc.6, op.exp.5</span>
             </div>
-          )}
-          {!srvLoading && !srvError && srvEvents.length === 0 && (
-            <p className="text-[#6b7280] text-sm text-center py-8">Sin eventos de autenticación en servidores.</p>
-          )}
-          {!srvLoading && !srvError && srvEvents.length > 0 && (
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-[#1a1d27]">
-                <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
-                  <th className="px-3 py-2 font-medium">Timestamp</th>
-                  <th className="px-3 py-2 font-medium">Servidor</th>
-                  <th className="px-3 py-2 font-medium">Evento</th>
-                  <th className="px-3 py-2 font-medium">Severidad</th>
-                  <th className="px-3 py-2 font-medium">MITRE</th>
-                  <th className="px-3 py-2 font-medium">Det.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#1e2530]">
-                {srvEvents.map(ev => {
-                  const sevColor: Record<string, string> = {
-                    CRITICAL: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',
-                    HIGH:     'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
-                    MEDIUM:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
-                    LOW:      'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',
-                    INFO:     'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',
-                  };
-                  return (
-                    <>
-                      <tr key={ev.alert_id} className="hover:bg-[#1e2530]/40 transition-colors">
-                        <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1.5">
-                            <Monitor className="w-3 h-3 text-[#4b5563] shrink-0" />
-                            <span className="text-[#a78bfa] font-mono">{ev.agent_name}</span>
-                            {ev.agent_ip && <span className="text-[#4b5563] font-mono text-[10px]">{ev.agent_ip}</span>}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-white max-w-xs truncate" title={ev.rule_desc}>{ev.rule_desc}</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold ${sevColor[ev.severity] ?? sevColor.INFO}`}>
-                            {ev.severity}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[#6b7280] text-[10px]">
-                          {ev.mitre_technique ?? '—'}
-                        </td>
-                        <td className="px-3 py-2">
-                          <button onClick={() => setSrvExpanded(srvExpanded === ev.alert_id ? null : ev.alert_id)}
-                            className="text-[#6b7280] hover:text-[#a78bfa] transition-colors">
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                      {srvExpanded === ev.alert_id && (
-                        <tr key={`${ev.alert_id}-detail`}>
-                          <td colSpan={6} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#a78bfa]">
-                            <div className="space-y-2 text-xs">
-                              <div>
-                                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Raw Log</span>
-                                <code className="text-[#9ca3af] font-mono break-all">{ev.raw_log}</code>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Rule ID</span><span className="text-white font-mono">{ev.rule_id}</span></div>
-                                <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Agent ID</span><span className="text-white font-mono">{ev.agent_id}</span></div>
-                                {ev.mitre_tactic && <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Tactic</span><span className="text-white">{ev.mitre_tactic}</span></div>}
-                                {ev.mitre_technique && <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Technique</span><span className="text-white font-mono">{ev.mitre_technique}</span></div>}
-                              </div>
+            <div className="flex items-center gap-2">
+              {srvLastLoad && (
+                <span className="text-[10px] text-[#4b5563] font-mono">
+                  Última carga: {fmtTime(srvLastLoad.toISOString())}
+                </span>
+              )}
+              <button
+                onClick={() => setLiveMode(m => !m)}
+                className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors ${
+                  liveMode
+                    ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]'
+                    : 'border-[#1e2530] text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                }`}
+                title={liveMode ? 'Desactivar refresco automático' : 'Activar refresco automático cada 60s'}
+              >
+                {liveMode && <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse" />}
+                {liveMode ? `Live · ${liveCountdown}s` : 'Live'}
+              </button>
+              <button
+                onClick={() => { setSrvLoading(true); loadSrv(); }}
+                disabled={srvLoading}
+                className="flex items-center gap-1.5 text-xs text-[#9ca3af] hover:text-[#a78bfa] transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${srvLoading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </button>
+              {!srvLoading && srvFiltered.length > 0 && (
+                <button
+                  onClick={exportSrvCSV}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#a78bfa] hover:bg-[#9061f9] transition-colors px-3 py-1.5 rounded-lg"
+                  title={`Exportar ${srvFiltered.length} eventos a CSV — evidencia ENS`}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Exportar CSV
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filtros */}
+          <div className="px-4 py-3 border-b border-[#1e2530] grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 items-end">
+            <div className="col-span-2 flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Búsqueda</label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
+                <input value={srvSearch} onChange={e => setSrvSearch(e.target.value)}
+                  placeholder="usuario, IP, comando..."
+                  className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Desde</label>
+              <input type="date" value={srvDateFrom} onChange={e => setSrvDateFrom(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Hasta</label>
+              <input type="date" value={srvDateTo} onChange={e => setSrvDateTo(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Servidor</label>
+              <select value={srvFilterServer} onChange={e => setSrvFilterServer(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                <option value="ALL">Todos</option>
+                {srvServers.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Tipo acción</label>
+              <select value={srvFilterAction} onChange={e => setSrvFilterAction(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                <option value="ALL">Todas</option>
+                <option value="SSH_LOGIN_OK">SSH OK</option>
+                <option value="SSH_LOGIN_FAIL">SSH Fail</option>
+                <option value="SSH_INVALID_USER">Inválido</option>
+                <option value="SESSION_OPEN">Sesión abierta</option>
+                <option value="SESSION_CLOSE">Sesión cerrada</option>
+                <option value="SUDO_COMMAND">Sudo</option>
+                <option value="SUDO_FAIL">Sudo fail</option>
+                <option value="SU_OK">Su OK</option>
+                <option value="SU_FAIL">Su fail</option>
+                <option value="USER_CREATED">Usuario creado</option>
+                <option value="USER_DELETED">Usuario eliminado</option>
+                <option value="USER_MODIFIED">Usuario modificado</option>
+                <option value="PASSWORD_CHANGED">Passwd cambiada</option>
+                <option value="ACCOUNT_LOCKED">Cuenta bloqueada</option>
+                <option value="AUTH_FAILURE">Auth failure</option>
+                <option value="PRIV_ESCALATION">Escalada</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Severidad</label>
+              <select value={srvFilterSeverity} onChange={e => setSrvFilterSeverity(e.target.value)}
+                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                <option value="ALL">Todas</option>
+                {srvSeverities.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-1.5 items-end">
+              <button onClick={() => setSrvPage(1)}
+                className="flex-1 text-xs font-semibold text-white bg-[#00d4ff] hover:bg-[#00b8d9] transition-colors px-3 py-1.5 rounded-lg">
+                Filtrar
+              </button>
+              <button onClick={() => {
+                setSrvSearch(''); setSrvFilterServer('ALL'); setSrvFilterSeverity('ALL');
+                setSrvFilterResult('ALL'); setSrvFilterIP('ALL'); setSrvFilterAction('ALL');
+                setSrvDateFrom(''); setSrvDateTo(''); setSrvPage(1);
+              }}
+                className="text-xs text-[#9ca3af] hover:text-white border border-[#1e2530] hover:border-[#4b5563] transition-colors px-2 py-1.5 rounded-lg"
+                title="Limpiar filtros">
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Contenido tabla */}
+          <div className="flex-1 overflow-auto min-h-[200px]">
+            {srvLoading && <div className="flex justify-center items-center py-10"><Loader2 className="w-5 h-5 animate-spin text-[#a78bfa]" /></div>}
+            {!srvLoading && srvError && (
+              <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg text-sm text-[#ff3b3b]">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                M5 SIEM no disponible — no se pudo conectar a <code className="font-mono text-xs">localhost:8006/siem/auth-events</code>
+              </div>
+            )}
+            {!srvLoading && !srvError && srvFiltered.length === 0 && (
+              <p className="text-[#6b7280] text-sm text-center py-8">
+                {srvEvents.length === 0 ? 'Sin eventos de autenticación en servidores.' : 'Sin resultados para los filtros aplicados.'}
+              </p>
+            )}
+            {!srvLoading && !srvError && srvFiltered.length > 0 && (
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-[#1a1d27] z-10">
+                  <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
+                    <th className="px-3 py-2 font-medium">Fecha / Hora</th>
+                    <th className="px-3 py-2 font-medium">Servidor</th>
+                    <th className="px-3 py-2 font-medium">Usuario</th>
+                    <th className="px-3 py-2 font-medium">Tipo Acción</th>
+                    <th className="px-3 py-2 font-medium">Severidad</th>
+                    <th className="px-3 py-2 font-medium">IP Origen</th>
+                    <th className="px-3 py-2 font-medium">Puerto</th>
+                    <th className="px-3 py-2 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1e2530]">
+                  {srvPaged.map(ev => {
+                    const sevColor: Record<string, string> = {
+                      CRITICAL: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',
+                      HIGH:     'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
+                      MEDIUM:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
+                      LOW:      'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',
+                      INFO:     'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',
+                    };
+                    const isExpanded = srvExpanded === ev.alert_id;
+                    const isBF = !!(ev.src_ip && srvBruteIPs.includes(ev.src_ip));
+                    return (
+                      <>
+                        <tr
+                          key={ev.alert_id}
+                          onClick={() => setSrvExpanded(isExpanded ? null : ev.alert_id)}
+                          className={`hover:bg-[#1e2530]/40 transition-colors cursor-pointer ${
+                            ev.severity === 'CRITICAL' ? 'border-l-2 border-[#ff3b3b]' :
+                            ev.severity === 'HIGH'     ? 'border-l-2 border-[#f59e0b]' : ''
+                          }`}
+                        >
+                          <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col">
+                              <span className="text-[#a78bfa] font-mono font-medium">{ev.agent_name}</span>
+                              <span className="text-[#4b5563] font-mono text-[10px]">{ev.agent_ip}</span>
                             </div>
                           </td>
+                          <td className="px-3 py-2 font-mono text-white">{ev.src_user ?? <span className="text-[#4b5563]">—</span>}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1">
+                              <span className={`text-[10px] text-[#4b5563] transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                              {actionBadgeSrv(ev.action_type)}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold ${sevColor[ev.severity] ?? sevColor.INFO}`}>
+                              {ev.severity}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {ev.src_ip ? (
+                              <span className={isBF ? 'text-[#ff3b3b] font-semibold' : 'text-[#9ca3af]'}>
+                                {ev.src_ip}{isBF && <span className="ml-1" title="IP en brute force activo">⚠</span>}
+                              </span>
+                            ) : <span className="text-[#4b5563]">—</span>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[#6b7280]">{ev.port ?? '—'}</td>
+                          <td className="px-3 py-2 w-4" />
                         </tr>
-                      )}
-                    </>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+                        {isExpanded && (
+                          <tr key={`${ev.alert_id}-detail`}>
+                            <td colSpan={8} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#a78bfa]">
+                              <div className="space-y-3 text-xs">
+                                <div>
+                                  <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-1">Raw Log</span>
+                                  <code className="text-[#9ca3af] font-mono break-all leading-5">{ev.raw_log}</code>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Resultado</span>
+                                    <span className={ev.success ? 'text-[#22c55e] font-semibold' : 'text-[#ff3b3b] font-semibold'}>
+                                      {ev.success ? '✓ EXITOSO' : '✗ FALLIDO'}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Timestamp UTC</span>
+                                    <span className="text-white font-mono">{ev.timestamp}</span>
+                                  </div>
+                                  {ev.command && (
+                                    <div className="col-span-2">
+                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Comando ejecutado</span>
+                                      <code className="text-[#a78bfa] font-mono">{ev.command}</code>
+                                    </div>
+                                  )}
+                                  {ev.mitre_tactic && (
+                                    <div>
+                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Táctica</span>
+                                      <span className="text-white">{ev.mitre_tactic}</span>
+                                    </div>
+                                  )}
+                                  {ev.mitre_technique && (
+                                    <div>
+                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Técnica</span>
+                                      <span className="text-white font-mono">{ev.mitre_technique}</span>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Agent ID (M1)</span>
+                                    <span className="text-white font-mono">{ev.agent_id}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Norma ENS</span>
+                                    <span className="text-[#00d4ff]">op.acc.1 · op.acc.6 · op.exp.5</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-        <div className="px-4 py-2 border-t border-[#1e2530] text-[10px] text-[#4b5563] font-mono">
-          {srvEvents.length} eventos de autenticación · Wazuh rules 5501–5722 · ENS op.exp.5
+          {/* Paginación */}
+          {srvTotalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530]">
+              <button onClick={() => setSrvPage(p => Math.max(1, p - 1))} disabled={srvPage === 1}
+                className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                ← Anterior
+              </button>
+              <span className="text-xs text-[#6b7280]">
+                Página {srvPage} de {srvTotalPages} · {srvFiltered.length} de {srvEvents.length} eventos
+              </span>
+              <button onClick={() => setSrvPage(p => Math.min(srvTotalPages, p + 1))} disabled={srvPage === srvTotalPages}
+                className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                Siguiente →
+              </button>
+            </div>
+          )}
+
+          {/* Footer ENS */}
+          <div className="px-4 py-2 border-t border-[#1e2530] flex items-center justify-between text-[10px] text-[#4b5563] font-mono">
+            <span>{srvFiltered.length} eventos filtrados · {srvEvents.length} total · pág {srvPage}/{srvTotalPages}</span>
+            <span>ENS RD 311/2022 · op.acc.1 · op.acc.6 · op.exp.5 · Retención ≥2 años</span>
+          </div>
         </div>
       </div>
     </div>
@@ -11284,156 +11910,7 @@ export function AuditLogsPage() {
 
   const Tab = ({ id, label, icon: Icon }: { id: typeof activeTab; label: string; icon: React.ElementType }) => (
     <button onClick={() => setActiveTab(id)}
-      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === id ? 'border-[#00d4ff] text-[#00d4ff]' : 'border-transparent text-[#9ca3af] hover:text-white hover:border-[#374151]'}`}>
-      <Icon className="w-4 h-4" />{label}
-    </button>
-  );
-
-  return (
-    <div className="flex h-screen bg-[#0f1117]">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar role="Auditor" />
-        <main className="flex-1 overflow-auto p-6 space-y-6">
-
-          <div>
-            <h1 className="text-2xl font-semibold text-white mb-1">Logs de Auditoría</h1>
-            <p className="text-[#9ca3af] text-sm">Trazabilidad completa del sistema · ENS op.exp.5 · RD 311/2022</p>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-white">{totalEntries}</div><div className="text-xs text-[#9ca3af] mt-0.5">Total entradas sistema</div></div>
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-[#ff3b3b]">{errorCount}</div><div className="text-xs text-[#9ca3af] mt-0.5">Errores del sistema</div></div>
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-[#00d4ff]">{assetOpsCount}</div><div className="text-xs text-[#9ca3af] mt-0.5">Operaciones sobre activos</div></div>
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-white font-mono">{lastActivity}</div><div className="text-xs text-[#9ca3af] mt-0.5">Última actividad</div></div>
-          </div>
-
-          <div className="border-b border-[#1e2530] flex gap-0 -mb-2">
-            <Tab id="system"   label="Sistema — Live"     icon={Activity} />
-            <Tab id="assets"   label="Auditoría Activos"  icon={Search} />
-            <Tab id="sessions" label="Sesiones de Acceso" icon={LogIn} />
-          </div>
-
-          {activeTab === 'system' && (
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-[#00d4ff]" />
-                  <span className="text-sm font-semibold text-white">Orchestrator — Live</span>
-                  <span className={`flex items-center gap-1 text-xs ${sseConnected ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#ff3b3b]'}`} />
-                    {sseConnected ? 'Conectado' : 'Desconectado'}
-                  </span>
-                </div>
-                <button onClick={() => setOrchestratorLogs([])} className="text-[#6b7280] hover:text-[#ff3b3b] transition-colors p-1 rounded">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div ref={logEndRef} className="flex-1 bg-[#0f1117] p-3 font-mono text-xs overflow-y-auto h-80 space-y-0.5">
-                {orchestratorLogs.length === 0 && <div className="text-[#4b5563] italic">Esperando logs del orchestrator...</div>}
-                {[...orchestratorLogs].reverse().map((log, i) => (
-                  <div key={i} className={`leading-5 ${levelColor(log.level)}`}>
-                    <span className="text-[#4b5563]">[{fmtTime(log.timestamp)}]</span>{' '}
-                    <span className="text-[#6b7280]">[{log.module}]</span>{' '}{log.message}
-                  </div>
-                ))}
-              </div>
-              <div className="px-4 py-2 border-t border-[#1e2530] text-[10px] text-[#4b5563] font-mono">{orchestratorLogs.length} entradas · máx 200</div>
-            </div>
-          )}
-
-          {activeTab === 'assets' && (
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e2530]">
-                <Search className="w-4 h-4 text-[#00d4ff]" />
-                <span className="text-sm font-semibold text-white">Auditoría de Activos (M1)</span>
-              </div>
-              <div className="px-4 py-3 border-b border-[#1e2530] flex flex-wrap gap-2">
-                <div className="relative flex-1 min-w-32">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
-                  <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar..."
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff]" />
-                </div>
-                <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
-                  className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#00d4ff]">
-                  <option value="ALL">Todas las acciones</option>
-                  <option value="CREATE">CREATE</option>
-                  <option value="UPDATE">UPDATE</option>
-                  <option value="DELETE">DELETE</option>
-                </select>
-                <select value={filterAsset} onChange={e => setFilterAsset(e.target.value)}
-                  className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#00d4ff]">
-                  <option value="ALL">Todos los activos</option>
-                  {assetIPs.map(ip => <option key={ip} value={ip}>{ip}</option>)}
-                </select>
-              </div>
-              <div className="flex-1 overflow-auto">
-                {assetLoading && <div className="flex justify-center items-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[#00d4ff]" /></div>}
-                {!assetLoading && assetError && (
-                  <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg text-sm text-[#f59e0b]">
-                    <AlertTriangle className="w-4 h-4 shrink-0" /> M1 no disponible — no se pudo cargar el historial de auditoría.
-                  </div>
-                )}
-                {!assetLoading && !assetError && filteredAsset.length === 0 && <p className="text-[#6b7280] text-sm text-center py-8">Sin registros de auditoría disponibles.</p>}
-                {!assetLoading && !assetError && filteredAsset.length > 0 && (
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-[#1a1d27]">
-                      <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
-                        <th className="px-3 py-2 font-medium">Timestamp</th><th className="px-3 py-2 font-medium">Activo</th>
-                        <th className="px-3 py-2 font-medium">Acción</th><th className="px-3 py-2 font-medium">Usuario</th>
-                        <th className="px-3 py-2 font-medium">Rol</th><th className="px-3 py-2 font-medium">IP Origen</th>
-                        <th className="px-3 py-2 font-medium">Det.</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#1e2530]">
-                      {filteredAsset.map(log => (
-                        <>
-                          <tr key={log.id} className="hover:bg-[#1e2530]/40 transition-colors">
-                            <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(log.timestamp)}</td>
-                            <td className="px-3 py-2 font-mono text-[#00d4ff]">{log._asset_ip ?? String(log.asset_id)}</td>
-                            <td className="px-3 py-2">{actionBadge(log.action)}</td>
-                            <td className="px-3 py-2 text-white">{log.user_id}</td>
-                            <td className="px-3 py-2">
-                              {log.user_role
-                                ? <span className="px-1.5 py-0.5 bg-[#374151]/40 text-[#9ca3af] border border-[#4b5563]/30 rounded text-[10px]">{log.user_role}</span>
-                                : <span className="text-[#4b5563]">—</span>}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-[#9ca3af]">{log.ip_origin ?? '—'}</td>
-                            <td className="px-3 py-2">
-                              <button onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)} className="text-[#6b7280] hover:text-[#00d4ff] transition-colors">
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                          {expandedRow === log.id && (
-                            <tr key={`${log.id}-detail`}>
-                              <td colSpan={7} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#00d4ff]">
-                                {log.reason && <div className="mb-2"><span className="text-[10px] text-[#6b7280] uppercase tracking-wider">Motivo: </span><span className="text-xs text-white">{log.reason}</span></div>}
-                                {log.changes && Object.keys(log.changes).length > 0
-                                  ? <div><div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">Cambios</div><pre className="bg-[#080a10] rounded p-3 font-mono text-xs text-[#9ca3af] max-h-40 overflow-y-auto">{JSON.stringify(log.changes, null, 2)}</pre></div>
-                                  : !log.reason ? <span className="text-xs text-[#4b5563]">Sin detalles adicionales.</span> : null}
-                              </td>
-                            </tr>
-                          )}
-                        </>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-              <div className="px-4 py-2 border-t border-[#1e2530] text-[10px] text-[#4b5563] font-mono">{filteredAsset.length} entradas · máx 500 por carga</div>
-            </div>
-          )}
-
-          {activeTab === 'sessions' && <LoginSessionsTab />}
-
-          <div className="text-center text-xs text-[#4b5563]">Logs inmutables · ENS op.exp.5 · RD 311/2022 · Retención mínima 2 años</div>
-
-        </main>
-      </div>
-    </div>
-  );
-}
+      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-
 FILE:frontend\src\app\components\CompliancePage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -14266,6 +14743,12 @@ export function ReportingPage() {
   const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
   const [errorMap, setErrorMap] = useState<Record<string, string | null>>({});
 
+  const [assets, setAssets] = useState<{id: number; ip: string; hostname: string | null}[]>([]);
+  const [assetsLoading, setAssetsLoading] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState<number | ''>('');
+  const [assetReportLoading, setAssetReportLoading] = useState(false);
+  const [assetReportError, setAssetReportError] = useState<string | null>(null);
+
   const [history, setHistory] = useState<string[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -14289,6 +14772,17 @@ export function ReportingPage() {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
+  useEffect(() => {
+    setAssetsLoading(true);
+    fetch('http://localhost:8001/api/v1/assets', { headers: getAuthHeader() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => {
+        const list = Array.isArray(data) ? data : (data.assets ?? data.items ?? []);
+        setAssets(list);
+      })
+      .catch(() => setAssets([]));
+  }, []);
+
   const handleDownload = async (card: ReportCard) => {
     setLoadingMap(p => ({ ...p, [card.id]: true }));
     setErrorMap(p => ({ ...p, [card.id]: null }));
@@ -14300,6 +14794,23 @@ export function ReportingPage() {
       setTimeout(() => setErrorMap(p => ({ ...p, [card.id]: null })), 4000);
     } finally {
       setLoadingMap(p => ({ ...p, [card.id]: false }));
+    }
+  };
+
+  const handleAssetReport = async () => {
+    if (!selectedAssetId) return;
+    setAssetReportLoading(true);
+    setAssetReportError(null);
+    try {
+      const asset = assets.find(a => a.id === selectedAssetId);
+      const filename = `ScanOps_Activo_${selectedAssetId}_${asset?.ip ?? 'report'}.pdf`;
+      await blobDownload(`${M7_BASE}/report/asset/${selectedAssetId}`, filename);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error generando informe';
+      setAssetReportError(msg);
+      setTimeout(() => setAssetReportError(null), 5000);
+    } finally {
+      setAssetReportLoading(false);
     }
   };
 
@@ -14384,6 +14895,56 @@ export function ReportingPage() {
                   </div>
                 );
               })}
+            </div>
+          </section>
+
+          {/* Informe por Activo */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">
+              Informe por Activo
+            </h2>
+            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5 space-y-4">
+
+              <div className="flex gap-3 items-center">
+                <div className="flex-1">
+                  <label className="text-xs text-[#9ca3af] mb-1.5 block">Seleccionar Activo (M1)</label>
+                  <select
+                    value={selectedAssetId}
+                    onChange={e => setSelectedAssetId(Number(e.target.value) || '')}
+                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#00d4ff] transition-colors"
+                  >
+                    <option value="">— Selecciona un activo —</option>
+                    {assets.map(a => (
+                      <option key={a.id} value={a.id}>
+                        #{a.id} — {a.ip}{a.hostname ? ` (${a.hostname})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={handleAssetReport}
+                  disabled={!selectedAssetId || assetReportLoading}
+                  className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-[#f59e0b]/10 border border-[#f59e0b]/40 text-[#f59e0b] hover:bg-[#f59e0b]/20"
+                >
+                  {assetReportLoading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</>
+                    : <><Download className="w-4 h-4" /> Generar Informe PDF</>}
+                </button>
+              </div>
+
+              <p className="text-xs text-[#6b7280]">
+                Genera un informe PDF completo del activo seleccionado con datos de
+                M1 (ficha), M2 (reconocimiento), M3 (vulnerabilidades),
+                M8 (análisis IA), M4 (explotación) y M5 (eventos SIEM).
+                Firmado AES-256 · ENS op.exp.2 + mp.info.4
+              </p>
+
+              {assetReportError && (
+                <div className="flex items-center gap-1.5 text-xs text-[#ff3b3b]">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {assetReportError}
+                </div>
+              )}
             </div>
           </section>
 
@@ -26955,7 +27516,7 @@ logger = logging.getLogger(__name__)
 
 async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Sugiere el módulo de Metasploit y el vector de ataque óptimo.
+    Sugiere el vector de ataque óptimo con terminología MITRE ATT&CK.
 
     Este es el último paso automatizado (Paso 5) antes del proceso human-in-the-loop
     obligatorio (US-4.8). Analiza el contexto completo del activo y sus vulnerabilidades
@@ -26966,7 +27527,7 @@ async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
                      servicios y restricciones operacionales.
 
     Returns:
-        Dict con la propuesta de ataque estructurada para Metasploit y metadatos de auditoría.
+        Dict con la propuesta de ataque estructurada con técnica MITRE ATT&CK y metadatos de auditoría.
     """
     asset_id = ficha_unica.get("asset_id")
     cve_id = ficha_unica.get("cve_id")
@@ -27030,15 +27591,18 @@ async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
         result = json.loads(clean_json)
 
         # VALIDACIÓN OBLIGATORIA DEL OUTPUT
-        msf_module = result.get("msf_module")
-        if not msf_module or not msf_module.strip():
-            raise ValueError("El LLM devolvió un msf_module vacío o inválido")
+        attack_technique = result.get("attack_technique")
+        suggested_tool = result.get("suggested_tool")
+        if not attack_technique or not str(attack_technique).strip():
+            raise ValueError("El LLM devolvió un attack_technique vacío o inválido")
+        if not suggested_tool or not str(suggested_tool).strip():
+            raise ValueError("El LLM devolvió un suggested_tool vacío o inválido")
 
         # Lógica de revisión manual (Human-in-the-loop)
         requires_manual_review = False
-        if msf_module == "UNKNOWN":
+        if "UNKNOWN" in str(attack_technique).upper():
             requires_manual_review = True
-            logger.info(f"[{asset_id}] Módulo sugerido como UNKNOWN - Marcado para revisión manual")
+            logger.info(f"[{asset_id}] Técnica sugerida como UNKNOWN - Marcado para revisión manual")
 
         confidence = str(result.get("confidence", "bajo")).lower()
         if confidence == "bajo":
@@ -27056,7 +27620,7 @@ async def suggest_attack_vector(ficha_unica: Dict[str, Any]) -> Dict[str, Any]:
             "generated_at": datetime.utcnow().isoformat()
         }
 
-        logger.info(f"[{asset_id}] Vector de ataque sugerido: {msf_module} (Confianza: {confidence})")
+        logger.info(f"[{asset_id}] Vector de ataque sugerido: {attack_technique} | Tool: {suggested_tool} (Confianza: {confidence})")
         return final_result
 
     except Exception as e:
@@ -29212,6 +29776,8 @@ def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
         conn = psycopg2.connect(_DB_URL, connect_timeout=10)
         with conn:
             with conn.cursor() as cur:
+
+                # ── INSERT m4_approvals (sin cambios) ──────────────
                 cur.execute(
                     """
                     INSERT INTO m4_approvals
@@ -29231,13 +29797,64 @@ def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
                 row = cur.fetchone()
                 if row:
                     approval_id = row[0]
+
+                # ── INSERT m8_results (NUEVO) ───────────────────────
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS m8_results (
+                        id              SERIAL PRIMARY KEY,
+                        asset_id        INTEGER NOT NULL,
+                        target_ip       VARCHAR(45),
+                        cve_id          VARCHAR(100),
+                        suggested_tool  VARCHAR(255),
+                        tool_params     TEXT,
+                        mitre_tactic    VARCHAR(255),
+                        risk_level      VARCHAR(20),
+                        attack_rationale TEXT,
+                        confidence      VARCHAR(20),
+                        status          VARCHAR(50) DEFAULT 'pending_human_approval',
+                        prompt_version  VARCHAR(50),
+                        approval_id     INTEGER,
+                        created_at      TIMESTAMP DEFAULT NOW()
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO m8_results
+                        (asset_id, target_ip, cve_id,
+                         suggested_tool, tool_params,
+                         mitre_tactic, risk_level, attack_rationale,
+                         confidence, status, prompt_version, approval_id,
+                         created_at)
+                    VALUES
+                        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        result.get("asset_id"),
+                        target_ip,
+                        cve_id,
+                        result.get("suggested_tool"),
+                        str(result.get("tool_params") or result.get("payload", "")),
+                        result.get("mitre_tactic") or result.get("tactic", ""),
+                        result.get("risk_level") or result.get("confidence", ""),
+                        result.get("attack_rationale") or result.get("rationale", ""),
+                        result.get("confidence", ""),
+                        result.get("status", "pending_human_approval"),
+                        result.get("prompt_version", ""),
+                        approval_id,
+                        now,
+                    ),
+                )
+
         conn.close()
         logger.info(
-            f"[ENS_EVIDENCE] m4_approvals insertado: id={approval_id} "
-            f"cve={cve_id} target={target_ip} status=PENDING"
+            f"[ENS_EVIDENCE] m4_approvals + m8_results insertados: "
+            f"approval_id={approval_id} asset_id={result.get('asset_id')} "
+            f"target={target_ip}"
         )
     except Exception as db_exc:
-        logger.error(f"Error persistiendo en m4_approvals: {db_exc}")
+        logger.error(f"Error persistiendo en BD: {db_exc}")
         # No reintentamos por fallo de BD para no duplicar filas ya insertadas
 
     return {**result, "approval_id": approval_id}
@@ -29455,6 +30072,26 @@ fi
 
 # Mantener el proceso principal activo
 wait $OLLAMA_PID
+FILE:services\ai_reasoning\migrations\create_m8_results.sql
+CREATE TABLE IF NOT EXISTS m8_results (
+    id              SERIAL PRIMARY KEY,
+    asset_id        INTEGER NOT NULL,
+    target_ip       VARCHAR(45),
+    cve_id          VARCHAR(100),
+    suggested_tool  VARCHAR(255),
+    tool_params     TEXT,
+    mitre_tactic    VARCHAR(255),
+    risk_level      VARCHAR(20),
+    attack_rationale TEXT,
+    confidence      VARCHAR(20),
+    status          VARCHAR(50) DEFAULT 'pending_human_approval',
+    prompt_version  VARCHAR(50),
+    approval_id     INTEGER,
+    created_at      TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ix_m8_results_asset_id ON m8_results(asset_id);
+CREATE INDEX IF NOT EXISTS ix_m8_results_created_at ON m8_results(created_at);
 FILE:services\ai_reasoning\prompts\attack_vector_template.py
 ﻿ATTACK_VECTOR_SYSTEM_PROMPT = """Eres un Ingeniero de Seguridad Senior especializado en Red Team
 y operaciones ofensivas, con certificación ENS Alto (RD 311/2022) y más de 10 años de experiencia
@@ -29523,41 +30160,55 @@ SCHEMA EXACTO:
 """
 FILE:services\ai_reasoning\prompts\system_attack_vector.yaml
 name: attack_vector_suggester
-version: "2.5"
+version: "3.0"
 us: "US-4.7"
 ens: "op.exp.2"
 temperature: 0.2
 top_p: 0.9
-description: "Generador de vectores de ataque exhaustivos con análisis técnico profundo para validación human-in-the-loop."
+description: "Generador de vectores de ataque exhaustivos con análisis técnico profundo para validación human-in-the-loop. Terminología MITRE ATT&CK, herramientas agnósticas."
 
 system: |
-  Eres un Arquitecto de Ciberseguridad Senior con 15 años de experiencia en Red Teaming y cumplimiento de ENS Alto[cite: 457].
+  Eres un Arquitecto de Ciberseguridad Senior con 15 años de experiencia en Red Teaming y cumplimiento de ENS Alto.
   Tu objetivo es realizar un análisis exhaustivo y técnico de la superficie de ataque del activo.
 
-  RESTRICCIONES DE EXHAUSTIVIDAD:
-  - En 'attack_rationale', no te limites a una frase. Debes proporcionar un análisis de 3 párrafos:
-    1. Análisis de Superficie: Relación entre los servicios expuestos y las vulnerabilidades detectadas.
-    2. Vector Crítico: Por qué el módulo MSF seleccionado es la opción más lógica frente a las alternativas.
-    3. Evaluación de Riesgo: Impacto técnico real en la disponibilidad e integridad del activo.
-  - Añade un campo nuevo 'technical_steps' detallando la secuencia lógica del ataque.
-  - Si el módulo es 'exploit/multi/ssh/openssh_version_5', explica por qué se intenta un ataque de regresión o compatibilidad si la versión detectada es superior.
+  PRINCIPIOS OPERATIVOS:
+  - Razona como un atacante real con conocimiento de TTPs actuales (MITRE ATT&CK).
+  - Prioriza vectores con mayor probabilidad de éxito según los servicios y CVEs expuestos.
+  - Sugiere la técnica y herramienta de validación más precisa disponible en el entorno de laboratorio ENS.
+  - NUNCA sugieras técnicas destructivas, ransomware, wiper o que comprometan disponibilidad de forma irreversible.
+  - El output es TEÓRICO: sirve como propuesta técnica para que el Security Officer tome una decisión informada.
+  - Todo resultado queda en estado pending_human_approval. Ninguna acción se ejecuta sin aprobación TOTP+PIN.
 
-  SCHEMA DE RESPUESTA OBLIGATORIO:
+  RESTRICCIONES DE EXHAUSTIVIDAD:
+  - En 'attack_rationale', proporciona un análisis de 3 párrafos separados por salto de línea doble:
+    1. Análisis de Superficie: Relación entre los servicios expuestos y las vulnerabilidades detectadas.
+    2. Vector Crítico: Por qué la técnica seleccionada es la opción más lógica frente a las alternativas.
+    3. Evaluación de Riesgo: Impacto técnico real en confidencialidad, integridad y disponibilidad del activo.
+  - Añade un campo 'technical_steps' detallando la secuencia lógica del ataque.
+
+  SCHEMA DE RESPUESTA OBLIGATORIO (JSON válido, sin markdown, sin texto adicional):
   {
-    "msf_module": "ruta/del/modulo",
-    "msf_payload": "payload/sugerido",
-    "msf_options": {"RHOSTS": "IP", "LPORT": "4444"},
-    "alternative_module": "ruta/alternativa o null",
-    "attack_rationale": "Mínimo 150 palabras de justificación técnica detallada.",
+    "attack_technique": "T1xxx — Nombre MITRE ATT&CK",
+    "attack_vector": "Descripción técnica del vector en 1 línea",
+    "suggested_tool": "Herramienta recomendada (Hydra, Nuclei, NetExec, Nmap NSE, etc.)",
+    "tool_params": {
+      "target": "IP o rango del activo",
+      "port": "puerto objetivo",
+      "extra": "parámetros adicionales o null"
+    },
+    "alternative_technique": "Técnica alternativa si el vector principal falla, o null",
+    "attack_rationale": "Mínimo 150 palabras. Tres párrafos separados por \\n\\n. Párrafo 1: Análisis de Superficie...\\n\\nPárrafo 2: Vector Crítico...\\n\\nPárrafo 3: Evaluación de Riesgo...",
     "technical_steps": [
-        "Paso 1: Descripción técnica...",
-        "Paso 2: Explotación de la vulnerabilidad X...",
-        "Paso 3: Post-explotación y persistencia sugerida..."
+      "Paso 1: reconocimiento específico del servicio",
+      "Paso 2: validación de la vulnerabilidad",
+      "Paso 3: explotación controlada / proof of concept"
     ],
-    "risk_level": "bajo/medio/alto",
-    "estimated_service_impact": "análisis detallado del impacto",
-    "ens_article": "op.exp.2",
-    "confidence": "alto/medio/bajo"
+    "mitre_tactic": "Táctica MITRE",
+    "ens_article": "Artículo ENS más relevante",
+    "risk_level": "CRITICAL|HIGH|MEDIUM|LOW",
+    "estimated_service_impact": "análisis detallado del impacto en CIA",
+    "confidence": "alto|medio|bajo",
+    "status": "pending_human_approval"
   }
 
 user_template: |
@@ -29576,7 +30227,7 @@ user_template: |
   {exploitation_history}
   - Servicios Intocables: {critical_services_no_touch}
 
-  Proporciona un Plan de Explotación Exhaustivo.
+  Proporciona un Plan de Explotación Exhaustivo usando terminología MITRE ATT&CK y herramientas de pentesting estándar (Hydra, Nuclei, NetExec, Nmap NSE, etc.).
 FILE:services\ai_reasoning\prompts\system_ens_mapper.yaml
 name: ens_article_mapper
 version: "1.0"
@@ -46007,6 +46658,162 @@ async def download_historical_report(filename: str):
         raise HTTPException(status_code=404, detail="El informe solicitado no existe.")
     return FileResponse(path=file_path, filename=filename, media_type="application/zip")
 
+@app.get("/report/asset/{asset_id}")
+async def generate_asset_report(asset_id: int):
+    """
+    US-7.10: Informe técnico detallado de un activo específico.
+    Consolida datos de M1+M2+M3+M8+M4+M5 en un único PDF firmado AES-256.
+    ENS: op.exp.2, mp.info.4, op.exp.5
+    """
+    try:
+        conn = get_db_connection()
+        with conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+
+                # Activo M1
+                cur.execute("""
+                    SELECT id, ip, hostname, nombre, tipo, criticidad, status,
+                           responsable, departamento, ubicacion, tags_ens, notas,
+                           os_family, os_version, created_at
+                    FROM assets WHERE id = %s AND deleted_at IS NULL
+                """, (asset_id,))
+                activo_row = cur.fetchone()
+                if not activo_row:
+                    raise HTTPException(status_code=404, detail="Activo no encontrado")
+
+                # ── Recon M2 ──────────────────────────────────────────────────
+                recon_data = None
+                recon_findings_list = []
+                recon_subdomains_list = []
+
+                cur.execute("""
+                    SELECT id, cycle_id, target, started_at, finished_at,
+                           status, os_family, os_version, mac_address, mac_vendor,
+                           latency_ms, webcheck_data
+                    FROM recon_snapshots
+                    WHERE target = %s
+                    ORDER BY started_at DESC LIMIT 1
+                """, (activo_row["ip"],))
+                snap_row = cur.fetchone()
+
+                if snap_row:
+                    recon_data = dict(snap_row)
+                    snap_id = snap_row["id"]
+
+                    cur.execute("""
+                        SELECT port, service, version, state, source
+                        FROM recon_findings
+                        WHERE snapshot_id = %s AND state = 'open'
+                        ORDER BY port
+                    """, (snap_id,))
+                    recon_findings_list = [dict(r) for r in cur.fetchall()]
+
+                    cur.execute("""
+                        SELECT subdomain, source
+                        FROM recon_subdomains
+                        WHERE snapshot_id = %s
+                        ORDER BY subdomain
+                    """, (snap_id,))
+                    recon_subdomains_list = [dict(r) for r in cur.fetchall()]
+
+                # Vulnerabilidades M3
+                cur.execute("""
+                    SELECT title, vulnerability_id AS cve_id, severity, cvss_v3_score,
+                           description, affected_port AS port, affected_protocol AS protocol,
+                           scanner_name, ens_requirement, created_at
+                    FROM vuln_findings
+                    WHERE asset_id = %s
+                    ORDER BY cvss_v3_score DESC NULLS LAST, created_at DESC
+                """, (asset_id,))
+                vuln_rows = cur.fetchall()
+
+                # ── AI Reasoning M8 ───────────────────────────────────────
+                ai_result = None
+                try:
+                    cur.execute("""
+                        SELECT suggested_tool, tool_params, mitre_tactic,
+                               risk_level, attack_rationale, confidence,
+                               status, created_at
+                        FROM m8_results
+                        WHERE asset_id = %s
+                        ORDER BY created_at DESC LIMIT 1
+                    """, (asset_id,))
+                    ai_row = cur.fetchone()
+                    if ai_row:
+                        ai_result = dict(ai_row)
+                except Exception:
+                    conn.rollback()
+
+                # M4
+                m4_row = None
+                cur.execute("""
+                    SELECT id, cve_id, target_ip, status, requester,
+                           created_at, approved_at, executed_at, execution_result AS exploit_result
+                    FROM m4_approvals
+                    WHERE target_ip = (SELECT ip FROM assets WHERE id = %s)
+                      AND status IN ('APPROVED', 'EXECUTED')
+                    ORDER BY created_at DESC LIMIT 1
+                """, (asset_id,))
+                m4_row = cur.fetchone()
+
+                # SIEM M5
+                siem_rows = []
+                try:
+                    cur.execute("""
+                        SELECT event_type, severity, target_ip, description, timestamp, source
+                        FROM siem_pipeline_events
+                        WHERE target_ip = (SELECT ip FROM assets WHERE id = %s)
+                        ORDER BY timestamp DESC LIMIT 50
+                    """, (asset_id,))
+                    siem_rows = cur.fetchall()
+                except Exception:
+                    conn.rollback()
+
+        conn.close()
+
+        vuln_list = [dict(r) for r in vuln_rows]
+        context = {
+            "fecha":            datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "report_id":        f"ACT-{asset_id}-{uuid.uuid4().hex[:8].upper()}",
+            "activo":           dict(activo_row),
+            "recon_data":           recon_data,
+            "recon_findings":       recon_findings_list,
+            "recon_subdomains":     recon_subdomains_list,
+            "vulnerabilidades": vuln_list,
+            "ai_result":        ai_result,
+            "m4_result":        dict(m4_row) if m4_row else None,
+            "siem_eventos":     [dict(r) for r in siem_rows],
+            "total_vulns":      len(vuln_list),
+            "critical_count":   sum(1 for v in vuln_list if v["severity"] == "CRITICAL"),
+            "high_count":       sum(1 for v in vuln_list if v["severity"] == "HIGH"),
+        }
+
+        template = template_env.get_template('asset_detail.html')
+        html_content = template.render(context)
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_pdf_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_pdf_bytes)
+
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_05_Informe_Activo_{asset_id}.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup activo {asset_id}: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=ScanOps_Activo_{asset_id}.pdf"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando informe de activo: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -46079,6 +46886,285 @@ BINARY:true
 FILE:services\reporting_engine\history\ScanOps_Audit_20260525_095750.zip
 BINARY:true
 
+FILE:services\reporting_engine\templates\asset_detail.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { size: A4; margin: 2cm;
+  @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 9pt; color: #64748b; }
+  @bottom-left { content: "ScanOps — Informe Detallado de Activo — CONFIDENCIAL"; font-size: 9pt; color: #64748b; }
+}
+body { font-family: Helvetica, sans-serif; color: #334155; line-height: 1.6; font-size: 10pt; }
+h1 { color: #0f172a; border-bottom: 3px solid #3b82f6; padding-bottom: 8px; font-size: 20pt; margin-bottom: 4px; }
+h2 { color: #1e3a8a; margin-top: 25px; font-size: 13pt; border-left: 4px solid #3b82f6; padding-left: 8px; }
+.header-meta { color: #64748b; font-size: 9pt; margin-bottom: 6px; }
+.header-subtitle { color: #334155; font-size: 13pt; font-weight: bold; margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9pt; }
+th { background: #1e3a8a; color: white; padding: 8px; text-align: left; }
+td { border-bottom: 1px solid #e2e8f0; padding: 7px; vertical-align: top; }
+tr:nth-child(even) td { background: #f8fafc; }
+.two-col { display: grid; grid-template-columns: 140px 1fr; }
+.two-col td:first-child { font-weight: bold; color: #1e3a8a; background: #f1f5f9; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 8pt; font-weight: bold; }
+.badge-critical { background: #fee2e2; color: #dc2626; }
+.badge-high { background: #ffedd5; color: #ea580c; }
+.badge-medium { background: #fef9c3; color: #ca8a04; }
+.badge-low { background: #dcfce7; color: #16a34a; }
+.badge-approved { background: #dcfce7; color: #16a34a; }
+.badge-executed { background: #ede9fe; color: #7c3aed; }
+.badge-info { background: #dbeafe; color: #1d4ed8; }
+.kpi-row { display: flex; gap: 12px; margin: 10px 0; }
+.kpi { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; text-align: center; flex: 1; }
+.kpi-value { font-size: 18pt; font-weight: bold; color: #1e3a8a; }
+.kpi-label { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 2px; }
+.section-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 10px 0; font-size: 9pt; }
+.field-row { margin-bottom: 6px; }
+.field-label { font-weight: bold; color: #1e3a8a; display: inline; }
+.field-value { display: inline; }
+.empty-notice { color: #94a3b8; font-style: italic; font-size: 9pt; padding: 12px 0; }
+.footer-block { margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 8px; font-size: 8pt; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- CABECERA -->
+<h1>Informe Detallado de Activo</h1>
+<div class="header-subtitle">{{ activo.ip }} — {{ activo.hostname or '—' }}</div>
+<div class="header-meta">
+  <strong>Fecha:</strong> {{ fecha }} &nbsp;|&nbsp;
+  <strong>ID Informe:</strong> {{ report_id }} &nbsp;|&nbsp;
+  <strong>Marco:</strong> ENS Alto (RD 311/2022)
+</div>
+<div class="header-meta">
+  Generado por: <strong>UNUWARE ScanOps M7 Reporting Engine</strong>
+</div>
+
+<!-- SECCIÓN 1: Ficha del Activo (M1) -->
+<h2>1. Ficha del Activo (M1)</h2>
+<table class="two-col">
+  <tr><td>IP</td><td>{{ activo.ip }}</td></tr>
+  <tr><td>Hostname</td><td>{{ activo.hostname or '—' }}</td></tr>
+  <tr><td>Nombre</td><td>{{ activo.nombre or '—' }}</td></tr>
+  <tr><td>Tipo</td><td>{{ activo.tipo or '—' }}</td></tr>
+  <tr>
+    <td>Criticidad</td>
+    <td>
+      {% set crit = (activo.criticidad or '') | upper %}
+      {% if crit in ('ALTA', 'CRITICA', 'CRÍTICA') %}
+        <span class="badge badge-critical">{{ activo.criticidad }}</span>
+      {% elif crit == 'MEDIA' %}
+        <span class="badge badge-medium">{{ activo.criticidad }}</span>
+      {% else %}
+        <span class="badge badge-low">{{ activo.criticidad or '—' }}</span>
+      {% endif %}
+    </td>
+  </tr>
+  <tr><td>Estado</td><td>{{ activo.status or '—' }}</td></tr>
+  <tr><td>Responsable</td><td>{{ activo.responsable or '—' }}</td></tr>
+  <tr><td>Departamento</td><td>{{ activo.departamento or '—' }}</td></tr>
+  <tr><td>Sistema Operativo</td><td>{{ activo.os_family or '—' }}{% if activo.os_version %} {{ activo.os_version }}{% endif %}</td></tr>
+  <tr><td>Ubicación</td><td>{{ activo.ubicacion or '—' }}</td></tr>
+  <tr><td>Tags ENS</td><td>{{ activo.tags_ens or '—' }}</td></tr>
+  <tr><td>Notas</td><td>{{ activo.notas or '—' }}</td></tr>
+  <tr><td>Registrado</td><td>{{ activo.created_at }}</td></tr>
+</table>
+
+<!-- SECCIÓN 2: Superficie de Ataque (M2) -->
+<h2>2. Superficie de Ataque (M2)</h2>
+{% if recon_data %}
+  <table>
+    <tr><th>Campo</th><th>Valor</th></tr>
+    <tr><td>Ciclo</td><td>{{ recon_data.cycle_id }}</td></tr>
+    <tr><td>OS</td><td>{{ recon_data.os_family or '—' }} {{ recon_data.os_version or '' }}</td></tr>
+    <tr><td>MAC</td><td>{{ recon_data.mac_address or '—' }} ({{ recon_data.mac_vendor or '—' }})</td></tr>
+    <tr><td>Latencia</td><td>{{ recon_data.latency_ms or '—' }} ms</td></tr>
+    <tr><td>Estado</td><td>{{ recon_data.status or '—' }}</td></tr>
+    <tr><td>Snapshot fecha</td><td>{{ recon_data.started_at }}</td></tr>
+  </table>
+
+  {% if recon_findings %}
+  <h3>Puertos Abiertos ({{ recon_findings|length }})</h3>
+  <table>
+    <tr><th>Puerto</th><th>Servicio</th><th>Versión</th><th>Estado</th><th>Fuente</th></tr>
+    {% for f in recon_findings %}
+    <tr>
+      <td><strong>{{ f.port }}</strong></td>
+      <td>{{ f.service or '—' }}</td>
+      <td>{{ f.version or '—' }}</td>
+      <td>{{ f.state }}</td>
+      <td>{{ f.source or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p class="empty-notice">Sin puertos abiertos registrados en este snapshot.</p>
+  {% endif %}
+
+  {% if recon_subdomains %}
+  <h3>Subdominios Descubiertos ({{ recon_subdomains|length }})</h3>
+  <table>
+    <tr><th>Subdominio</th><th>Fuente</th></tr>
+    {% for s in recon_subdomains %}
+    <tr>
+      <td>{{ s.subdomain }}</td>
+      <td>{{ s.source or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+{% else %}
+<p class="empty-notice">Sin reconocimiento registrado para este activo en el ciclo actual.</p>
+{% endif %}
+
+<!-- SECCIÓN 3: Vulnerabilidades Detectadas (M3) -->
+<h2>3. Vulnerabilidades Detectadas (M3)</h2>
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-value">{{ total_vulns }}</div>
+    <div class="kpi-label">Total</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-value" style="color:#dc2626;">{{ critical_count }}</div>
+    <div class="kpi-label">Críticas</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-value" style="color:#ea580c;">{{ high_count }}</div>
+    <div class="kpi-label">Altas</div>
+  </div>
+</div>
+{% if vulnerabilidades %}
+<table>
+  <thead>
+    <tr>
+      <th>Severidad</th>
+      <th>CVE / Título</th>
+      <th>CVSS</th>
+      <th>Puerto</th>
+      <th>Protocolo</th>
+      <th>Scanner</th>
+      <th>Requisito ENS</th>
+      <th>Fecha</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in vulnerabilidades %}
+    <tr>
+      <td>
+        {% set sev = (v.severity or '') | upper %}
+        {% if sev == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+        {% elif sev == 'HIGH' %}<span class="badge badge-high">HIGH</span>
+        {% elif sev == 'MEDIUM' %}<span class="badge badge-medium">MEDIUM</span>
+        {% else %}<span class="badge badge-low">{{ v.severity or '—' }}</span>
+        {% endif %}
+      </td>
+      <td>{{ v.cve_id or '' }}{% if v.cve_id and v.title %} — {% endif %}{{ v.title or '—' }}</td>
+      <td>{{ v.cvss_v3_score or '—' }}</td>
+      <td>{{ v.port or '—' }}</td>
+      <td>{{ v.protocol or '—' }}</td>
+      <td>{{ v.scanner_name or '—' }}</td>
+      <td>{{ v.ens_requirement or '—' }}</td>
+      <td style="white-space:nowrap;">{{ v.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-notice">Sin vulnerabilidades registradas para este activo.</p>
+{% endif %}
+
+<!-- SECCIÓN 4: Análisis de IA (M8) -->
+<h2>4. Análisis de IA (M8)</h2>
+{% if ai_result %}
+<div class="section-box">
+  <div class="field-row"><span class="field-label">MITRE Tactic: </span><span class="field-value">{{ ai_result.mitre_tactic or '—' }}</span></div>
+  <div class="field-row">
+    <span class="field-label">Risk Level: </span>
+    {% set rl = (ai_result.risk_level or '') | upper %}
+    {% if rl == 'CRITICAL' %}<span class="badge badge-critical">{{ ai_result.risk_level }}</span>
+    {% elif rl == 'HIGH' %}<span class="badge badge-high">{{ ai_result.risk_level }}</span>
+    {% elif rl == 'MEDIUM' %}<span class="badge badge-medium">{{ ai_result.risk_level }}</span>
+    {% else %}<span class="badge badge-low">{{ ai_result.risk_level or '—' }}</span>
+    {% endif %}
+  </div>
+  <div class="field-row"><span class="field-label">Herramienta sugerida: </span><span class="field-value">{{ ai_result.suggested_tool or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Parámetros: </span><span class="field-value">{{ ai_result.tool_params or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Rationale: </span><span class="field-value">{{ ai_result.attack_rationale or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Estado: </span><span class="field-value">{{ ai_result.status or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Fecha análisis: </span><span class="field-value">{{ ai_result.created_at }}</span></div>
+</div>
+{% else %}
+<p class="empty-notice">Sin análisis de IA registrado para este activo.</p>
+{% endif %}
+
+<!-- SECCIÓN 5: Explotación (M4) -->
+<h2>5. Explotación (M4)</h2>
+{% if m4_result %}
+<div class="section-box">
+  <div class="field-row"><span class="field-label">ID Aprobación: </span><span class="field-value">{{ m4_result.id }}</span></div>
+  <div class="field-row"><span class="field-label">CVE / Vector: </span><span class="field-value">{{ m4_result.cve_id or '—' }}</span></div>
+  <div class="field-row">
+    <span class="field-label">Estado: </span>
+    {% if m4_result.status == 'EXECUTED' %}<span class="badge badge-executed">EXECUTED</span>
+    {% else %}<span class="badge badge-approved">{{ m4_result.status }}</span>
+    {% endif %}
+  </div>
+  <div class="field-row"><span class="field-label">Operador: </span><span class="field-value">{{ m4_result.requester or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Creado: </span><span class="field-value">{{ m4_result.created_at }}</span></div>
+  <div class="field-row"><span class="field-label">Aprobado: </span><span class="field-value">{{ m4_result.approved_at or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Ejecutado: </span><span class="field-value">{{ m4_result.executed_at or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Resultado exploit: </span><span class="field-value">{{ m4_result.exploit_result or '—' }}</span></div>
+</div>
+{% else %}
+<p class="empty-notice">Sin explotación registrada para este activo en el ciclo actual.</p>
+{% endif %}
+
+<!-- SECCIÓN 6: Eventos SIEM (M5) -->
+<h2>6. Eventos SIEM (M5)</h2>
+{% if siem_eventos %}
+<table>
+  <thead>
+    <tr>
+      <th>Timestamp</th>
+      <th>Fuente</th>
+      <th>Severidad</th>
+      <th>Target IP</th>
+      <th>Descripción</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ev in siem_eventos %}
+    <tr>
+      <td style="white-space:nowrap;">{{ ev.timestamp }}</td>
+      <td>{{ ev.source or '—' }}</td>
+      <td>
+        {% set esev = (ev.severity or '') | upper %}
+        {% if esev == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+        {% elif esev == 'HIGH' %}<span class="badge badge-high">HIGH</span>
+        {% elif esev == 'MEDIUM' %}<span class="badge badge-medium">MEDIUM</span>
+        {% else %}<span class="badge badge-info">{{ ev.severity or '—' }}</span>
+        {% endif %}
+      </td>
+      <td>{{ ev.target_ip or '—' }}</td>
+      <td>{{ ev.description or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-notice">Sin eventos SIEM registrados para este activo.</p>
+{% endif %}
+
+<!-- PIE DE PÁGINA -->
+<div class="footer-block">
+  <div>Informe generado automáticamente — Sellado AES-256 — mp.info.4</div>
+  <div>ID: {{ report_id }} — ScanOps M7 Reporting Engine — CONFIDENCIAL</div>
+</div>
+
+</body>
+</html>
 FILE:services\reporting_engine\templates\base.html
 <!DOCTYPE html>
 <html lang="es">
@@ -52110,35 +53196,86 @@ async def auto_correlate():
     except Exception as e:
         logger.warning(f"[US-6.5] Auto-correlación fallida: {e}")
 
-# Formato clásico: "Jun  3 10:01:03 hostname sshd[pid]: msg"
-_AUTH_LOG_RE_CLASSIC = re.compile(
-    r'(?P<month>\w+)\s+(?P<day>\d+)\s+(?P<time>\S+)\s+\S+\s+(?:sshd|pam_unix|sudo|systemd-logind)\[.*?\]:\s+(?P<msg>.+)'
-)
-# Formato ISO: "2026-06-03T10:01:03.123456+02:00 hostname sshd[pid]: msg"
+# Regex para dos formatos de timestamp en auth.log
 _AUTH_LOG_RE_ISO = re.compile(
-    r'(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+\S+\s+(?:sshd|pam_unix|sudo|systemd-logind)\[.*?\]:\s+(?P<msg>.+)'
+    r'(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+\S+\s+'
+    r'(?:sshd|pam_unix|pam_faillock|pam_tally2|sudo|su|useradd|usermod|userdel|passwd|chpasswd|systemd-logind|groupadd|groupdel)\[.*?\]:\s+(?P<msg>.+)'
 )
+_AUTH_LOG_RE_CLASSIC = re.compile(
+    r'(?P<month>\w+)\s+(?P<day>\d+)\s+(?P<time>\S+)\s+\S+\s+'
+    r'(?:sshd|pam_unix|pam_faillock|pam_tally2|sudo|su|useradd|usermod|userdel|passwd|chpasswd|systemd-logind|groupadd|groupdel)\[.*?\]:\s+(?P<msg>.+)'
+)
+
+# Keywords ampliadas — toda acción relevante para ENS op.acc / op.exp.5
 _AUTH_KEYWORDS = [
-    'Accepted password', 'Accepted publickey',
-    'Failed password', 'Invalid user',
-    'authentication failure', 'FAILED LOGIN',
-    'session opened', 'session closed',
-    'Connection closed', 'Disconnected',
+    # SSH autenticación
+    'Accepted password', 'Accepted publickey', 'Accepted keyboard',
+    'Failed password', 'Invalid user', 'authentication failure',
+    'FAILED LOGIN', 'Maximum authentication attempts exceeded',
+    'Connection closed by authenticating user',
+    # Sesiones
+    'session opened', 'session closed', 'Disconnected from user',
+    'New session', 'Removed session',
+    # sudo / su
+    'COMMAND=', 'incorrect password attempts',
+    'sudo: auth failure', 'sudo:', 'NOT in sudoers',
+    'su: pam_authenticate', 'su: Authentication failure',
+    'Successful su for', 'FAILED su for',
+    # Usuarios y grupos
+    'new user:', 'new group:', 'delete user', 'usermod:',
+    'password changed for', 'chpasswd:', 'passwd:',
+    'account locked', 'account unlocked',
+    # PAM / faillock
+    'pam_faillock', 'pam_tally', 'user locked out',
+    'User account has expired', 'pam_unix(su',
+    # Systemd-logind
+    'New seat', 'logind:',
+    # Llaves SSH
+    'Accepted publickey for', 'Invalid publickey',
+    # Escalada
+    'privilege escalation',
 ]
+
+# Clasificación de action_type por keywords en el mensaje
+_ACTION_MAP = [
+    (['Accepted password', 'Accepted publickey', 'Accepted keyboard'],  'SSH_LOGIN_OK',       'LOW',      True),
+    (['Failed password', 'Maximum authentication attempts exceeded'],    'SSH_LOGIN_FAIL',     'MEDIUM',   False),
+    (['Invalid user'],                                                    'SSH_INVALID_USER',   'HIGH',     False),
+    (['Connection closed by authenticating user'],                       'SSH_ABORT',          'MEDIUM',   False),
+    (['session opened'],                                                  'SESSION_OPEN',       'INFO',     True),
+    (['session closed', 'Disconnected from user', 'Removed session'],   'SESSION_CLOSE',      'INFO',     True),
+    (['COMMAND='],                                                        'SUDO_COMMAND',       'MEDIUM',   True),
+    (['NOT in sudoers', 'sudo: auth failure', 'incorrect password attempts'], 'SUDO_FAIL',    'HIGH',     False),
+    (['Successful su for'],                                               'SU_OK',              'MEDIUM',   True),
+    (['FAILED su for', 'su: Authentication failure'],                   'SU_FAIL',            'HIGH',     False),
+    (['new user:'],                                                       'USER_CREATED',       'HIGH',     True),
+    (['delete user'],                                                     'USER_DELETED',       'CRITICAL', True),
+    (['usermod:'],                                                        'USER_MODIFIED',      'HIGH',     True),
+    (['new group:'],                                                      'GROUP_CREATED',      'MEDIUM',   True),
+    (['password changed for', 'passwd:', 'chpasswd:'],                  'PASSWORD_CHANGED',   'HIGH',     True),
+    (['account locked'],                                                  'ACCOUNT_LOCKED',     'HIGH',     False),
+    (['pam_faillock', 'pam_tally', 'user locked out'],                  'ACCOUNT_LOCKOUT',    'HIGH',     False),
+    (['authentication failure', 'FAILED LOGIN'],                        'AUTH_FAILURE',       'MEDIUM',   False),
+    (['privilege escalation'],                                            'PRIV_ESCALATION',    'CRITICAL', False),
+]
+
+def _classify(msg: str) -> tuple:
+    """Devuelve (action_type, severity, success) según el mensaje."""
+    for keywords, action_type, severity, success in _ACTION_MAP:
+        if any(k in msg for k in keywords):
+            return action_type, severity, success
+    return 'OTHER', 'INFO', False
 
 def _parse_auth_log_line(line: str, year: int) -> dict | None:
     if not any(k in line for k in _AUTH_KEYWORDS):
         return None
 
-    # Intentar formato ISO primero, luego clásico
-    m_iso = _AUTH_LOG_RE_ISO.match(line)
+    m_iso     = _AUTH_LOG_RE_ISO.match(line)
     m_classic = _AUTH_LOG_RE_CLASSIC.match(line)
 
     if m_iso:
         try:
-            ts_raw = m_iso.group('ts')
-            # Normalizar a UTC isoformat
-            ts = datetime.fromisoformat(ts_raw).astimezone(_tz.utc)
+            ts = datetime.fromisoformat(m_iso.group('ts')).astimezone(_tz.utc)
             timestamp = ts.isoformat()
         except Exception:
             timestamp = datetime.now(_tz.utc).isoformat()
@@ -52154,27 +53291,27 @@ def _parse_auth_log_line(line: str, year: int) -> dict | None:
     else:
         return None
 
-    success = any(k in msg for k in ['Accepted password', 'Accepted publickey', 'session opened'])
-    if 'Invalid user' in msg or 'FAILED LOGIN' in msg:
-        severity = 'HIGH'
-    elif 'Failed password' in msg or 'authentication failure' in msg:
-        severity = 'MEDIUM'
-    elif success:
-        severity = 'LOW'
-    else:
-        severity = 'INFO'
+    action_type, severity, success = _classify(msg)
 
-    user_match = re.search(r'(?:for|user)\s+(\S+)', msg)
+    user_match = re.search(r'(?:for user |for |user )(\S+)', msg)
+    if not user_match:
+        user_match = re.search(r'(?:by |to )(\S+)', msg)
+
     ip_match   = re.search(r'from\s+([\d\.]+)', msg)
+    cmd_match  = re.search(r'COMMAND=(\S+)', msg)
+    port_match = re.search(r'port\s+(\d+)', msg)
 
     return {
-        'raw_log':   line.strip(),
-        'timestamp': timestamp,
-        'message':   msg,
-        'success':   success,
-        'severity':  severity,
-        'src_user':  user_match.group(1) if user_match else None,
-        'src_ip':    ip_match.group(1) if ip_match else None,
+        'raw_log':     line.strip(),
+        'timestamp':   timestamp,
+        'message':     msg,
+        'action_type': action_type,
+        'success':     success,
+        'severity':    severity,
+        'src_user':    user_match.group(1) if user_match else None,
+        'src_ip':      ip_match.group(1) if ip_match else None,
+        'command':     cmd_match.group(1) if cmd_match else None,
+        'port':        port_match.group(1) if port_match else None,
     }
 
 def _ssh_read_auth_log(ip: str, user: str, password: str, lines: int = 500) -> list[dict]:
@@ -52239,7 +53376,69 @@ async def list_auth_events(limit: int = 100):
     results.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
     results = results[:limit]
 
-    return {'total': len(results), 'events': results}
+    # Agrupar estadísticas por servidor
+    stats: dict[str, dict] = {}
+    for ev in results:
+        key = ev.get('agent_ip', 'unknown')
+        if key not in stats:
+            stats[key] = {
+                'agent_name':     ev.get('agent_name', key),
+                'agent_ip':       key,
+                'total':          0,
+                'failures':       0,
+                'successes':      0,
+                'sudo_cmds':      0,
+                'unique_ips':     set(),
+                'unique_users':   set(),
+                'critical_count': 0,
+                'high_count':     0,
+            }
+        s = stats[key]
+        s['total'] += 1
+        if ev.get('success'):
+            s['successes'] += 1
+        else:
+            s['failures'] += 1
+        if ev.get('action_type') == 'SUDO_COMMAND':
+            s['sudo_cmds'] += 1
+        if ev.get('src_ip'):
+            s['unique_ips'].add(ev['src_ip'])
+        if ev.get('src_user'):
+            s['unique_users'].add(ev['src_user'])
+        if ev.get('severity') == 'CRITICAL':
+            s['critical_count'] += 1
+        elif ev.get('severity') == 'HIGH':
+            s['high_count'] += 1
+
+    srv_stats = []
+    for s in stats.values():
+        srv_stats.append({
+            **s,
+            'unique_ips':   list(s['unique_ips']),
+            'unique_users': list(s['unique_users']),
+        })
+
+    # Detección brute force: >=5 fallos SSH desde misma IP en últimos 10 min
+    cutoff = datetime.now(_tz.utc) - timedelta(minutes=10)
+    bf_counter: dict[str, int] = {}
+    for ev in results:
+        if not ev.get('success') and ev.get('src_ip'):
+            try:
+                ts = datetime.fromisoformat(ev['timestamp'])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_tz.utc)
+                if ts > cutoff:
+                    bf_counter[ev['src_ip']] = bf_counter.get(ev['src_ip'], 0) + 1
+            except Exception:
+                pass
+    brute_force_ips = [ip for ip, count in bf_counter.items() if count >= 5]
+
+    return {
+        'total':           len(results),
+        'events':          results,
+        'server_stats':    srv_stats,
+        'brute_force_ips': brute_force_ips,
+    }
 FILE:services\siem_engine\db.py
 """DB helpers for M5 SIEM Engine — psycopg2 directo, patrón M4."""
 import os

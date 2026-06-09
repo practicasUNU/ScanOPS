@@ -5,7 +5,9 @@ import { TopBar } from './TopBar';
 import { Badge } from './ui/badge';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap, CheckCircle2, ShieldAlert, Shield,
+  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap,
+  CheckCircle2, ShieldAlert, Shield, Monitor, Search, Download,
+  RefreshCw, XCircle,
 } from 'lucide-react';
 import { useAssets, type VulnResult } from '../../hooks/useAssets';
 import { getStoredToken } from '../../hooks/useAuth';
@@ -115,6 +117,89 @@ function statusDotClass(status: string) {
 const inputClass =
   'w-full bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00d4ff] transition-colors';
 
+// ── Interfaces logs ──────────────────────────────────────────────
+interface SIEMAlertAsset {
+  alert_id: string;
+  timestamp: string;
+  agent_id: string;
+  agent_name: string;
+  agent_ip: string;
+  rule_id: string;
+  rule_desc: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+  raw_log: string;
+  mitre_tactic?: string;
+  mitre_technique?: string;
+  success?: boolean;
+  src_ip?: string;
+  src_user?: string;
+  action_type?: string;
+  command?: string;
+  port?: string;
+}
+
+interface ServerStatAsset {
+  agent_name: string;
+  agent_ip: string;
+  total: number;
+  failures: number;
+  successes: number;
+  sudo_cmds: number;
+  unique_ips: string[];
+  unique_users: string[];
+  critical_count: number;
+  high_count: number;
+}
+
+// ── Helpers logs ─────────────────────────────────────────────────
+function fmtDatetimeAsset(ts: string): string {
+  try {
+    return new Date(ts).toLocaleString('es-ES', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch { return ts; }
+}
+
+function fmtTimeAsset(ts: string): string {
+  try {
+    return new Date(ts).toLocaleTimeString('es-ES', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch { return ts; }
+}
+
+function actionBadgeAsset(action: string | undefined) {
+  const cfg: Record<string, { cls: string; label: string }> = {
+    SSH_LOGIN_OK:     { cls: 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',  label: '✓ SSH OK' },
+    SSH_LOGIN_FAIL:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SSH FAIL' },
+    SSH_INVALID_USER: { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ INVÁLIDO' },
+    SSH_ABORT:        { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '⚡ ABORT' },
+    SESSION_OPEN:     { cls: 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',  label: '▶ SESIÓN' },
+    SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',  label: '■ FIN SESIÓN' },
+    SUDO_COMMAND:     { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',  label: '⚡ SUDO' },
+    SUDO_FAIL:        { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SUDO FAIL' },
+    SU_OK:            { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',  label: '▲ SU OK' },
+    SU_FAIL:          { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SU FAIL' },
+    USER_CREATED:     { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '+ USUARIO' },
+    USER_DELETED:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '− USUARIO' },
+    USER_MODIFIED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '✎ USUARIO' },
+    GROUP_CREATED:    { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '+ GRUPO' },
+    PASSWORD_CHANGED: { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '🔑 PASSWD' },
+    ACCOUNT_LOCKED:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '🔒 BLOQUEADO' },
+    ACCOUNT_LOCKOUT:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '🔒 LOCKOUT' },
+    AUTH_FAILURE:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ AUTH FAIL' },
+    PRIV_ESCALATION:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '⚠ ESCALADA' },
+    OTHER:            { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]',  label: 'OTRO' },
+  };
+  const c = cfg[action ?? 'OTHER'] ?? cfg['OTHER'];
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${c.cls}`}>
+      {c.label}
+    </span>
+  );
+}
+
 export function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -147,6 +232,29 @@ export function AssetDetailPage() {
 
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  // ── Tab activa ───────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<'info' | 'vulns' | 'pipeline' | 'logs'>('info');
+
+  // ── Estados logs de acceso ───────────────────────────────────────────────────
+  const [logEvents, setLogEvents]       = useState<SIEMAlertAsset[]>([]);
+  const [logStat, setLogStat]           = useState<ServerStatAsset | null>(null);
+  const [logBruteIPs, setLogBruteIPs]   = useState<string[]>([]);
+  const [logLoading, setLogLoading]     = useState(false);
+  const [logError, setLogError]         = useState(false);
+  const [logLastLoad, setLogLastLoad]   = useState<Date | null>(null);
+  const [logExpanded, setLogExpanded]   = useState<string | null>(null);
+  const [logSearch, setLogSearch]       = useState('');
+  const [logFilterAction, setLogFilterAction] = useState('ALL');
+  const [logFilterSeverity, setLogFilterSeverity] = useState('ALL');
+  const [logFilterResult, setLogFilterResult] = useState<'ALL'|'SUCCESS'|'FAIL'>('ALL');
+  const [logFilterIP, setLogFilterIP]   = useState('ALL');
+  const [logDateFrom, setLogDateFrom]   = useState('');
+  const [logDateTo, setLogDateTo]       = useState('');
+  const [logPage, setLogPage]           = useState(1);
+  const LOG_PAGE_SIZE = 20;
+  const [logLiveMode, setLogLiveMode]           = useState(false);
+  const [logLiveCountdown, setLogLiveCountdown] = useState(60);
+
   const showToast = useCallback((ok: boolean, msg: string) => {
     setToast({ ok, msg });
     setTimeout(() => setToast(null), 4000);
@@ -170,6 +278,46 @@ export function AssetDetailPage() {
   }, [id]);
 
   useEffect(() => { fetchAsset(); }, [fetchAsset]);
+
+  const loadLogs = useCallback(async () => {
+    if (!asset) return;
+    setLogLoading(true); setLogError(false);
+    try {
+      const token = getStoredToken();
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(
+        'http://localhost:8006/siem/auth-events?limit=500',
+        { headers, signal: AbortSignal.timeout(15000) }
+      );
+      if (!res.ok) throw new Error();
+      const data = await res.json() as {
+        events: SIEMAlertAsset[];
+        server_stats?: ServerStatAsset[];
+        brute_force_ips?: string[];
+      };
+      const myEvents = (data.events ?? []).filter(e => e.agent_ip === asset.ip);
+      setLogEvents(myEvents);
+      const myStat = (data.server_stats ?? []).find(s => s.agent_ip === asset.ip) ?? null;
+      setLogStat(myStat);
+      setLogBruteIPs(data.brute_force_ips ?? []);
+      setLogLastLoad(new Date());
+    } catch { setLogError(true); }
+    finally { setLogLoading(false); }
+  }, [asset]);
+
+  useEffect(() => {
+    if (activeTab === 'logs' && asset) loadLogs();
+  }, [activeTab, asset]);
+
+  useEffect(() => {
+    if (!logLiveMode) { setLogLiveCountdown(60); return; }
+    setLogLiveCountdown(60);
+    const countdown = setInterval(() => {
+      setLogLiveCountdown(prev => (prev <= 1 ? 60 : prev - 1));
+    }, 1000);
+    const refresh = setInterval(() => { loadLogs(); }, 60000);
+    return () => { clearInterval(countdown); clearInterval(refresh); };
+  }, [logLiveMode, loadLogs]);
 
   useEffect(() => {
     if (!asset) return;
@@ -499,6 +647,53 @@ export function AssetDetailPage() {
     return dateMatch && toolMatch;
   }), [vulns, filterDate, filterTool]);
 
+  // ── Filtrado logs ────────────────────────────────────────────────────────────
+  const logFiltered = logEvents.filter(e => {
+    const q = logSearch.toLowerCase();
+    const matchSearch = !q ||
+      (e.rule_desc ?? '').toLowerCase().includes(q) ||
+      (e.raw_log ?? '').toLowerCase().includes(q) ||
+      (e.src_ip ?? '').toLowerCase().includes(q) ||
+      (e.src_user ?? '').toLowerCase().includes(q) ||
+      (e.command ?? '').toLowerCase().includes(q);
+    const matchAction   = logFilterAction === 'ALL' || e.action_type === logFilterAction;
+    const matchSeverity = logFilterSeverity === 'ALL' || e.severity === logFilterSeverity;
+    const matchResult   = logFilterResult === 'ALL' ||
+      (logFilterResult === 'SUCCESS' && !!e.success) ||
+      (logFilterResult === 'FAIL' && !e.success);
+    const matchIP       = logFilterIP === 'ALL' || e.src_ip === logFilterIP;
+    const matchDateFrom = !logDateFrom || e.timestamp >= logDateFrom;
+    const matchDateTo   = !logDateTo   || e.timestamp <= logDateTo + 'T23:59:59';
+    return matchSearch && matchAction && matchSeverity && matchResult && matchIP && matchDateFrom && matchDateTo;
+  });
+
+  const logTotalPages = Math.max(1, Math.ceil(logFiltered.length / LOG_PAGE_SIZE));
+  const logPaged = logFiltered.slice((logPage - 1) * LOG_PAGE_SIZE, logPage * LOG_PAGE_SIZE);
+  const logSeverities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
+
+  const exportLogsCSV = () => {
+    const headers = ['Timestamp','Tipo Acción','Resultado','Severidad','IP Origen','Puerto','Usuario','Comando','MITRE Táctica','MITRE Técnica','Raw Log'];
+    const escape = (val: unknown) => {
+      const s = val == null ? '' : String(val);
+      return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const rows = logFiltered.map(e => [
+      escape(e.timestamp), escape(e.action_type ?? ''),
+      escape(e.success ? 'EXITOSO' : 'FALLIDO'), escape(e.severity),
+      escape(e.src_ip ?? ''), escape(e.port ?? ''), escape(e.src_user ?? ''),
+      escape(e.command ?? ''), escape(e.mitre_tactic ?? ''), escape(e.mitre_technique ?? ''),
+      escape(e.raw_log),
+    ].join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scanops_logs_${asset?.ip}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
   if (pageLoading) {
     return (
       <div className="flex h-screen bg-[#0f1117]">
@@ -631,7 +826,29 @@ export function AssetDetailPage() {
             </div>
           </div>
 
-          {/* Main 2-col grid */}
+          {/* ── Tab bar ── */}
+          <div className="border-b border-[#1e2530] flex gap-0">
+            {([
+              { id: 'info',     label: 'Información' },
+              { id: 'vulns',    label: 'Vulnerabilidades' },
+              { id: 'pipeline', label: 'Pipeline' },
+              { id: 'logs',     label: 'Logs de Acceso' },
+            ] as const).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'border-[#00d4ff] text-[#00d4ff]'
+                    : 'border-transparent text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === 'info' && (
           <div className="grid grid-cols-12 gap-5">
 
             {/* LEFT: col-span-7 */}
@@ -1022,6 +1239,308 @@ export function AssetDetailPage() {
 
             </div>
           </div>
+          )} {/* end activeTab === 'info' */}
+
+          {activeTab === 'logs' && (
+          <div className="space-y-4">
+
+            {/* KPI card del activo */}
+            {logStat && (
+              <div className={`bg-[#1a1d27] border rounded-xl p-4 ${logStat.critical_count > 0 ? 'border-[#ff3b3b]/40' : logStat.high_count > 0 ? 'border-[#f59e0b]/30' : 'border-[#1e2530]'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#a78bfa]">{asset.nombre || asset.hostname || asset.ip}</div>
+                    <div className="text-[10px] font-mono text-[#4b5563]">{asset.ip}</div>
+                  </div>
+                  {(logStat.critical_count > 0 || logStat.high_count > 0) && (
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${logStat.critical_count > 0 ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]' : 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]'}`}>
+                      {logStat.critical_count > 0 ? `${logStat.critical_count} CRITICAL` : `${logStat.high_count} HIGH`}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="bg-[#0f1117] rounded-lg p-2"><div className="text-lg font-bold text-white">{logStat.total}</div><div className="text-[10px] text-[#6b7280]">Total</div></div>
+                  <div className="bg-[#0f1117] rounded-lg p-2"><div className={`text-lg font-bold ${logStat.failures > 0 ? 'text-[#ff3b3b]' : 'text-white'}`}>{logStat.failures}</div><div className="text-[10px] text-[#6b7280]">Fallos</div></div>
+                  <div className="bg-[#0f1117] rounded-lg p-2"><div className="text-lg font-bold text-[#22c55e]">{logStat.successes}</div><div className="text-[10px] text-[#6b7280]">Éxitos</div></div>
+                  <div className="bg-[#0f1117] rounded-lg p-2"><div className={`text-lg font-bold ${logStat.sudo_cmds > 0 ? 'text-[#a78bfa]' : 'text-white'}`}>{logStat.sudo_cmds}</div><div className="text-[10px] text-[#6b7280]">Sudo</div></div>
+                </div>
+                <div className="mt-2 flex gap-3 text-[10px] text-[#6b7280]">
+                  <span>{logStat.unique_users.length} usuario{logStat.unique_users.length !== 1 ? 's' : ''}</span>
+                  <span>·</span>
+                  <span>{logStat.unique_ips.length} IP{logStat.unique_ips.length !== 1 ? 's' : ''} origen</span>
+                </div>
+              </div>
+            )}
+
+            {/* Alerta brute force */}
+            {logBruteIPs.length > 0 && (
+              <div className="flex items-start gap-3 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-xl">
+                <ShieldAlert className="w-4 h-4 text-[#ff3b3b] mt-0.5 shrink-0" />
+                <div>
+                  <div className="text-sm font-semibold text-[#ff3b3b]">⚠ Fuerza bruta detectada</div>
+                  <div className="text-xs text-[#9ca3af] mt-0.5">IPs con ≥5 fallos en 10 min: <span className="font-mono text-white">{logBruteIPs.join(', ')}</span></div>
+                  <div className="text-[10px] text-[#6b7280] mt-1">ENS op.acc.6 — Bloqueo recomendado</div>
+                </div>
+              </div>
+            )}
+
+            {/* Tabla */}
+            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-[#a78bfa]" />
+                  <span className="text-sm font-semibold text-white">Logs de Acceso</span>
+                  <span className="text-xs text-[#4b5563]">· SSH auth.log · ENS op.acc.1, op.acc.6, op.exp.5</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {logLastLoad && <span className="text-[10px] text-[#4b5563] font-mono">Última carga: {fmtTimeAsset(logLastLoad.toISOString())}</span>}
+                  <button
+                    onClick={() => setLogLiveMode(m => !m)}
+                    className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors ${
+                      logLiveMode
+                        ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]'
+                        : 'border-[#1e2530] text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                    }`}
+                    title={logLiveMode ? 'Desactivar refresco automático' : 'Activar refresco automático cada 60s'}
+                  >
+                    {logLiveMode && <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse" />}
+                    {logLiveMode ? `Live · ${logLiveCountdown}s` : 'Live'}
+                  </button>
+                  <button onClick={loadLogs} disabled={logLoading}
+                    className="flex items-center gap-1.5 text-xs text-[#9ca3af] hover:text-[#a78bfa] transition-colors disabled:opacity-50">
+                    <RefreshCw className={`w-3.5 h-3.5 ${logLoading ? 'animate-spin' : ''}`} />
+                    Actualizar
+                  </button>
+                  {!logLoading && logFiltered.length > 0 && (
+                    <button onClick={exportLogsCSV}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#a78bfa] hover:bg-[#9061f9] transition-colors px-3 py-1.5 rounded-lg">
+                      <Download className="w-3.5 h-3.5" /> Exportar CSV
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Filtros */}
+              <div className="px-4 py-3 border-b border-[#1e2530] grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 items-end">
+                <div className="col-span-2 flex flex-col gap-1">
+                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Búsqueda</label>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
+                    <input value={logSearch} onChange={e => setLogSearch(e.target.value)}
+                      placeholder="usuario, IP, comando..."
+                      className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]" />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Desde</label>
+                  <input type="date" value={logDateFrom} onChange={e => setLogDateFrom(e.target.value)}
+                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Hasta</label>
+                  <input type="date" value={logDateTo} onChange={e => setLogDateTo(e.target.value)}
+                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Tipo acción</label>
+                  <select value={logFilterAction} onChange={e => setLogFilterAction(e.target.value)}
+                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                    <option value="ALL">Todas</option>
+                    <option value="SSH_LOGIN_OK">SSH OK</option>
+                    <option value="SSH_LOGIN_FAIL">SSH Fail</option>
+                    <option value="SSH_INVALID_USER">Inválido</option>
+                    <option value="SESSION_OPEN">Sesión abierta</option>
+                    <option value="SESSION_CLOSE">Sesión cerrada</option>
+                    <option value="SUDO_COMMAND">Sudo</option>
+                    <option value="SUDO_FAIL">Sudo fail</option>
+                    <option value="SU_OK">Su OK</option>
+                    <option value="SU_FAIL">Su fail</option>
+                    <option value="USER_CREATED">Usuario creado</option>
+                    <option value="USER_DELETED">Usuario eliminado</option>
+                    <option value="PASSWORD_CHANGED">Passwd cambiada</option>
+                    <option value="ACCOUNT_LOCKED">Cuenta bloqueada</option>
+                    <option value="AUTH_FAILURE">Auth failure</option>
+                    <option value="PRIV_ESCALATION">Escalada</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Severidad</label>
+                  <select value={logFilterSeverity} onChange={e => setLogFilterSeverity(e.target.value)}
+                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                    <option value="ALL">Todas</option>
+                    {logSeverities.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-1.5 items-end">
+                  <button onClick={() => setLogPage(1)}
+                    className="flex-1 text-xs font-semibold text-white bg-[#00d4ff] hover:bg-[#00b8d9] transition-colors px-3 py-1.5 rounded-lg">
+                    Filtrar
+                  </button>
+                  <button onClick={() => {
+                    setLogSearch(''); setLogFilterAction('ALL'); setLogFilterSeverity('ALL');
+                    setLogFilterResult('ALL'); setLogFilterIP('ALL');
+                    setLogDateFrom(''); setLogDateTo(''); setLogPage(1);
+                  }}
+                    className="text-xs text-[#9ca3af] hover:text-white border border-[#1e2530] hover:border-[#4b5563] transition-colors px-2 py-1.5 rounded-lg">
+                    <XCircle className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Contenido */}
+              <div className="flex-1 overflow-auto min-h-[300px]">
+                {logLoading && <div className="flex justify-center items-center py-10"><Loader2 className="w-5 h-5 animate-spin text-[#a78bfa]" /></div>}
+                {!logLoading && logError && (
+                  <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg text-sm text-[#ff3b3b]">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    M5 SIEM no disponible — no se pudo conectar a <code className="font-mono text-xs">localhost:8006</code>
+                  </div>
+                )}
+                {!logLoading && !logError && logFiltered.length === 0 && (
+                  <p className="text-[#6b7280] text-sm text-center py-8">
+                    {logEvents.length === 0
+                      ? `Sin logs de acceso registrados para ${asset.ip}.`
+                      : 'Sin resultados para los filtros aplicados.'}
+                  </p>
+                )}
+                {!logLoading && !logError && logFiltered.length > 0 && (
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-[#1a1d27] z-10">
+                      <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
+                        <th className="px-3 py-2 font-medium">Fecha / Hora</th>
+                        <th className="px-3 py-2 font-medium">Usuario</th>
+                        <th className="px-3 py-2 font-medium">Tipo Acción</th>
+                        <th className="px-3 py-2 font-medium">Severidad</th>
+                        <th className="px-3 py-2 font-medium">IP Origen</th>
+                        <th className="px-3 py-2 font-medium">Puerto</th>
+                        <th className="px-3 py-2 font-medium"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1e2530]">
+                      {logPaged.map(ev => {
+                        const sevColor: Record<string, string> = {
+                          CRITICAL: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',
+                          HIGH:     'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
+                          MEDIUM:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
+                          LOW:      'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',
+                          INFO:     'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',
+                        };
+                        const isExp = logExpanded === ev.alert_id;
+                        const isBF  = ev.src_ip != null && logBruteIPs.includes(ev.src_ip);
+                        return (
+                          <>
+                            <tr key={ev.alert_id}
+                              onClick={() => setLogExpanded(isExp ? null : ev.alert_id)}
+                              className={`hover:bg-[#1e2530]/40 transition-colors cursor-pointer ${
+                                ev.severity === 'CRITICAL' ? 'border-l-2 border-[#ff3b3b]' :
+                                ev.severity === 'HIGH'     ? 'border-l-2 border-[#f59e0b]' : ''
+                              }`}
+                            >
+                              <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetimeAsset(ev.timestamp)}</td>
+                              <td className="px-3 py-2 font-mono text-white">{ev.src_user ?? <span className="text-[#4b5563]">—</span>}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-1">
+                                  <span className={`text-[10px] text-[#4b5563] transition-transform inline-block ${isExp ? 'rotate-90' : ''}`}>▶</span>
+                                  {actionBadgeAsset(ev.action_type)}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex px-2 py-0.5 rounded-full border text-[10px] font-semibold ${sevColor[ev.severity] ?? sevColor.INFO}`}>
+                                  {ev.severity}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 font-mono text-xs">
+                                {ev.src_ip
+                                  ? <span className={isBF ? 'text-[#ff3b3b] font-semibold' : 'text-[#9ca3af]'}>
+                                      {ev.src_ip}{isBF && <span className="ml-1">⚠</span>}
+                                    </span>
+                                  : <span className="text-[#4b5563]">—</span>}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[#6b7280]">{ev.port ?? '—'}</td>
+                              <td className="px-3 py-2 w-4" />
+                            </tr>
+                            {isExp && (
+                              <tr key={`${ev.alert_id}-d`}>
+                                <td colSpan={7} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#a78bfa]">
+                                  <div className="space-y-3 text-xs">
+                                    <div>
+                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-1">Raw Log</span>
+                                      <code className="text-[#9ca3af] font-mono break-all leading-5">{ev.raw_log}</code>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                      <div>
+                                        <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Resultado</span>
+                                        <span className={ev.success ? 'text-[#22c55e] font-semibold' : 'text-[#ff3b3b] font-semibold'}>
+                                          {ev.success ? '✓ EXITOSO' : '✗ FALLIDO'}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Timestamp UTC</span>
+                                        <span className="text-white font-mono">{ev.timestamp}</span>
+                                      </div>
+                                      {ev.command && (
+                                        <div className="col-span-2">
+                                          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Comando ejecutado</span>
+                                          <code className="text-[#a78bfa] font-mono">{ev.command}</code>
+                                        </div>
+                                      )}
+                                      {ev.mitre_tactic && (
+                                        <div>
+                                          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Táctica</span>
+                                          <span className="text-white">{ev.mitre_tactic}</span>
+                                        </div>
+                                      )}
+                                      {ev.mitre_technique && (
+                                        <div>
+                                          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Técnica</span>
+                                          <span className="text-white font-mono">{ev.mitre_technique}</span>
+                                        </div>
+                                      )}
+                                      <div>
+                                        <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Norma ENS</span>
+                                        <span className="text-[#00d4ff]">op.acc.1 · op.acc.6 · op.exp.5</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Paginación */}
+              {logTotalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530]">
+                  <button onClick={() => setLogPage(p => Math.max(1, p - 1))} disabled={logPage === 1}
+                    className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                    ← Anterior
+                  </button>
+                  <span className="text-xs text-[#6b7280]">
+                    Página {logPage} de {logTotalPages} · {logFiltered.length} de {logEvents.length} eventos
+                  </span>
+                  <button onClick={() => setLogPage(p => Math.min(logTotalPages, p + 1))} disabled={logPage === logTotalPages}
+                    className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                    Siguiente →
+                  </button>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="px-4 py-2 border-t border-[#1e2530] flex items-center justify-between text-[10px] text-[#4b5563] font-mono">
+                <span>{logFiltered.length} eventos filtrados · {logEvents.length} total</span>
+                <span>ENS RD 311/2022 · op.acc.1 · op.acc.6 · op.exp.5</span>
+              </div>
+            </div>
+          </div>
+          )} {/* end activeTab === 'logs' */}
+
         </main>
       </div>
 

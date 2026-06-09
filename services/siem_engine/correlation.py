@@ -319,36 +319,88 @@ async def auto_correlate():
         logger.warning(f"[US-6.5] Auto-correlación fallida: {e}")
 
 
-# Formato clásico: "Jun  3 10:01:03 hostname sshd[pid]: msg"
-_AUTH_LOG_RE_CLASSIC = re.compile(
-    r'(?P<month>\w+)\s+(?P<day>\d+)\s+(?P<time>\S+)\s+\S+\s+(?:sshd|pam_unix|sudo|systemd-logind)\[.*?\]:\s+(?P<msg>.+)'
-)
-# Formato ISO: "2026-06-03T10:01:03.123456+02:00 hostname sshd[pid]: msg"
+# Regex para dos formatos de timestamp en auth.log
 _AUTH_LOG_RE_ISO = re.compile(
-    r'(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+\S+\s+(?:sshd|pam_unix|sudo|systemd-logind)\[.*?\]:\s+(?P<msg>.+)'
+    r'(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)\s+\S+\s+'
+    r'(?:sshd|pam_unix|pam_faillock|pam_tally2|sudo|su|useradd|usermod|userdel|passwd|chpasswd|systemd-logind|groupadd|groupdel)\[.*?\]:\s+(?P<msg>.+)'
 )
+_AUTH_LOG_RE_CLASSIC = re.compile(
+    r'(?P<month>\w+)\s+(?P<day>\d+)\s+(?P<time>\S+)\s+\S+\s+'
+    r'(?:sshd|pam_unix|pam_faillock|pam_tally2|sudo|su|useradd|usermod|userdel|passwd|chpasswd|systemd-logind|groupadd|groupdel)\[.*?\]:\s+(?P<msg>.+)'
+)
+
+# Keywords ampliadas — toda acción relevante para ENS op.acc / op.exp.5
 _AUTH_KEYWORDS = [
-    'Accepted password', 'Accepted publickey',
-    'Failed password', 'Invalid user',
-    'authentication failure', 'FAILED LOGIN',
-    'session opened', 'session closed',
-    'Connection closed', 'Disconnected',
+    # SSH autenticación
+    'Accepted password', 'Accepted publickey', 'Accepted keyboard',
+    'Failed password', 'Invalid user', 'authentication failure',
+    'FAILED LOGIN', 'Maximum authentication attempts exceeded',
+    'Connection closed by authenticating user',
+    # Sesiones
+    'session opened', 'session closed', 'Disconnected from user',
+    'New session', 'Removed session',
+    # sudo / su
+    'COMMAND=', 'incorrect password attempts',
+    'sudo: auth failure', 'sudo:', 'NOT in sudoers',
+    'su: pam_authenticate', 'su: Authentication failure',
+    'Successful su for', 'FAILED su for',
+    # Usuarios y grupos
+    'new user:', 'new group:', 'delete user', 'usermod:',
+    'password changed for', 'chpasswd:', 'passwd:',
+    'account locked', 'account unlocked',
+    # PAM / faillock
+    'pam_faillock', 'pam_tally', 'user locked out',
+    'User account has expired', 'pam_unix(su',
+    # Systemd-logind
+    'New seat', 'logind:',
+    # Llaves SSH
+    'Accepted publickey for', 'Invalid publickey',
+    # Escalada
+    'privilege escalation',
 ]
+
+# Clasificación de action_type por keywords en el mensaje
+_ACTION_MAP = [
+    (['Accepted password', 'Accepted publickey', 'Accepted keyboard'],  'SSH_LOGIN_OK',       'LOW',      True),
+    (['Failed password', 'Maximum authentication attempts exceeded'],    'SSH_LOGIN_FAIL',     'MEDIUM',   False),
+    (['Invalid user'],                                                    'SSH_INVALID_USER',   'HIGH',     False),
+    (['Connection closed by authenticating user'],                       'SSH_ABORT',          'MEDIUM',   False),
+    (['session opened'],                                                  'SESSION_OPEN',       'INFO',     True),
+    (['session closed', 'Disconnected from user', 'Removed session'],   'SESSION_CLOSE',      'INFO',     True),
+    (['COMMAND='],                                                        'SUDO_COMMAND',       'MEDIUM',   True),
+    (['NOT in sudoers', 'sudo: auth failure', 'incorrect password attempts'], 'SUDO_FAIL',    'HIGH',     False),
+    (['Successful su for'],                                               'SU_OK',              'MEDIUM',   True),
+    (['FAILED su for', 'su: Authentication failure'],                   'SU_FAIL',            'HIGH',     False),
+    (['new user:'],                                                       'USER_CREATED',       'HIGH',     True),
+    (['delete user'],                                                     'USER_DELETED',       'CRITICAL', True),
+    (['usermod:'],                                                        'USER_MODIFIED',      'HIGH',     True),
+    (['new group:'],                                                      'GROUP_CREATED',      'MEDIUM',   True),
+    (['password changed for', 'passwd:', 'chpasswd:'],                  'PASSWORD_CHANGED',   'HIGH',     True),
+    (['account locked'],                                                  'ACCOUNT_LOCKED',     'HIGH',     False),
+    (['pam_faillock', 'pam_tally', 'user locked out'],                  'ACCOUNT_LOCKOUT',    'HIGH',     False),
+    (['authentication failure', 'FAILED LOGIN'],                        'AUTH_FAILURE',       'MEDIUM',   False),
+    (['privilege escalation'],                                            'PRIV_ESCALATION',    'CRITICAL', False),
+]
+
+
+def _classify(msg: str) -> tuple:
+    """Devuelve (action_type, severity, success) según el mensaje."""
+    for keywords, action_type, severity, success in _ACTION_MAP:
+        if any(k in msg for k in keywords):
+            return action_type, severity, success
+    return 'OTHER', 'INFO', False
 
 
 def _parse_auth_log_line(line: str, year: int) -> dict | None:
     if not any(k in line for k in _AUTH_KEYWORDS):
         return None
 
-    # Intentar formato ISO primero, luego clásico
-    m_iso = _AUTH_LOG_RE_ISO.match(line)
+    m_iso     = _AUTH_LOG_RE_ISO.match(line)
     m_classic = _AUTH_LOG_RE_CLASSIC.match(line)
 
     if m_iso:
         try:
-            ts_raw = m_iso.group('ts')
-            # Normalizar a UTC isoformat
-            ts = datetime.fromisoformat(ts_raw).astimezone(_tz.utc)
+            ts = datetime.fromisoformat(m_iso.group('ts')).astimezone(_tz.utc)
             timestamp = ts.isoformat()
         except Exception:
             timestamp = datetime.now(_tz.utc).isoformat()
@@ -364,27 +416,27 @@ def _parse_auth_log_line(line: str, year: int) -> dict | None:
     else:
         return None
 
-    success = any(k in msg for k in ['Accepted password', 'Accepted publickey', 'session opened'])
-    if 'Invalid user' in msg or 'FAILED LOGIN' in msg:
-        severity = 'HIGH'
-    elif 'Failed password' in msg or 'authentication failure' in msg:
-        severity = 'MEDIUM'
-    elif success:
-        severity = 'LOW'
-    else:
-        severity = 'INFO'
+    action_type, severity, success = _classify(msg)
 
-    user_match = re.search(r'(?:for|user)\s+(\S+)', msg)
+    user_match = re.search(r'(?:for user |for |user )(\S+)', msg)
+    if not user_match:
+        user_match = re.search(r'(?:by |to )(\S+)', msg)
+
     ip_match   = re.search(r'from\s+([\d\.]+)', msg)
+    cmd_match  = re.search(r'COMMAND=(\S+)', msg)
+    port_match = re.search(r'port\s+(\d+)', msg)
 
     return {
-        'raw_log':   line.strip(),
-        'timestamp': timestamp,
-        'message':   msg,
-        'success':   success,
-        'severity':  severity,
-        'src_user':  user_match.group(1) if user_match else None,
-        'src_ip':    ip_match.group(1) if ip_match else None,
+        'raw_log':     line.strip(),
+        'timestamp':   timestamp,
+        'message':     msg,
+        'action_type': action_type,
+        'success':     success,
+        'severity':    severity,
+        'src_user':    user_match.group(1) if user_match else None,
+        'src_ip':      ip_match.group(1) if ip_match else None,
+        'command':     cmd_match.group(1) if cmd_match else None,
+        'port':        port_match.group(1) if port_match else None,
     }
 
 
@@ -451,4 +503,66 @@ async def list_auth_events(limit: int = 100):
     results.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
     results = results[:limit]
 
-    return {'total': len(results), 'events': results}
+    # Agrupar estadísticas por servidor
+    stats: dict[str, dict] = {}
+    for ev in results:
+        key = ev.get('agent_ip', 'unknown')
+        if key not in stats:
+            stats[key] = {
+                'agent_name':     ev.get('agent_name', key),
+                'agent_ip':       key,
+                'total':          0,
+                'failures':       0,
+                'successes':      0,
+                'sudo_cmds':      0,
+                'unique_ips':     set(),
+                'unique_users':   set(),
+                'critical_count': 0,
+                'high_count':     0,
+            }
+        s = stats[key]
+        s['total'] += 1
+        if ev.get('success'):
+            s['successes'] += 1
+        else:
+            s['failures'] += 1
+        if ev.get('action_type') == 'SUDO_COMMAND':
+            s['sudo_cmds'] += 1
+        if ev.get('src_ip'):
+            s['unique_ips'].add(ev['src_ip'])
+        if ev.get('src_user'):
+            s['unique_users'].add(ev['src_user'])
+        if ev.get('severity') == 'CRITICAL':
+            s['critical_count'] += 1
+        elif ev.get('severity') == 'HIGH':
+            s['high_count'] += 1
+
+    srv_stats = []
+    for s in stats.values():
+        srv_stats.append({
+            **s,
+            'unique_ips':   list(s['unique_ips']),
+            'unique_users': list(s['unique_users']),
+        })
+
+    # Detección brute force: >=5 fallos SSH desde misma IP en últimos 10 min
+    cutoff = datetime.now(_tz.utc) - timedelta(minutes=10)
+    bf_counter: dict[str, int] = {}
+    for ev in results:
+        if not ev.get('success') and ev.get('src_ip'):
+            try:
+                ts = datetime.fromisoformat(ev['timestamp'])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_tz.utc)
+                if ts > cutoff:
+                    bf_counter[ev['src_ip']] = bf_counter.get(ev['src_ip'], 0) + 1
+            except Exception:
+                pass
+    brute_force_ips = [ip for ip, count in bf_counter.items() if count >= 5]
+
+    return {
+        'total':           len(results),
+        'events':          results,
+        'server_stats':    srv_stats,
+        'brute_force_ips': brute_force_ips,
+    }

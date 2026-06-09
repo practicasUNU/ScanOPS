@@ -95,6 +95,8 @@ def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
         conn = psycopg2.connect(_DB_URL, connect_timeout=10)
         with conn:
             with conn.cursor() as cur:
+
+                # ── INSERT m4_approvals (sin cambios) ──────────────
                 cur.execute(
                     """
                     INSERT INTO m4_approvals
@@ -114,13 +116,64 @@ def suggest_attack_vector_task(self, ficha_unica_dict: dict) -> dict:
                 row = cur.fetchone()
                 if row:
                     approval_id = row[0]
+
+                # ── INSERT m8_results (NUEVO) ───────────────────────
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS m8_results (
+                        id              SERIAL PRIMARY KEY,
+                        asset_id        INTEGER NOT NULL,
+                        target_ip       VARCHAR(45),
+                        cve_id          VARCHAR(100),
+                        suggested_tool  VARCHAR(255),
+                        tool_params     TEXT,
+                        mitre_tactic    VARCHAR(255),
+                        risk_level      VARCHAR(20),
+                        attack_rationale TEXT,
+                        confidence      VARCHAR(20),
+                        status          VARCHAR(50) DEFAULT 'pending_human_approval',
+                        prompt_version  VARCHAR(50),
+                        approval_id     INTEGER,
+                        created_at      TIMESTAMP DEFAULT NOW()
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO m8_results
+                        (asset_id, target_ip, cve_id,
+                         suggested_tool, tool_params,
+                         mitre_tactic, risk_level, attack_rationale,
+                         confidence, status, prompt_version, approval_id,
+                         created_at)
+                    VALUES
+                        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        result.get("asset_id"),
+                        target_ip,
+                        cve_id,
+                        result.get("suggested_tool"),
+                        str(result.get("tool_params") or result.get("payload", "")),
+                        result.get("mitre_tactic") or result.get("tactic", ""),
+                        result.get("risk_level") or result.get("confidence", ""),
+                        result.get("attack_rationale") or result.get("rationale", ""),
+                        result.get("confidence", ""),
+                        result.get("status", "pending_human_approval"),
+                        result.get("prompt_version", ""),
+                        approval_id,
+                        now,
+                    ),
+                )
+
         conn.close()
         logger.info(
-            f"[ENS_EVIDENCE] m4_approvals insertado: id={approval_id} "
-            f"cve={cve_id} target={target_ip} status=PENDING"
+            f"[ENS_EVIDENCE] m4_approvals + m8_results insertados: "
+            f"approval_id={approval_id} asset_id={result.get('asset_id')} "
+            f"target={target_ip}"
         )
     except Exception as db_exc:
-        logger.error(f"Error persistiendo en m4_approvals: {db_exc}")
+        logger.error(f"Error persistiendo en BD: {db_exc}")
         # No reintentamos por fallo de BD para no duplicar filas ya insertadas
 
     return {**result, "approval_id": approval_id}
