@@ -259,6 +259,7 @@ def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]
         'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
         'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
         'certificate.html': '04_Certificado_Activo_Critico.pdf',
+        'access_log.html': '06_Evidencia_Accesos_ENS.pdf',
     }
     filename = nombres.get(template_name, 'informe.pdf')
     
@@ -276,6 +277,94 @@ def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]
     
     # El return queda fuera del bloque de Drive, asegurando la descarga pase lo que pase
     return filename, sealed_bytes
+
+
+# --- Access Log helpers ---
+
+def _get_internal_token() -> str:
+    """Genera JWT interno para llamadas inter-servicio de M7."""
+    import jwt as _jwt
+    from datetime import datetime, timezone, timedelta
+    secret = os.getenv("JWT_SECRET_KEY", "scanops-secret-ens-alto-2026")
+    payload = {
+        "sub": "m7-reporting",
+        "role": "service",
+        "token_type": "access",
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+    return _jwt.encode(payload, secret, algorithm="HS256")
+
+
+async def get_access_log_data() -> dict:
+    """
+    Consolida logs de acceso de dos fuentes:
+    1. Login events de la plataforma ScanOps (JWT sessions) — desde Orchestrator
+    2. Auth events SSH de servidores — desde M5 vía paramiko
+    ENS: op.exp.5, op.acc.1
+    """
+    import httpx
+    platform_events = []
+    server_events = []
+    server_stats = []
+    brute_force_alerts = []
+
+    # Fuente 1: sesiones ScanOps (JWT logins)
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=8) as client:
+            r = await client.get(
+                "http://orchestrator:8009/auth/login-events?limit=200",
+                headers={"Authorization": f"Bearer {_get_internal_token()}"}
+            )
+            if r.status_code == 200:
+                data = r.json()
+                platform_events = data.get("events", [])
+    except Exception as e:
+        logger.warning(f"[M7] No se pudieron obtener login-events: {e}")
+
+    # Detección de fuerza bruta: ≥5 fallos en 10 min desde misma IP
+    from collections import defaultdict
+    failures_by_ip: dict = defaultdict(list)
+    for ev in platform_events:
+        if not ev.get("success") and ev.get("ip_origin"):
+            failures_by_ip[ev["ip_origin"]].append(ev.get("timestamp", ""))
+    for ip, timestamps in failures_by_ip.items():
+        if len(timestamps) >= 5:
+            brute_force_alerts.append({
+                "ip": ip,
+                "count": len(timestamps),
+                "first": min(timestamps),
+                "last": max(timestamps),
+            })
+
+    # Fuente 2: auth.log SSH de servidores
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15) as client:
+            r = await client.get("http://m5:8006/siem/auth-events?limit=200")
+            if r.status_code == 200:
+                data = r.json()
+                server_events = data.get("events", [])
+                server_stats = data.get("server_stats", [])
+    except Exception as e:
+        logger.warning(f"[M7] No se pudieron obtener auth-events M5: {e}")
+
+    total_platform = len(platform_events)
+    total_server = len(server_events)
+    failed_platform = sum(1 for e in platform_events if not e.get("success"))
+    failed_server = sum(1 for e in server_events if not e.get("success"))
+
+    return {
+        "platform_events": platform_events[:100],
+        "server_events": server_events[:100],
+        "server_stats": server_stats,
+        "brute_force_alerts": brute_force_alerts,
+        "total_platform": total_platform,
+        "total_server": total_server,
+        "failed_platform": failed_platform,
+        "failed_server": failed_server,
+        "success_platform": total_platform - failed_platform,
+        "success_server": total_server - failed_server,
+    }
 
 
 # --- Endpoints ---
@@ -558,11 +647,21 @@ async def generate_full_audit_zip():
             "cert_uuid": str(uuid.uuid4()).upper(),
         }
 
+        # Accesos ENS — fuente asíncrona, se obtiene antes del gather
+        access_data = await get_access_log_data()
+        ctx_access = {
+            "fecha": fecha_actual,
+            "report_id": f"ACC-FULL-{uuid.uuid4().hex[:8].upper()}",
+            "periodo": f"{datetime.now().strftime('%B %Y')}",
+            **access_data,
+        }
+
         resultados = await asyncio.gather(
             asyncio.to_thread(render_and_seal_sync, 'executive.html', ctx_exec),
             asyncio.to_thread(render_and_seal_sync, 'technical.html', ctx_tech),
             asyncio.to_thread(render_and_seal_sync, 'soa.html', ctx_soa),
             asyncio.to_thread(render_and_seal_sync, 'certificate.html', ctx_cert),
+            asyncio.to_thread(render_and_seal_sync, 'access_log.html', ctx_access),
         )
 
         zip_buffer = io.BytesIO()
@@ -759,6 +858,54 @@ async def generate_asset_report(asset_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando informe de activo: {str(e)}")
+
+
+@app.get("/report/access-log")
+async def generate_access_log_report():
+    """
+    Nuevo endpoint: PDF de evidencia de control de acceso ENS.
+    Consolida sesiones ScanOps + auth.log SSH de servidores.
+    ENS: op.exp.5 (Registro de actividad), op.acc.1 (Control de acceso)
+    Firmado AES-256 — mp.info.4
+    """
+    try:
+        data = await get_access_log_data()
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "report_id": f"ACC-{uuid.uuid4().hex[:8].upper()}",
+            "periodo": f"{datetime.now().strftime('%B %Y')}",
+            **data,
+        }
+        template = template_env.get_template("access_log.html")
+        html_content = template.render(context)
+
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_bytes)
+
+        # Backup Google Drive
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_06_Evidencia_Accesos_ENS.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup access-log: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Evidencia_Accesos_ENS.pdf"
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generando informe de accesos: {str(e)}"
+        )
 
 
 if __name__ == "__main__":
