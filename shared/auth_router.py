@@ -4,7 +4,7 @@ Include this router in any service that needs user login.
 ENS: op.acc.1, op.acc.5
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Security
+from fastapi import APIRouter, HTTPException, Depends, Security, Request
 from fastapi.security import OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
@@ -14,7 +14,9 @@ from shared.auth import (
     create_refresh_token,
     decode_token,
     get_user,
+    get_login_events,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    require_role,
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -30,13 +32,15 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/token", response_model=TokenResponse)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """
     OAuth2 password flow login.
     Returns access + refresh tokens.
     ENS: op.acc.5
     """
-    user = authenticate_user(form_data.username, form_data.password)
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+    ua = request.headers.get("User-Agent")
+    user = authenticate_user(form_data.username, form_data.password, ip_origin=ip, user_agent=ua)
     if not user:
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
     return TokenResponse(
@@ -75,3 +79,13 @@ async def get_me(credentials: HTTPAuthorizationCredentials = Security(_security)
         "role": token_data.role,
         "disabled": user.disabled if user else False,
     }
+
+
+@router.get("/login-events")
+async def get_login_events_endpoint(
+    limit: int = 100,
+    current_user: dict = Depends(require_role("system_manager", "auditor")),
+):
+    """Historial de eventos de inicio de sesión. ENS: op.acc.1, op.exp.5"""
+    events = get_login_events(limit=min(limit, 500))
+    return {"total": len(events), "events": events}

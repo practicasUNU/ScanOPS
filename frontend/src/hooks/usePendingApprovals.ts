@@ -48,7 +48,7 @@ export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovals
       console.log('[M4] Fetching approvals, token present:', !!token);
       const response = await fetch(ENDPOINTS.pendingApprovals, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(30000),
       });
       console.log('[M4] Response status:', response.status);
       if (!response.ok) {
@@ -66,8 +66,10 @@ export function usePendingApprovals(pollIntervalMs = 60000): UsePendingApprovals
       setTotal(data.total ?? 0);
       setError(null);
       setIsMock(false);
-    } catch (e) {
-      console.error('[M4] Fetch failed:', e);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError' && e.name !== 'TimeoutError') {
+        console.error('[M4] Fetch failed:', e);
+      }
       setError('M4 no disponible — mostrando datos de demostración');
       setApprovals(MOCK_APPROVALS);
       setTotal(MOCK_APPROVALS.length);

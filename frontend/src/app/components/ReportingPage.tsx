@@ -89,6 +89,12 @@ export function ReportingPage() {
   const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
   const [errorMap, setErrorMap] = useState<Record<string, string | null>>({});
 
+  const [assets, setAssets] = useState<{id: number; ip: string; hostname: string | null}[]>([]);
+  const [assetsLoading, setAssetsLoading] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState<number | ''>('');
+  const [assetReportLoading, setAssetReportLoading] = useState(false);
+  const [assetReportError, setAssetReportError] = useState<string | null>(null);
+
   const [history, setHistory] = useState<string[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -112,6 +118,17 @@ export function ReportingPage() {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
+  useEffect(() => {
+    setAssetsLoading(true);
+    fetch('http://localhost:8001/api/v1/assets', { headers: getAuthHeader() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => {
+        const list = Array.isArray(data) ? data : (data.assets ?? data.items ?? []);
+        setAssets(list);
+      })
+      .catch(() => setAssets([]));
+  }, []);
+
   const handleDownload = async (card: ReportCard) => {
     setLoadingMap(p => ({ ...p, [card.id]: true }));
     setErrorMap(p => ({ ...p, [card.id]: null }));
@@ -123,6 +140,23 @@ export function ReportingPage() {
       setTimeout(() => setErrorMap(p => ({ ...p, [card.id]: null })), 4000);
     } finally {
       setLoadingMap(p => ({ ...p, [card.id]: false }));
+    }
+  };
+
+  const handleAssetReport = async () => {
+    if (!selectedAssetId) return;
+    setAssetReportLoading(true);
+    setAssetReportError(null);
+    try {
+      const asset = assets.find(a => a.id === selectedAssetId);
+      const filename = `ScanOps_Activo_${selectedAssetId}_${asset?.ip ?? 'report'}.pdf`;
+      await blobDownload(`${M7_BASE}/report/asset/${selectedAssetId}`, filename);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error generando informe';
+      setAssetReportError(msg);
+      setTimeout(() => setAssetReportError(null), 5000);
+    } finally {
+      setAssetReportLoading(false);
     }
   };
 
@@ -207,6 +241,56 @@ export function ReportingPage() {
                   </div>
                 );
               })}
+            </div>
+          </section>
+
+          {/* Informe por Activo */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">
+              Informe por Activo
+            </h2>
+            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5 space-y-4">
+
+              <div className="flex gap-3 items-center">
+                <div className="flex-1">
+                  <label className="text-xs text-[#9ca3af] mb-1.5 block">Seleccionar Activo (M1)</label>
+                  <select
+                    value={selectedAssetId}
+                    onChange={e => setSelectedAssetId(Number(e.target.value) || '')}
+                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#00d4ff] transition-colors"
+                  >
+                    <option value="">— Selecciona un activo —</option>
+                    {assets.map(a => (
+                      <option key={a.id} value={a.id}>
+                        #{a.id} — {a.ip}{a.hostname ? ` (${a.hostname})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  onClick={handleAssetReport}
+                  disabled={!selectedAssetId || assetReportLoading}
+                  className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-[#f59e0b]/10 border border-[#f59e0b]/40 text-[#f59e0b] hover:bg-[#f59e0b]/20"
+                >
+                  {assetReportLoading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Generando...</>
+                    : <><Download className="w-4 h-4" /> Generar Informe PDF</>}
+                </button>
+              </div>
+
+              <p className="text-xs text-[#6b7280]">
+                Genera un informe PDF completo del activo seleccionado con datos de
+                M1 (ficha), M2 (reconocimiento), M3 (vulnerabilidades),
+                M8 (análisis IA), M4 (explotación) y M5 (eventos SIEM).
+                Firmado AES-256 · ENS op.exp.2 + mp.info.4
+              </p>
+
+              {assetReportError && (
+                <div className="flex items-center gap-1.5 text-xs text-[#ff3b3b]">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {assetReportError}
+                </div>
+              )}
             </div>
           </section>
 

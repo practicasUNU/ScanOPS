@@ -91,7 +91,20 @@ def create_siem_tables() -> None:
         method VARCHAR(50),
         notified_at TIMESTAMP DEFAULT NOW()
     );
-    
+
+    CREATE TABLE IF NOT EXISTS siem_pipeline_events (
+        id SERIAL PRIMARY KEY,
+        event_type VARCHAR(50) NOT NULL,
+        severity VARCHAR(20) DEFAULT 'HIGH',
+        source VARCHAR(50) DEFAULT 'M4-Pipeline',
+        target_ip VARCHAR(45),
+        attacker_ip VARCHAR(45),
+        description TEXT,
+        details JSONB,
+        mitigated BOOLEAN DEFAULT FALSE,
+        timestamp TIMESTAMP DEFAULT NOW()
+    );
+
     """
     conn = get_conn()
     try:

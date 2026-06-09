@@ -3,12 +3,16 @@ M5 — SIEM Engine  |  Motor de Vigilancia Continua 24/7
 ENS Alto RD 311/2022  |  op.exp.3 · op.exp.5 · op.exp.7
 """
 import asyncio
+import json as _json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from shared.scan_logger import ScanLogger
 
 from .db import create_siem_tables
@@ -49,6 +53,15 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "https://localhost:5173", "http://localhost:3000", "https://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 app.include_router(agents_router)
 app.include_router(blocking_router)
@@ -129,3 +142,90 @@ async def get_siem_status():
         raise HTTPException(
             status_code=500, detail=f"SIEM Offline (Probablemente arrancando): {e}"
         )
+
+
+class PipelineEventSchema(BaseModel):
+    event_type: str
+    severity: str = 'HIGH'
+    source: str = 'M4-Pipeline'
+    target_ip: Optional[str] = None
+    attacker_ip: Optional[str] = None
+    description: str
+    details: Optional[dict] = None
+    mitigated: bool = False
+
+
+@app.post("/siem/pipeline-event")
+async def create_pipeline_event(event: PipelineEventSchema):
+    """
+    Registra un evento del pipeline M4 en el SIEM.
+    Llamado automáticamente después de ejecutar Hydra.
+    ENS: op.exp.7, op.exp.5
+    """
+    try:
+        from .db import get_conn
+        conn = get_conn()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO siem_pipeline_events
+                      (event_type, severity, source, target_ip, attacker_ip,
+                       description, details, mitigated, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    RETURNING id, timestamp
+                """, (
+                    event.event_type,
+                    event.severity,
+                    event.source,
+                    event.target_ip,
+                    event.attacker_ip,
+                    event.description,
+                    _json.dumps(event.details) if event.details else None,
+                    event.mitigated,
+                ))
+                row = cur.fetchone()
+        conn.close()
+
+        from .alerting import send_alert
+        send_alert({
+            "severity": event.severity,
+            "description": event.description,
+            "ip": event.target_ip,
+        })
+
+        logger.info(f"[M5] Pipeline event registrado: {event.event_type} → {event.target_ip}")
+        return {"ok": True, "event_id": row[0], "timestamp": row[1].isoformat()}
+
+    except Exception as e:
+        logger.error(f"[M5] Error registrando pipeline event: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/siem/pipeline-events")
+async def get_pipeline_events(limit: int = 50):
+    """Devuelve los últimos eventos del pipeline para AlertsPage."""
+    try:
+        from .db import get_conn
+        conn = get_conn()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, event_type, severity, source, target_ip,
+                           attacker_ip, description, details, mitigated, timestamp
+                    FROM siem_pipeline_events
+                    ORDER BY timestamp DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
+        conn.close()
+        return {"events": [
+            {
+                "id": r[0], "event_type": r[1], "severity": r[2],
+                "source": r[3], "target_ip": r[4], "attacker_ip": r[5],
+                "description": r[6], "details": r[7], "mitigated": r[8],
+                "timestamp": r[9].isoformat() if r[9] else None,
+            } for r in rows
+        ], "total": len(rows)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

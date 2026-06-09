@@ -9,6 +9,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 
 from services.asset_manager.models.asset import (
     Asset,
@@ -79,8 +81,14 @@ def create_asset(db: Session, data: AssetCreate, user_id: str, **kwargs) -> Asse
     
     # 2. Creamos el activo en PostgreSQL
     asset = Asset(**asset_data)
-    db.add(asset)
-    db.flush()  # Obtenemos el ID del activo sin cerrar la transacción [cite: 211]
+    try:
+        db.add(asset)
+        db.flush()  # Obtenemos el ID del activo sin cerrar la transacción [cite: 211]
+    except IntegrityError as e:
+        db.rollback()
+        if "ix_assets_ip" in str(e.orig) or "unique" in str(e.orig).lower():
+            raise HTTPException(status_code=409, detail=f"Asset with IP {asset_data.get('ip')} already exists")
+        raise
 
     # 3. Si hay contraseña, la enviamos a Vault
     if password:
@@ -90,14 +98,20 @@ def create_asset(db: Session, data: AssetCreate, user_id: str, **kwargs) -> Asse
 
     # 4. Registramos la acción en el Log de Auditoría (ENS Alto)
     _log_audit(
-        db, asset, AuditActionEnum.CREDENTIAL_ACCESS, 
-        user_id=user_id, 
+        db, asset, AuditActionEnum.CREDENTIAL_ACCESS,
+        user_id=user_id,
         reason="Cifrado de credenciales en Vault iniciado"
     )
-    
-    db.commit() # Guardamos todo
-    db.refresh(asset)
-    return asset
+
+    try:
+        db.commit()
+        db.refresh(asset)
+        return asset
+    except IntegrityError as e:
+        db.rollback()
+        if "ix_assets_ip" in str(e.orig) or "unique" in str(e.orig).lower():
+            raise HTTPException(status_code=409, detail=f"Asset with IP {asset_data.get('ip')} already exists")
+        raise
 
 
 def get_asset(db: Session, asset_id: int, include_deleted: bool = False) -> Optional[Asset]:

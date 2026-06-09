@@ -3,6 +3,7 @@ Shared authentication utilities for ScanOPS services.
 ENS Alto: op.acc.1, op.acc.4, op.acc.5
 """
 
+import collections as _collections
 import os
 import logging
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,33 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 logger = logging.getLogger("scanops.auth")
+
+_LOGIN_BUFFER: _collections.deque = _collections.deque(maxlen=500)
+
+
+def record_login_event(
+    username: str,
+    role: str,
+    success: bool,
+    ip_origin: str | None = None,
+    user_agent: str | None = None,
+    reason: str | None = None,
+) -> None:
+    from datetime import datetime, timezone
+    event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "username": username,
+        "role": role if success else None,
+        "success": success,
+        "ip_origin": ip_origin,
+        "user_agent": user_agent,
+        "reason": reason,
+    }
+    _LOGIN_BUFFER.appendleft(event)
+
+
+def get_login_events(limit: int = 100) -> list[dict]:
+    return list(_LOGIN_BUFFER)[:limit]
 
 # --- Config ---
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_32_CHARS_MIN")
@@ -94,14 +122,18 @@ def get_user(username: str) -> Optional[UserInDB]:
     return _USERS_DB.get(username)
 
 
-def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
+def authenticate_user(username: str, password: str, ip_origin: str | None = None, user_agent: str | None = None) -> Optional[UserInDB]:
     """Validates username + password. Returns UserInDB or None. ENS op.acc.5"""
     user = get_user(username)
     if not user or user.disabled:
-        return None
-    if not verify_password(password, user.hashed_password):
+        record_login_event(username, "", False, ip_origin, user_agent, "Usuario no existe o deshabilitado")
         logger.warning(f"[ENS_EVIDENCE] Failed login attempt for user: {username}")
         return None
+    if not verify_password(password, user.hashed_password):
+        record_login_event(username, "", False, ip_origin, user_agent, "Contraseña incorrecta")
+        logger.warning(f"[ENS_EVIDENCE] Failed login attempt for user: {username}")
+        return None
+    record_login_event(username, user.role, True, ip_origin, user_agent)
     logger.info(f"[ENS_EVIDENCE] Successful authentication: {username} (role: {user.role})")
     return user
 

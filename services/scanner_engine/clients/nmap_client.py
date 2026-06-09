@@ -227,11 +227,11 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
 
     cmd = [
         "nmap",
-        "-sV", "--version-intensity", "7",
+        "-sV", "--version-intensity", "9",
         "--script", "vuln,banner,ssh-hostkey,http-headers,ssl-cert,ssl-enum-ciphers,http-server-header",
         "--script-timeout", "30s",
         "-T4",
-        "-p", "21,22,23,25,80,443,445,3306,3389,8080,8443",
+        "-p", "21,22,23,25,80,443,445,3000,3306,3389,8080,8081,8082,8083,8443,8888,9000",
         "-oX", "-",
         asset_ip
     ]
@@ -261,6 +261,14 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                 service_product = service.attrib.get("product", "") if service is not None else ""
                 extra_info = service.attrib.get("extrainfo", "") if service is not None else ""
                 ostype = service.attrib.get("ostype", "") if service is not None else ""
+
+                # Infer HTTP for ports where nmap fingerprint shows HTTP traffic but service name is generic
+                if service is not None and service_name not in ("http", "https", "http-alt", "http-proxy"):
+                    servicefp = service.attrib.get("servicefp", "")
+                    if "HTTP/" in servicefp or "HTTP/" in extra_info:
+                        service_name = "http"
+                        if not service_product:
+                            service_product = "HTTP Service"
 
                 if service_product:
                     full_version = f"{service_product} {service_version}".strip()
@@ -302,6 +310,21 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
                             "scanner": "Nmap",
                             "ens_measure": "op.exp.2"
                         })
+                else:
+                    # Port is open but nmap could not identify the service (e.g. ppp? on 3000).
+                    # Emit a minimal finding so extract_http_ports can see this port in evidence.
+                    display_service = service_name if service_name and service_name != "ppp" else "unknown"
+                    findings.append({
+                        "title": f"Open Port: {port_id}/{protocol} (unrecognized service)",
+                        "severity": "INFO",
+                        "description": f"Port {port_id}/{protocol} is open on {asset_ip}. Service fingerprint unrecognized by Nmap.",
+                        "cve_id": None,
+                        "cvss_score": 0.0,
+                        "evidence": {"host": asset_ip, "port": port_id, "protocol": protocol, "service": display_service},
+                        "remediation": "Investigate what service is running on this port and verify it is intended.",
+                        "scanner": "Nmap",
+                        "ens_measure": "op.exp.2"
+                    })
 
                 for script in port.findall("script"):
                     script_id = script.attrib.get("id", "")
@@ -334,3 +357,25 @@ def run_nmap_scan(asset_id: int, asset_ip: str) -> List[Dict]:
     except Exception as e:
         logger.error(f"NMAP_ERROR: {e}")
         return []
+
+
+HTTP_SERVICE_NAMES = {"http", "http-alt", "http-proxy", "https", "www", "webcache"}
+HTTP_PORTS_ALWAYS = {80, 443, 3000, 8080, 8081, 8082, 8083, 8443, 8888, 9000}
+
+
+def extract_http_ports(nmap_findings: List[Dict]) -> List[int]:
+    """Return open HTTP ports inferred from nmap findings evidence fields."""
+    ports = set()
+    for f in nmap_findings:
+        evidence = f.get("evidence", {})
+        port_str = evidence.get("port", "")
+        service = evidence.get("service", "") or ""
+        try:
+            port = int(port_str)
+        except (ValueError, TypeError):
+            continue
+        if service.lower() in HTTP_SERVICE_NAMES or port in HTTP_PORTS_ALWAYS:
+            ports.add(port)
+    # Always include port 80 as baseline
+    ports.add(80)
+    return sorted(ports)

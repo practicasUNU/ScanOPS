@@ -683,6 +683,7 @@ const SCAN_TOOLS = ['nikto', 'nuclei', 'nmap'] as const;
 
 type EditForm = {
   hostname: string;
+  nombre: string;
   tipo: string;
   criticidad: string;
   responsable: string;
@@ -691,12 +692,13 @@ type EditForm = {
 };
 
 const defaultEditForm = (): EditForm => ({
-  hostname: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '', status: 'ACTIVO', notas: '',
+  hostname: '', nombre: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '', status: 'ACTIVO', notas: '',
 });
 
 type NewAssetForm = {
   ip: string;
   hostname: string;
+  nombre: string;
   tipo: string;
   criticidad: string;
   responsable: string;
@@ -714,14 +716,14 @@ type NewAssetForm = {
 };
 
 const emptyNewAssetForm = (): NewAssetForm => ({
-  ip: '', hostname: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '',
+  ip: '', hostname: '', nombre: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '',
   dominio: '', mac_address: '', network_range: '', os_family: '', os_version: '',
   departamento: '', ubicacion: '', entorno: '', fabricante: '', usuario_asignado: '',
   notas: '',
 });
 
 export function AssetManagerPage() {
-  const { assets, loading, error, refetch, createAsset, scanAsset, getVulnResults } = useAssets();
+  const { assets, loading, error, refetch, createAsset, scanAsset, getVulnResults, pollScanStatus } = useAssets();
   const navigate = useNavigate();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('cmdb');
@@ -757,17 +759,29 @@ export function AssetManagerPage() {
   const [createApiError, setCreateApiError] = useState<string | null>(null);
 
   const handleScan = useCallback(async (asset: Asset, tool: string) => {
-    setRowState(prev => ({ ...prev, [asset.id]: { status: 'scanning' } }));
+    setRowState(prev => ({ ...prev, [asset.id]: { status: 'scanning', msg: 'Iniciando...' } }));
     try {
       const task = await scanAsset(asset.id, [tool]);
-      setRowState(prev => ({ ...prev, [asset.id]: { status: 'done', msg: `Escaneo iniciado · ${task.task_id}` } }));
-    } catch {
-      setRowState(prev => ({ ...prev, [asset.id]: { status: 'error', msg: 'Error al escanear' } }));
+      setRowState(prev => ({ ...prev, [asset.id]: { status: 'scanning', msg: 'Escaneando...' } }));
+      const result = await pollScanStatus(task.task_id, asset.id,
+        (msg) => setRowState(prev => ({ ...prev, [asset.id]: { status: 'scanning', msg } }))
+      );
+      if (result.status === 'SUCCESS') {
+        setRowState(prev => ({ ...prev, [asset.id]: {
+          status: 'done',
+          msg: `✓ Escaneo completado · ${result.findings_count} hallazgos · ${fmt.format(new Date())}`,
+        }}));
+      } else if (result.status === 'FAILED') {
+        setRowState(prev => ({ ...prev, [asset.id]: { status: 'error', msg: '✗ Escaneo fallido' } }));
+      } else {
+        setRowState(prev => ({ ...prev, [asset.id]: { status: 'error', msg: '✗ Timeout — escaneo tardó demasiado' } }));
+      }
+    } catch (e: any) {
+      setRowState(prev => ({ ...prev, [asset.id]: { status: 'error', msg: `✗ Error: ${e.message}` } }));
+    } finally {
+      setTimeout(() => setRowState(prev => ({ ...prev, [asset.id]: { status: 'idle' } })), 8000);
     }
-    setTimeout(() => {
-      setRowState(prev => ({ ...prev, [asset.id]: { status: 'idle' } }));
-    }, 3000);
-  }, [scanAsset]);
+  }, [scanAsset, pollScanStatus]);
 
   const handleOpenSheet = useCallback(async (asset: Asset) => {
     setSheetAsset(asset);
@@ -778,6 +792,7 @@ export function AssetManagerPage() {
     setDeleteDialogOpen(false);
     setEditForm({
       hostname: asset.hostname ?? '',
+      nombre: asset.nombre ?? '',
       tipo: asset.tipo,
       criticidad: asset.criticidad,
       responsable: asset.responsable ?? '',
@@ -805,6 +820,7 @@ export function AssetManagerPage() {
         headers: authHeader(),
         body: JSON.stringify({
           hostname: editForm.hostname || null,
+          nombre: editForm.nombre || null,
           tipo: editForm.tipo,
           criticidad: editForm.criticidad,
           responsable: editForm.responsable,
@@ -856,14 +872,24 @@ export function AssetManagerPage() {
 
   const handleFullScan = useCallback(async () => {
     if (!sheetAsset) return;
-    setFullScanState({ status: 'scanning' });
+    setFullScanState({ status: 'scanning', msg: 'Iniciando...' });
     try {
       const task = await scanAsset(sheetAsset.id, ['nuclei', 'nikto']);
-      setFullScanState({ status: 'done', msg: `Iniciado · ${task.task_id}` });
+      setFullScanState({ status: 'scanning', msg: 'Escaneando...' });
+      const result = await pollScanStatus(task.task_id, sheetAsset.id,
+        (msg) => setFullScanState({ status: 'scanning', msg })
+      );
+      if (result.status === 'SUCCESS') {
+        setFullScanState({ status: 'done', msg: `✓ Completado · ${result.findings_count} hallazgos · ${fmt.format(new Date())}` });
+      } else if (result.status === 'FAILED') {
+        setFullScanState({ status: 'error', msg: '✗ Escaneo fallido' });
+      } else {
+        setFullScanState({ status: 'error', msg: '✗ Timeout — escaneo tardó demasiado' });
+      }
     } catch {
-      setFullScanState({ status: 'error', msg: 'Error al lanzar escaneo' });
+      setFullScanState({ status: 'error', msg: '✗ Error al lanzar escaneo' });
     }
-  }, [scanAsset, sheetAsset]);
+  }, [scanAsset, sheetAsset, pollScanStatus]);
 
   const handleCreateAsset = useCallback(async () => {
     const errors: typeof newAssetErrors = {};
@@ -873,7 +899,7 @@ export function AssetManagerPage() {
     setNewAssetSubmitting(true);
     try {
       const {
-        ip, hostname, tipo, criticidad, responsable,
+        ip, hostname, nombre, tipo, criticidad, responsable,
         dominio, mac_address, network_range, os_family, os_version,
         departamento, ubicacion, entorno, fabricante, usuario_asignado, notas,
       } = newAssetForm;
@@ -889,6 +915,7 @@ export function AssetManagerPage() {
       const rawPayload: Record<string, string | undefined> = {
         ip:            ip.trim(),
         hostname:      hostname.trim()      || undefined,
+        nombre:        nombre.trim()        || undefined,
         tipo,
         criticidad,
         responsable:   responsable.trim(),
@@ -1024,6 +1051,9 @@ export function AssetManagerPage() {
                             <td className="px-6 py-4">
                               <div className="text-white font-mono">{asset.ip}</div>
                               <div className="text-xs text-[#9ca3af] mt-0.5">{asset.hostname || 'Sin hostname'}</div>
+                              {asset.nombre
+                                ? <span className="text-xs text-[#9ca3af]">{asset.nombre}</span>
+                                : null}
                             </td>
                             <td className="px-6 py-4">
                               <Badge variant="outline" className={`border ${
@@ -1084,6 +1114,9 @@ export function AssetManagerPage() {
                                     Ver
                                   </button>
                                 </div>
+                                {rs.status === 'scanning' && rs.msg && (
+                                  <div className="text-xs text-[#00d4ff] font-mono truncate max-w-[240px] animate-pulse">{rs.msg}</div>
+                                )}
                                 {rs.status === 'done' && rs.msg && (
                                   <div className="text-xs text-[#22c55e] font-mono truncate max-w-[240px]">{rs.msg}</div>
                                 )}
@@ -1188,6 +1221,7 @@ export function AssetManagerPage() {
                           setEditingAsset(false);
                           setEditForm({
                             hostname: sheetAsset.hostname ?? '',
+                            nombre: sheetAsset.nombre ?? '',
                             tipo: sheetAsset.tipo,
                             criticidad: sheetAsset.criticidad,
                             responsable: sheetAsset.responsable ?? '',
@@ -1225,6 +1259,21 @@ export function AssetManagerPage() {
                       />
                     ) : (
                       <div className="text-white font-mono text-xs">{sheetAsset.hostname || '—'}</div>
+                    )}
+                  </div>
+
+                  {/* Nombre */}
+                  <div>
+                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Nombre personalizado</div>
+                    {editingAsset ? (
+                      <input
+                        value={editForm.nombre}
+                        onChange={e => setEditForm(p => ({ ...p, nombre: e.target.value }))}
+                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors"
+                        placeholder="ej. Servidor Principal BBDD"
+                      />
+                    ) : (
+                      <div className="text-white text-xs">{sheetAsset.nombre || '—'}</div>
                     )}
                   </div>
 
@@ -1496,6 +1545,18 @@ export function AssetManagerPage() {
                     onChange={e => setNewAssetForm(p => ({ ...p, hostname: e.target.value }))}
                     className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors font-mono"
                     placeholder="servidor-01.local"
+                  />
+                </div>
+
+                {/* Nombre personalizado */}
+                <div>
+                  <label className="block text-sm font-medium text-[#e5e7eb] mb-1.5">Nombre personalizado</label>
+                  <input
+                    type="text"
+                    value={newAssetForm.nombre}
+                    onChange={e => setNewAssetForm(p => ({ ...p, nombre: e.target.value }))}
+                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors"
+                    placeholder="ej. Servidor Principal BBDD"
                   />
                 </div>
 

@@ -85,6 +85,48 @@ app.conf.update(
             'options': {'queue': 'exploitation'},
         },
 
+        # ── Alertas pre-ataque (Viernes noche → Sábado madrugada) ──
+        'alert-preattack-5h': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_5h',
+            'schedule': crontab(hour=20, minute=0, day_of_week='friday'),
+            'options': {'queue': 'exploitation'},
+        },
+        'alert-preattack-4h': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_4h',
+            'schedule': crontab(hour=21, minute=0, day_of_week='friday'),
+            'options': {'queue': 'exploitation'},
+        },
+        'alert-preattack-3h': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_3h',
+            'schedule': crontab(hour=22, minute=0, day_of_week='friday'),
+            'options': {'queue': 'exploitation'},
+        },
+        'alert-preattack-2h': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_2h',
+            'schedule': crontab(hour=23, minute=0, day_of_week='friday'),
+            'options': {'queue': 'exploitation'},
+        },
+        'alert-preattack-1h': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_1h',
+            'schedule': crontab(hour=0, minute=0, day_of_week='saturday'),
+            'options': {'queue': 'exploitation'},
+        },
+        'alert-preattack-30m': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_30m',
+            'schedule': crontab(hour=0, minute=30, day_of_week='saturday'),
+            'options': {'queue': 'exploitation'},
+        },
+        'alert-preattack-10m': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_10m',
+            'schedule': crontab(hour=0, minute=50, day_of_week='saturday'),
+            'options': {'queue': 'exploitation'},
+        },
+        'alert-preattack-5m': {
+            'task': 'services.exploit_engine.alert_tasks.alert_preattack_5m',
+            'schedule': crontab(hour=0, minute=55, day_of_week='saturday'),
+            'options': {'queue': 'exploitation'},
+        },
+
         # PHASE 5 — Sunday 08:00 Madrid
         # M7: generate full audit report ZIP
         'phase5-reporting-sunday': {

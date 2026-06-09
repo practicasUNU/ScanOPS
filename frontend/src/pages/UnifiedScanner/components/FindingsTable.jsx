@@ -183,10 +183,10 @@ function FindingDrawer({ finding, open, onClose }) {
  * FindingsTable — tabla de hallazgos con ordenación, filtrado y drawer lateral.
  * Acepta `findings` del hook; si está vacío o ausente usa el mock.
  */
-export function FindingsTable({ findings }) {
+export function FindingsTable({ findings, initialQuery = '' }) {
   const rows = findings?.length ? findings : MOCK_FINDINGS;
 
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [sortField, setSortField] = useState('severidad');
   const [sortDir, setSortDir] = useState('desc');
   const [selected, setSelected] = useState(null);
@@ -260,9 +260,9 @@ export function FindingsTable({ findings }) {
       </div>
 
       {/* Table */}
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden flex flex-col min-h-0">
         {/* Header */}
-        <div className="grid grid-cols-[80px_112px_112px_1fr_112px_96px] border-b border-[#1e2530] bg-[#111318]">
+        <div className="grid grid-cols-[80px_112px_112px_minmax(0,_1fr)_112px_96px] border-b border-[#1e2530] bg-[#111318]">
           {COLS.map(col => (
             <button
               key={col.key}
@@ -278,7 +278,7 @@ export function FindingsTable({ findings }) {
         </div>
 
         {/* Rows */}
-        <ScrollArea className="max-h-[480px]">
+        <ScrollArea className="h-[calc(100vh-320px)] min-h-[300px]">
           {sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-[#4b5563]">
               <ShieldAlert className="w-8 h-8 mb-2" />
@@ -289,12 +289,18 @@ export function FindingsTable({ findings }) {
               <div
                 key={row.id}
                 onClick={() => handleRowClick(row)}
-                className={`grid grid-cols-[80px_112px_112px_1fr_112px_96px] border-b border-[#1e2530]/50 cursor-pointer transition-colors hover:bg-[#1e2530] ${i % 2 === 0 ? 'bg-transparent' : 'bg-[#111318]/30'}`}
+                className={`grid grid-cols-[80px_112px_112px_minmax(0,_1fr)_112px_96px] border-b border-[#1e2530]/50 cursor-pointer transition-colors hover:bg-[#1e2530] ${i % 2 === 0 ? 'bg-transparent' : 'bg-[#111318]/30'}`}
               >
                 <div className="px-4 py-3 text-xs font-mono text-[#6b7280]">{row.id}</div>
                 <div className="px-4 py-3 text-xs font-mono text-[#d1d5db]">{row.activo}</div>
                 <div className="px-4 py-3 text-xs text-[#9ca3af]">{row.herramienta}</div>
-                <div className="px-4 py-3 text-sm text-white truncate pr-6">{row.nombre}</div>
+                
+                <div className="px-4 py-3 text-sm text-white min-w-0">
+                  <div className="truncate text-left tracking-wide leading-relaxed" title={row.nombre}>
+                    {row.nombre}
+                  </div>
+                </div>
+
                 <div className="px-4 py-3">
                   <Badge className={`border text-xs ${severityStyle(row.severidad)}`}>
                     {row.severidad}

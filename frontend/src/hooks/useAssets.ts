@@ -8,10 +8,17 @@ export interface Asset {
   id: number;
   ip: string;
   hostname: string | null;
+  nombre?: string | null;
   tipo: string;
   criticidad: string;
   status: string;
   responsable: string | null;
+}
+
+export interface ScanPollResult {
+  status: 'SUCCESS' | 'FAILED' | 'TIMEOUT';
+  findings_count?: number;
+  completed_at?: string;
 }
 
 export interface VulnResult {
@@ -102,6 +109,40 @@ export function useAssets() {
     return res.json();
   }, []);
 
+  const pollScanStatus = useCallback(async (
+    task_id: string,
+    asset_id: number,
+    onProgress?: (msg: string) => void,
+    maxAttempts = 40,
+  ): Promise<ScanPollResult> => {
+    // Minimum wait before first poll — scans take at least ~30s
+    await new Promise(r => setTimeout(r, 15000));
+    onProgress?.('Escaneando... esperando resultados');
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      try {
+        const res = await fetch(
+          `${M3_BASE}/api/v1/scan/results/${asset_id}`,
+          { headers: authHeaders(), signal: AbortSignal.timeout(8000) },
+        );
+        if (!res.ok) {
+          onProgress?.(`Escaneando... ${15 + (i + 1) * 5}s`);
+          continue;
+        }
+        const data = await res.json();
+        const total = data.total_findings ?? 0;
+        if (total > 0) {
+          return { status: 'SUCCESS', findings_count: total, completed_at: new Date().toISOString() };
+        }
+        onProgress?.(`Escaneando... ${15 + (i + 1) * 5}s`);
+      } catch {
+        onProgress?.('Escaneando... reintentando');
+      }
+    }
+    return { status: 'TIMEOUT' };
+  }, []);
+
   const getVulnResults = useCallback(async (asset_id: number): Promise<VulnResult[]> => {
     const res = await fetch(`${M3_BASE}/api/v1/scan/results/${asset_id}`, { headers: authHeaders() });
     if (!res.ok) return [];
@@ -131,5 +172,5 @@ export function useAssets() {
     return data.findings ?? data.results ?? [];
   }, []);
 
-  return { assets, loading, error, refetch: fetchAssets, createAsset, scanAsset, getScanStatus, getVulnResults };
+  return { assets, loading, error, refetch: fetchAssets, createAsset, scanAsset, getScanStatus, getVulnResults, pollScanStatus };
 }

@@ -53,6 +53,7 @@ class AssetCreate(BaseModel):
     """POST /assets"""
     ip: str = Field(..., min_length=7, max_length=45)
     hostname: Optional[str] = Field(None, max_length=255)
+    nombre: Optional[str] = Field(None, max_length=255)
     dominio: Optional[str] = Field(None, max_length=255)
     mac_address: Optional[str] = Field(None, max_length=17)
     criticidad: CriticidadEnum = CriticidadEnum.PENDIENTE_CLASIFICAR
@@ -76,6 +77,7 @@ class AssetUpdate(BaseModel):
     """PUT /assets/{id} — all fields optional."""
     ip: Optional[str] = Field(None, min_length=7, max_length=45)
     hostname: Optional[str] = Field(None, max_length=255)
+    nombre: Optional[str] = Field(None, max_length=255)
     dominio: Optional[str] = Field(None, max_length=255)
     mac_address: Optional[str] = Field(None, max_length=17)
     criticidad: Optional[CriticidadEnum] = None
@@ -101,6 +103,7 @@ class AssetResponse(BaseModel):
     id: int
     ip: str
     hostname: Optional[str] = None
+    nombre: Optional[str] = None
     dominio: Optional[str] = None
     mac_address: Optional[str] = None
     criticidad: CriticidadEnum
