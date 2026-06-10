@@ -442,18 +442,35 @@ def _parse_auth_log_line(line: str, year: int) -> dict | None:
 
 def _ssh_read_auth_log(ip: str, user: str, password: str, lines: int = 500) -> list[dict]:
     try:
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(ip, username=user, password=password, timeout=10)
-        # Intentar con sudo -S (lee password desde stdin)
-        cmd = f'echo {password} | sudo -S tail -n {lines} /var/log/auth.log 2>/dev/null'
-        _, stdout, stderr = client.exec_command(cmd, get_pty=False)
-        raw = stdout.read().decode('utf-8', errors='ignore')
-        # Fallback: intentar sin sudo por si el usuario tiene permisos directos
-        if not raw.strip():
-            _, stdout2, _ = client.exec_command(f'tail -n {lines} /var/log/auth.log 2>/dev/null')
-            raw = stdout2.read().decode('utf-8', errors='ignore')
-        client.close()
+        import subprocess
+        import shlex
+        ssh_cmd = [
+            'sshpass', '-p', password,
+            'ssh',
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'HostKeyAlgorithms=+ssh-rsa',
+            '-o', 'KexAlgorithms=+diffie-hellman-group1-sha1',
+            '-o', 'ConnectTimeout=10',
+            f'{user}@{ip}',
+            f'tail -n {lines} /var/log/auth.log 2>/dev/null'
+        ]
+        # Intento 1: con sudo (para usuarios no-root)
+        ssh_cmd_sudo = ssh_cmd[:-1] + [
+            f'echo {password} | sudo -S tail -n {lines} /var/log/auth.log 2>/dev/null'
+        ]
+        result = subprocess.run(ssh_cmd_sudo, capture_output=True, text=True, timeout=20)
+        raw = result.stdout.strip()
+        # Filtrar línea "[sudo] password for ..." que va a stdout en algunos sistemas
+        raw = '\n'.join(l for l in raw.splitlines() if not l.startswith('[sudo]'))
+
+        # Intento 2: sin sudo (para root u otros con acceso directo)
+        if not raw:
+            result2 = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=20)
+            raw = result2.stdout.strip()
+
+        if not raw:
+            return [{'error': f'No output — stderr: {result.stderr[:200]}', 'ip': ip}]
         year = datetime.now().year
         return [ev for line in raw.splitlines() if (ev := _parse_auth_log_line(line, year))]
     except Exception as e:
@@ -469,12 +486,18 @@ async def list_auth_events(limit: int = 100):
     """
     assets = []
     try:
+        import os as _os
+        from shared.auth import create_access_token
+        _svc_token = create_access_token("scanops_service", "service")
         async with httpx.AsyncClient(verify=False, timeout=8) as client:
-            r = await client.get("http://m1:8001/api/v1/assets?page=1&page_size=100")
+            r = await client.get(
+                "http://scanops-m1:8001/api/v1/assets?page=1&page_size=100",
+                headers={"Authorization": f"Bearer {_svc_token}"}
+            )
             if r.status_code == 200:
                 assets = r.json().get('items', [])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"M1 assets fetch failed: {e}")
 
     if not assets:
         assets = [{'id': 1, 'ip': '10.202.15.100', 'name': 'srv-target'}]

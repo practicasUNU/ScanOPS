@@ -908,6 +908,115 @@ async def generate_access_log_report():
         )
 
 
+@app.get("/report/hardening/{asset_id}")
+async def generate_hardening_report(asset_id: int):
+    """
+    Informe PDF de bastionado ENS para un activo específico.
+    Consolida los resultados de hardening_results con datos del activo (M1).
+    ENS: op.exp.2, mp.info.3, op.acc.6, op.cont.2, mp.com.1
+    Firmado AES-256 — mp.info.4
+    """
+    try:
+        conn = get_db_connection()
+
+        # Activo (assets siempre existe)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, ip, hostname, nombre, tipo, criticidad,
+                       status, responsable
+                FROM assets
+                WHERE id = %s AND deleted_at IS NULL
+            """, (asset_id,))
+            activo_row = cur.fetchone()
+        if not activo_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Activo no encontrado")
+
+        # hardening_results puede no existir todavía (la crea M3 en primer uso)
+        resultado_row = None
+        historial_rows = []
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, asset_id, target_ip, hostname, controles,
+                           si_count, no_count, revisar_count, cumple_ens, verified_at
+                    FROM hardening_results
+                    WHERE asset_id = %s
+                    ORDER BY verified_at DESC
+                    LIMIT 1
+                """, (asset_id,))
+                resultado_row = cur.fetchone()
+                cur.execute("""
+                    SELECT si_count, no_count, revisar_count, cumple_ens, verified_at
+                    FROM hardening_results
+                    WHERE asset_id = %s
+                    ORDER BY verified_at DESC
+                    LIMIT 5
+                """, (asset_id,))
+                historial_rows = cur.fetchall()
+        except Exception:
+            conn.rollback()
+
+        conn.close()
+
+        resultado = None
+        if resultado_row:
+            resultado = dict(resultado_row)
+            import json as _json
+            if isinstance(resultado.get("controles"), str):
+                resultado["controles"] = _json.loads(resultado["controles"])
+            if resultado.get("verified_at"):
+                resultado["verified_at"] = resultado["verified_at"].strftime("%d/%m/%Y %H:%M")
+
+        historial = []
+        for r in historial_rows:
+            row = dict(r)
+            if row.get("verified_at"):
+                row["verified_at"] = row["verified_at"].strftime("%d/%m/%Y %H:%M")
+            historial.append(row)
+
+        context = {
+            "fecha":      datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "report_id":  f"HARD-{asset_id}-{uuid.uuid4().hex[:8].upper()}",
+            "activo":     dict(activo_row),
+            "resultado":  resultado,
+            "historial":  historial,
+            "sin_datos":  resultado is None,
+        }
+
+        template = template_env.get_template("hardening.html")
+        html_content = template.render(context)
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_bytes)
+
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_07_Bastionado_{asset_id}.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup hardening {asset_id}: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition":
+                    f"attachment; filename=ScanOps_Bastionado_{asset_id}.pdf"
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generando informe de bastionado: {str(e)}"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

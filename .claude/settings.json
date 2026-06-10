@@ -4,7 +4,9 @@
       "PowerShell(docker cp services\\\\scanner_engine\\\\tasks\\\\vuln_tasks.py scanops-celery-worker:/app/services/scanner_engine/tasks/vuln_tasks.py)",
       "PowerShell(docker exec scanops-celery-worker sh -c \"python3 -m py_compile /app/services/scanner_engine/services/nuclei_wrapper.py /app/services/scanner_engine/tasks/vuln_tasks.py && echo COMPILE_OK\")",
       "PowerShell(docker compose build scanner-engine celery-worker 2>&1)",
-      "PowerShell(docker compose up -d --force-recreate scanner-engine celery-worker 2>&1)"
+      "PowerShell(docker compose up -d --force-recreate scanner-engine celery-worker 2>&1)",
+      "Bash(python -c ' *)",
+      "Bash(Select-String -Context 2,0 \"siem|correlation\")"
     ]
   }
 }

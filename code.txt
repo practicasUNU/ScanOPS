@@ -261,6 +261,8 @@ WORKDIR /app
 # Instalar dependencias mínimas para red
 RUN apt-get update && apt-get install -y \
     curl \
+    openssh-client \
+    sshpass \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar requerimientos e instalar (usando tu requirements.txt compartido)
@@ -7276,6 +7278,7 @@ import { AlertsPage } from './components/AlertsPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
+import BastionadoPage from '../pages/BastionadoPage';
 
 function AppInner() {
   const { toastQueue, dismissToast } = useCriticalAlerts();
@@ -7330,6 +7333,11 @@ function AppInner() {
         <Route path="/alerts" element={
           <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
             <AlertsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/bastionado" element={
+          <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
+            <BastionadoPage />
           </ProtectedRoute>
         } />
       </Routes>
@@ -16772,6 +16780,7 @@ export function Sidebar() {
         { icon: Brain, label: 'M8 - IA Reasoning', path: '/ai-reasoning' },
         { icon: ClipboardList, label: 'M4 - Explotación', path: '/exploitation' },
         { icon: Bell, label: 'M5 - Alertas SIEM', path: '/alerts' },
+        { icon: Shield, label: 'Bastionado', path: '/bastionado' },
         { icon: FileText, label: 'M7 - Reportes', path: '/reporting' },
       ]
     },
@@ -23848,6 +23857,560 @@ export function useShadowIT(registeredAssets: { ip: string; status: string }[] =
 
   return { snapshots, alreadyRegistered, loading, error, refetch: fetchSnapshots };
 }
+FILE:frontend\src\pages\BastionadoPage.tsx
+// frontend/src/pages/BastionadoPage.tsx
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router';
+import { Shield, CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp, FileText, Loader2, ArrowLeft } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '../app/components/ui/card';
+import { Badge } from '../app/components/ui/badge';
+import { Button } from '../app/components/ui/button';
+import { Alert, AlertDescription } from '../app/components/ui/alert';
+import { Checkbox } from '../app/components/ui/checkbox';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../app/components/ui/tooltip';
+
+// ── Tipos ──────────────────────────────────────────────────────────────────
+interface Asset {
+  id: number;
+  ip: string;
+  nombre: string | null;
+  hostname: string | null;
+  ssh_user: string | null;
+}
+
+interface HardeningControl {
+  id: number;
+  nombre: string;
+  resultado: 'SI' | 'NO' | 'REVISAR';
+  medida_ens: string;
+  detalle: string;
+}
+
+interface HardeningResult {
+  asset_id: number;
+  asset_name: string;
+  target: string;
+  timestamp: string;
+  controles: HardeningControl[];
+  resumen: {
+    total: number;
+    si: number;
+    no: number;
+    revisar: number;
+    cumple_ens: boolean;
+  };
+}
+
+interface TaskStatus {
+  status: 'PENDING' | 'STARTED' | 'SUCCESS' | 'FAILURE';
+  results?: HardeningResult[];
+  error?: string;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function getToken(): string | null {
+  // Intentar todas las claves conocidas donde el frontend guarda el JWT
+  try {
+    const raw = localStorage.getItem('token');
+    if (raw) return raw;
+
+    const authUser = localStorage.getItem('authUser');
+    if (authUser) {
+      const parsed = JSON.parse(authUser);
+      if (parsed?.access_token) return parsed.access_token;
+      if (parsed?.token) return parsed.token;
+    }
+
+    const session = sessionStorage.getItem('scanops_auth');
+    if (session) {
+      const parsed = JSON.parse(session);
+      if (parsed?.access_token) return parsed.access_token;
+    }
+
+    // Iterar sessionStorage por si la clave varía
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (!key) continue;
+      try {
+        const val = JSON.parse(sessionStorage.getItem(key) || '');
+        if (val?.access_token) return val.access_token;
+      } catch { /* no era JSON */ }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token
+    ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    : { 'Content-Type': 'application/json' };
+}
+
+function assetDisplayName(asset: Asset): string {
+  return asset.nombre || asset.hostname || asset.ip;
+}
+
+// ── Componentes de presentación ────────────────────────────────────────────
+function ResultBadge({ resultado }: { resultado: 'SI' | 'NO' | 'REVISAR' }) {
+  if (resultado === 'SI') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-500/15 text-green-400 border border-green-500/30">
+      <CheckCircle2 className="w-3 h-3" /> SI
+    </span>
+  );
+  if (resultado === 'NO') return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/30">
+      <XCircle className="w-3 h-3" /> NO
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">
+      <AlertTriangle className="w-3 h-3" /> REVISAR
+    </span>
+  );
+}
+
+function ComplianceBadge({ result }: { result: HardeningResult }) {
+  const { no, revisar } = result.resumen;
+  if (no > 0) return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-red-500/15 text-red-400 border border-red-500/30">NO CUMPLE</span>
+  );
+  if (revisar > 0) return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">REVISAR</span>
+  );
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-500/15 text-green-400 border border-green-500/30">CUMPLE</span>
+  );
+}
+
+function AssetResultCard({ result }: { result: HardeningResult }) {
+  const [expanded, setExpanded] = useState(true);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const { si, no, revisar } = result.resumen;
+  const compliance = Math.round((si / 13) * 100);
+  const ts = new Date(result.timestamp).toLocaleString('es-ES');
+
+  const handlePdf = async () => {
+    setPdfError(null);
+    setPdfLoading(true);
+    try {
+      const res = await fetch(
+        `http://localhost:8007/report/hardening/${result.asset_id}`,
+        { headers: authHeaders() },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.download = `hardening_${result.asset_id}_${result.asset_name.replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Liberar después de que el navegador haya iniciado la descarga
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e: unknown) {
+      setPdfError(e instanceof Error ? e.message : 'Error generando PDF');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  return (
+    <Card className="bg-[#1a1d27] border-[#1e2530]">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-white font-semibold">{result.asset_name}</span>
+              <span className="text-slate-400 text-sm">{result.target}</span>
+            </div>
+            <div className="text-xs text-slate-500 mt-1">{ts}</div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-500/15 text-green-400 border border-green-500/30">{si} SI</span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/30">{no} NO</span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">{revisar} REVISAR</span>
+            <span className="text-slate-300 text-sm font-mono">{compliance}%</span>
+            <ComplianceBadge result={result} />
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="text-slate-400 hover:text-white transition-colors ml-1"
+            >
+              {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="pt-0">
+          <div className="overflow-x-auto rounded border border-[#1e2530]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#1e2530] text-slate-500 text-xs uppercase">
+                  <th className="text-left px-3 py-2 w-8">#</th>
+                  <th className="text-left px-3 py-2">Control</th>
+                  <th className="text-left px-3 py-2">Resultado</th>
+                  <th className="text-left px-3 py-2">Medida ENS</th>
+                  <th className="text-left px-3 py-2">Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.controles.map((ctrl, idx) => (
+                  <tr key={ctrl.id} className={`border-b border-[#1e2530]/50 ${idx % 2 === 0 ? 'bg-[#0f1117]/30' : ''}`}>
+                    <td className="px-3 py-2 text-slate-500 font-mono">{ctrl.id}</td>
+                    <td className="px-3 py-2 text-slate-200">{ctrl.nombre}</td>
+                    <td className="px-3 py-2"><ResultBadge resultado={ctrl.resultado} /></td>
+                    <td className="px-3 py-2 font-mono text-[#00d4ff] text-xs">{ctrl.medida_ens}</td>
+                    <td className="px-3 py-2 text-slate-400 text-xs max-w-xs truncate" title={ctrl.detalle}>{ctrl.detalle || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {pdfError && (
+            <p className="mt-2 text-xs text-red-400">{pdfError}</p>
+          )}
+          <div className="mt-4 flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pdfLoading}
+              className="gap-2 border-[#1e2530] text-slate-300 hover:text-white hover:border-[#00d4ff]/50 disabled:opacity-50"
+              onClick={handlePdf}
+            >
+              {pdfLoading
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <FileText className="w-4 h-4" />}
+              {pdfLoading ? 'Generando...' : 'Generar Informe PDF'}
+            </Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ── Página principal ───────────────────────────────────────────────────────
+export function BastionadoPage() {
+  const navigate = useNavigate();
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [assetsError, setAssetsError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const [results, setResults] = useState<HardeningResult[]>([]);
+  const [lastCycle, setLastCycle] = useState<string | null>(null);
+  const [pollingError, setPollingError] = useState<string | null>(null);
+  const failCountRef = useRef(0);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cargar activos desde M1
+  useEffect(() => {
+    fetch('http://localhost:8001/api/v1/assets?page=1&page_size=100', {
+      headers: authHeaders(),
+    })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        // M1 devuelve {total, page, page_size, items:[...]}
+        const list: Asset[] = Array.isArray(data) ? data : (data.items ?? []);
+        setAssets(list);
+      })
+      .catch(() => setAssetsError('No se pudo cargar la lista de activos desde M1'));
+  }, []);
+
+  // Polling
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = null;
+  }, []);
+
+  const poll = useCallback((id: string) => {
+    fetch(`http://localhost:8002/api/v1/hardening/status/${id}`, { headers: authHeaders() })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<TaskStatus>;
+      })
+      .then(data => {
+        failCountRef.current = 0;
+        if (data.status === 'SUCCESS') {
+          setRunning(false);
+          setTaskId(null);
+          stopPolling();
+          if (data.results?.length) {
+            setResults(data.results);
+            setLastCycle(new Date().toISOString());
+          }
+        } else if (data.status === 'FAILURE') {
+          setRunning(false);
+          setTaskId(null);
+          stopPolling();
+          setPollingError(data.error ?? 'La verificación falló en el servidor');
+        } else {
+          pollTimerRef.current = setTimeout(() => poll(id), 3000);
+        }
+      })
+      .catch(() => {
+        failCountRef.current += 1;
+        if (failCountRef.current >= 3) {
+          setRunning(false);
+          setTaskId(null);
+          stopPolling();
+          setPollingError('Se perdió la conexión con el servidor tras 3 intentos');
+        } else {
+          pollTimerRef.current = setTimeout(() => poll(id), 3000);
+        }
+      });
+  }, [stopPolling]);
+
+  useEffect(() => {
+    if (taskId) {
+      failCountRef.current = 0;
+      poll(taskId);
+    }
+    return stopPolling;
+  }, [taskId, poll, stopPolling]);
+
+  const handleRun = async () => {
+    setRunError(null);
+    setPollingError(null);
+    setRunning(true);
+    try {
+      const res = await fetch('http://localhost:8002/api/v1/hardening/run', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ asset_ids: Array.from(selectedIds) }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        throw new Error(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
+      }
+      const data = await res.json();
+      setTaskId(data.task_id);
+    } catch (e: unknown) {
+      setRunning(false);
+      setRunError(e instanceof Error ? e.message : 'Error al lanzar la verificación');
+    }
+  };
+
+  const toggleAsset = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const eligibleIds = assets.filter(a => a.ssh_user).map(a => a.id);
+  const allSelected = eligibleIds.length > 0 && eligibleIds.every(id => selectedIds.has(id));
+  const someSelected = !allSelected && eligibleIds.some(id => selectedIds.has(id));
+
+  const toggleAll = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        eligibleIds.forEach(id => next.delete(id));
+      } else {
+        eligibleIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  return (
+    <TooltipProvider>
+      <div className="flex-1 overflow-y-auto bg-[#0f1117] min-h-screen">
+        <div className="max-w-6xl mx-auto p-6 space-y-6">
+
+          {/* Cabecera */}
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('/dashboard')}
+                className="gap-1.5 text-slate-400 hover:text-white hover:bg-[#1e2530] px-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Volver
+              </Button>
+              <div className="w-px h-6 bg-[#1e2530]" />
+              <div className="w-10 h-10 rounded-lg bg-[#00d4ff]/10 border border-[#00d4ff]/20 flex items-center justify-center">
+                <Shield className="w-5 h-5 text-[#00d4ff]" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-white">Bastionado ENS</h1>
+                <p className="text-sm text-slate-400">Verificación trimestral de controles — RD 311/2022</p>
+              </div>
+            </div>
+            {lastCycle ? (
+              <Badge variant="outline" className="border-[#00d4ff]/30 text-[#00d4ff] text-xs">
+                Último ciclo: {new Date(lastCycle).toLocaleDateString('es-ES')}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-slate-600 text-slate-400 text-xs">
+                Sin verificaciones previas
+              </Badge>
+            )}
+          </div>
+
+          {/* Panel de ejecución */}
+          <Card className="bg-[#1a1d27] border-[#1e2530]">
+            <CardHeader>
+              <CardTitle className="text-white text-base">Nueva Verificación</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {assetsError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{assetsError}</AlertDescription>
+                </Alert>
+              )}
+              {runError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{runError}</AlertDescription>
+                </Alert>
+              )}
+              {pollingError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{pollingError}</AlertDescription>
+                </Alert>
+              )}
+
+              {!assetsError && assets.length === 0 && (
+                <div className="text-center py-8 text-slate-500">
+                  <Shield className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No hay activos disponibles</p>
+                </div>
+              )}
+
+              {assets.length > 0 && (
+                <>
+                  {/* Seleccionar todos */}
+                  <div className="flex items-center gap-3 px-3 py-2 border-b border-[#1e2530]">
+                    <Checkbox
+                      checked={allSelected}
+                      disabled={eligibleIds.length === 0}
+                      onCheckedChange={toggleAll}
+                      className="border-slate-600 data-[state=checked]:bg-[#00d4ff] data-[state=checked]:border-[#00d4ff]"
+                    />
+                    <span
+                      className={`text-xs font-medium select-none ${eligibleIds.length === 0 ? 'text-slate-600' : 'text-slate-400 cursor-pointer hover:text-white'}`}
+                      onClick={() => eligibleIds.length > 0 && toggleAll()}
+                    >
+                      Seleccionar todos
+                    </span>
+                    {selectedIds.size > 0 && (
+                      <span className="ml-auto text-xs text-[#00d4ff]">
+                        {selectedIds.size} / {eligibleIds.length} seleccionados
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {assets.map(asset => {
+                      const disabled = !asset.ssh_user;
+                      const checked = selectedIds.has(asset.id);
+                      const displayName = assetDisplayName(asset);
+                      return (
+                        <div
+                          key={asset.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                            disabled
+                              ? 'border-[#1e2530] opacity-50 cursor-not-allowed'
+                              : checked
+                              ? 'border-[#00d4ff]/30 bg-[#00d4ff]/5'
+                              : 'border-[#1e2530] hover:border-[#1e2530]/80 hover:bg-[#0f1117]/40 cursor-pointer'
+                          }`}
+                          onClick={() => !disabled && toggleAsset(asset.id)}
+                        >
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span>
+                                <Checkbox
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onCheckedChange={() => !disabled && toggleAsset(asset.id)}
+                                  onClick={e => e.stopPropagation()}
+                                  className="border-slate-600 data-[state=checked]:bg-[#00d4ff] data-[state=checked]:border-[#00d4ff]"
+                                />
+                              </span>
+                            </TooltipTrigger>
+                            {disabled && (
+                              <TooltipContent>
+                                <p>Sin credenciales SSH configuradas</p>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm text-white font-medium">{displayName}</span>
+                            <span className="text-xs text-slate-400 ml-2">{asset.ip}</span>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs shrink-0 ${
+                              disabled
+                                ? 'border-slate-600 text-slate-500'
+                                : 'border-green-500/30 text-green-400'
+                            }`}
+                          >
+                            {disabled ? 'Sin SSH' : 'Listo'}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end pt-2">
+                <Button
+                  disabled={selectedIds.size === 0 || running}
+                  onClick={handleRun}
+                  className="gap-2 bg-[#00d4ff] hover:bg-[#00b8d9] text-[#0f1117] font-semibold disabled:opacity-50"
+                >
+                  {running ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Verificando...
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="w-4 h-4" />
+                      ▶ Ejecutar Verificación
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Resultados */}
+          {results.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">Resultados de la Verificación</h2>
+              {results.map(r => (
+                <AssetResultCard key={r.asset_id} result={r} />
+              ))}
+            </div>
+          )}
+
+        </div>
+      </div>
+    </TooltipProvider>
+  );
+}
+
+export default BastionadoPage;
 FILE:frontend\src\pages\UnifiedScanner\UnifiedScannerLayout.jsx
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router';
@@ -47473,6 +48036,114 @@ async def generate_access_log_report():
             detail=f"Error generando informe de accesos: {str(e)}"
         )
 
+@app.get("/report/hardening/{asset_id}")
+async def generate_hardening_report(asset_id: int):
+    """
+    Informe PDF de bastionado ENS para un activo específico.
+    Consolida los resultados de hardening_results con datos del activo (M1).
+    ENS: op.exp.2, mp.info.3, op.acc.6, op.cont.2, mp.com.1
+    Firmado AES-256 — mp.info.4
+    """
+    try:
+        conn = get_db_connection()
+
+        # Activo (assets siempre existe)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, ip, hostname, nombre, tipo, criticidad,
+                       status, responsable
+                FROM assets
+                WHERE id = %s AND deleted_at IS NULL
+            """, (asset_id,))
+            activo_row = cur.fetchone()
+        if not activo_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Activo no encontrado")
+
+        # hardening_results puede no existir todavía (la crea M3 en primer uso)
+        resultado_row = None
+        historial_rows = []
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, asset_id, target_ip, hostname, controles,
+                           si_count, no_count, revisar_count, cumple_ens, verified_at
+                    FROM hardening_results
+                    WHERE asset_id = %s
+                    ORDER BY verified_at DESC
+                    LIMIT 1
+                """, (asset_id,))
+                resultado_row = cur.fetchone()
+                cur.execute("""
+                    SELECT si_count, no_count, revisar_count, cumple_ens, verified_at
+                    FROM hardening_results
+                    WHERE asset_id = %s
+                    ORDER BY verified_at DESC
+                    LIMIT 5
+                """, (asset_id,))
+                historial_rows = cur.fetchall()
+        except Exception:
+            conn.rollback()
+
+        conn.close()
+
+        resultado = None
+        if resultado_row:
+            resultado = dict(resultado_row)
+            import json as _json
+            if isinstance(resultado.get("controles"), str):
+                resultado["controles"] = _json.loads(resultado["controles"])
+            if resultado.get("verified_at"):
+                resultado["verified_at"] = resultado["verified_at"].strftime("%d/%m/%Y %H:%M")
+
+        historial = []
+        for r in historial_rows:
+            row = dict(r)
+            if row.get("verified_at"):
+                row["verified_at"] = row["verified_at"].strftime("%d/%m/%Y %H:%M")
+            historial.append(row)
+
+        context = {
+            "fecha":      datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "report_id":  f"HARD-{asset_id}-{uuid.uuid4().hex[:8].upper()}",
+            "activo":     dict(activo_row),
+            "resultado":  resultado,
+            "historial":  historial,
+            "sin_datos":  resultado is None,
+        }
+
+        template = template_env.get_template("hardening.html")
+        html_content = template.render(context)
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_bytes)
+
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_07_Bastionado_{asset_id}.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup hardening {asset_id}: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition":
+                    f"attachment; filename=ScanOps_Bastionado_{asset_id}.pdf"
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generando informe de bastionado: {str(e)}"
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -48345,6 +49016,208 @@ tr:nth-child(even) td { background: #f8fafc; }
 
 </body>
 </html>
+FILE:services\reporting_engine\templates\hardening.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { size: A4; margin: 2cm;
+  @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 9pt; color: #64748b; }
+  @bottom-left { content: "ScanOps — Informe de Bastionado ENS — CONFIDENCIAL"; font-size: 9pt; color: #64748b; }
+}
+body { font-family: Helvetica, sans-serif; color: #334155; line-height: 1.6; font-size: 10pt; }
+h1 { color: #0f172a; border-bottom: 3px solid #3b82f6; padding-bottom: 8px; font-size: 20pt; margin-bottom: 4px; }
+h2 { color: #1e3a8a; margin-top: 25px; font-size: 13pt; border-left: 4px solid #3b82f6; padding-left: 8px; }
+.header-meta { color: #64748b; font-size: 9pt; margin-bottom: 6px; }
+.header-subtitle { color: #334155; font-size: 13pt; font-weight: bold; margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9pt; }
+th { background: #1e3a8a; color: white; padding: 8px; text-align: left; }
+td { border-bottom: 1px solid #e2e8f0; padding: 7px; vertical-align: top; }
+tr:nth-child(even) td { background: #f8fafc; }
+.two-col { display: grid; grid-template-columns: 140px 1fr; }
+.two-col td:first-child { font-weight: bold; color: #1e3a8a; background: #f1f5f9; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 8pt; font-weight: bold; }
+.badge-si    { background: #dcfce7; color: #16a34a; }
+.badge-no    { background: #fee2e2; color: #dc2626; }
+.badge-rev   { background: #fef9c3; color: #ca8a04; }
+.badge-cumple    { background: #dcfce7; color: #16a34a; }
+.badge-nocumple  { background: #fee2e2; color: #dc2626; }
+.badge-critical  { background: #fee2e2; color: #dc2626; }
+.badge-medium    { background: #fef9c3; color: #ca8a04; }
+.badge-low       { background: #dcfce7; color: #16a34a; }
+.kpi-row { display: flex; gap: 12px; margin: 12px 0; }
+.kpi { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; text-align: center; flex: 1; }
+.kpi-value { font-size: 22pt; font-weight: bold; }
+.kpi-label { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 2px; }
+.kpi-si    .kpi-value { color: #16a34a; }
+.kpi-no    .kpi-value { color: #dc2626; }
+.kpi-rev   .kpi-value { color: #ca8a04; }
+.compliance-row { display: flex; align-items: center; gap: 16px; margin: 10px 0; font-size: 10pt; }
+.empty-notice { color: #94a3b8; font-style: italic; font-size: 9pt; padding: 12px 0; }
+.warning-box { background: #fef9c3; border-left: 4px solid #ca8a04; padding: 12px 16px; border-radius: 4px; margin: 16px 0; font-size: 10pt; color: #78350f; }
+.footer-block { margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 8px; font-size: 8pt; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- CABECERA -->
+<h1>ScanOps — Informe de Bastionado ENS</h1>
+<div class="header-subtitle">Verificación trimestral RD 311/2022</div>
+<div class="header-meta">
+  <strong>Fecha:</strong> {{ fecha }} &nbsp;|&nbsp;
+  <strong>ID Informe:</strong> {{ report_id }} &nbsp;|&nbsp;
+  <strong>Sellado:</strong> AES-256
+</div>
+<div class="header-meta">
+  Generado por: <strong>UNUWARE ScanOps M7 Reporting Engine</strong> &nbsp;|&nbsp;
+  Medidas ENS: op.exp.2, mp.com.1, mp.si.5, op.exp.3, op.exp.5, op.acc.6, mp.info.3, mp.com.2, op.cont.2
+</div>
+
+<!-- SECCIÓN 1: DATOS DEL ACTIVO -->
+<h2>1. Datos del Activo</h2>
+<table class="two-col">
+  <tr><td>ID</td><td>{{ activo.id }}</td></tr>
+  <tr><td>IP</td><td>{{ activo.ip }}</td></tr>
+  <tr><td>Hostname</td><td>{{ activo.hostname or '—' }}</td></tr>
+  <tr><td>Nombre</td><td>{{ activo.nombre or '—' }}</td></tr>
+  <tr>
+    <td>Criticidad</td>
+    <td>
+      {% set crit = (activo.criticidad or '') | upper %}
+      {% if crit in ('ALTA', 'CRITICA', 'CRÍTICA') %}
+        <span class="badge badge-critical">{{ activo.criticidad }}</span>
+      {% elif crit == 'MEDIA' %}
+        <span class="badge badge-medium">{{ activo.criticidad }}</span>
+      {% else %}
+        <span class="badge badge-low">{{ activo.criticidad or '—' }}</span>
+      {% endif %}
+    </td>
+  </tr>
+  <tr><td>Tipo</td><td>{{ activo.tipo or '—' }}</td></tr>
+</table>
+
+{% if sin_datos %}
+<!-- SIN DATOS -->
+<div class="warning-box">
+  No se han registrado verificaciones de bastionado para este activo.<br>
+  Ejecute una verificación desde el módulo M3 — Bastionado ENS para obtener resultados.
+</div>
+
+{% else %}
+
+<!-- SECCIÓN 2: RESUMEN DE CUMPLIMIENTO -->
+<h2>2. Resumen de Cumplimiento</h2>
+<div class="kpi-row">
+  <div class="kpi kpi-si">
+    <div class="kpi-value">{{ resultado.si_count }}</div>
+    <div class="kpi-label">Controles SI</div>
+  </div>
+  <div class="kpi kpi-no">
+    <div class="kpi-value">{{ resultado.no_count }}</div>
+    <div class="kpi-label">Controles NO</div>
+  </div>
+  <div class="kpi kpi-rev">
+    <div class="kpi-value">{{ resultado.revisar_count }}</div>
+    <div class="kpi-label">A Revisar</div>
+  </div>
+</div>
+<div class="compliance-row">
+  <strong>Porcentaje de cumplimiento:</strong>
+  {% set pct = (resultado.si_count / 13 * 100) | round(1) %}
+  <span style="font-size: 13pt; font-weight: bold; color: {% if pct >= 80 %}#16a34a{% elif pct >= 50 %}#ca8a04{% else %}#dc2626{% endif %};">{{ pct }}%</span>
+  &nbsp;|&nbsp;
+  <strong>Estado ENS:</strong>
+  {% if resultado.cumple_ens %}
+    <span class="badge badge-cumple">CUMPLE</span>
+  {% else %}
+    <span class="badge badge-nocumple">NO CUMPLE</span>
+  {% endif %}
+  &nbsp;|&nbsp;
+  <span style="color:#64748b; font-size:9pt;">Última verificación: {{ resultado.verified_at }}</span>
+</div>
+
+<!-- SECCIÓN 3: TABLA DE 13 CONTROLES -->
+<h2>3. Controles de Bastionado ({{ resultado.controles | length }})</h2>
+{% if resultado.controles %}
+<table>
+  <thead>
+    <tr>
+      <th style="width:30px;">#</th>
+      <th>Control</th>
+      <th style="width:80px;">Resultado</th>
+      <th style="width:90px;">Medida ENS</th>
+      <th>Detalle</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ctrl in resultado.controles %}
+    <tr>
+      <td>{{ ctrl.id }}</td>
+      <td>{{ ctrl.nombre }}</td>
+      <td>
+        {% set res = (ctrl.resultado or '') | upper %}
+        {% if res == 'SI' %}
+          <span class="badge badge-si">SI</span>
+        {% elif res == 'NO' %}
+          <span class="badge badge-no">NO</span>
+        {% else %}
+          <span class="badge badge-rev">REVISAR</span>
+        {% endif %}
+      </td>
+      <td style="font-family: monospace; font-size: 8pt;">{{ ctrl.medida_ens or '—' }}</td>
+      <td style="font-size: 8.5pt;">{{ ctrl.detalle or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-notice">No se encontraron datos de controles en este resultado.</p>
+{% endif %}
+
+{% if historial | length > 1 %}
+<!-- SECCIÓN 4: HISTORIAL DE VERIFICACIONES -->
+<h2>4. Historial de Verificaciones</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Fecha</th>
+      <th style="width:60px; text-align:center;">SI</th>
+      <th style="width:60px; text-align:center;">NO</th>
+      <th style="width:80px; text-align:center;">REVISAR</th>
+      <th style="width:100px; text-align:center;">Cumple ENS</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for h in historial %}
+    <tr>
+      <td>{{ h.verified_at }}</td>
+      <td style="text-align:center; color:#16a34a; font-weight:bold;">{{ h.si_count }}</td>
+      <td style="text-align:center; color:#dc2626; font-weight:bold;">{{ h.no_count }}</td>
+      <td style="text-align:center; color:#ca8a04; font-weight:bold;">{{ h.revisar_count }}</td>
+      <td style="text-align:center;">
+        {% if h.cumple_ens %}
+          <span class="badge badge-cumple">SÍ</span>
+        {% else %}
+          <span class="badge badge-nocumple">NO</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% endif %}
+
+<!-- NOTA LEGAL -->
+<div class="footer-block">
+  <div>Documento generado automáticamente por ScanOps M7. Evidencia de verificación trimestral ENS Alto — RD 311/2022.</div>
+  <div>Sellado criptográficamente AES-256. No editable. &nbsp;|&nbsp; ID: {{ report_id }}</div>
+</div>
+
+</body>
+</html>
 FILE:services\reporting_engine\templates\soa.html
 <!DOCTYPE html>
 <html lang="es">
@@ -48622,6 +49495,7 @@ from shared.database import engine, get_db
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.endpoints.scan import router as scan_router
 from services.scanner_engine.api.router import router as results_router
+from services.scanner_engine.endpoints.hardening import router as hardening_router
 from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
 
 # ─── Logging Setup ─────────────────────────────
@@ -48690,6 +49564,7 @@ app.add_middleware(
 # ─── Include Routers ──────────────────────────
 app.include_router(scan_router, prefix="/api/v1")
 app.include_router(results_router, prefix="/api/v1")
+app.include_router(hardening_router, prefix="/api/v1")
 
 # ─── Root Endpoint ────────────────────────────
 @app.get("/")
@@ -50505,6 +51380,190 @@ def run_whatweb_scan(asset_id: int, target_url: str) -> List[Dict]:
             os.remove(output_file)
 FILE:services\scanner_engine\endpoints\__init__.py
 """FastAPI endpoints module"""
+FILE:services\scanner_engine\endpoints\hardening.py
+"""
+Endpoints de bastionado ENS — M3
+POST /api/v1/hardening/run               → lanza tarea batch Celery
+GET  /api/v1/hardening/status/{task_id}  → estado de la tarea
+GET  /api/v1/hardening/results/{asset_id}→ últimos resultados persistidos
+ENS: op.exp.2
+"""
+
+import json
+import os
+
+import httpx
+import psycopg2
+import psycopg2.extras
+from celery.result import AsyncResult
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import List
+
+from shared.auth import create_access_token
+from shared.celery_app import app as celery_app
+from shared.config import settings
+from shared.scan_logger import ScanLogger
+from services.scanner_engine.tasks.hardening_tasks import run_hardening_batch
+
+logger = ScanLogger("hardening_endpoints")
+
+router = APIRouter(prefix="/hardening", tags=["Bastionado ENS"])
+
+M1_BASE_URL = os.getenv("M1_URL", "http://scanops-asset-manager:8001")
+
+class HardeningRunRequest(BaseModel):
+    asset_ids: List[int]
+
+async def _get_asset(asset_id: int) -> dict:
+    """Obtiene datos del activo desde M1 incluyendo credenciales SSH."""
+    token = create_access_token("scanops_service", "service")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{M1_BASE_URL}/assets/{asset_id}",
+                headers={"Authorization": f"Bearer {token}",
+                         "Content-Type": "application/json"},
+            )
+            if r.status_code == 404:
+                raise HTTPException(404, f"Activo {asset_id} no encontrado en M1")
+            if r.status_code != 200:
+                raise HTTPException(502, f"M1 devolvió {r.status_code} para activo {asset_id}")
+            return r.json()
+    except HTTPException:
+        raise
+    except httpx.RequestError as e:
+        raise HTTPException(503, f"No se pudo conectar con M1: {e}")
+
+@router.post("/run")
+async def run_hardening(request: HardeningRunRequest):
+    """
+    Lanza verificación de bastionado sobre los activos indicados.
+    Requiere ssh_user y ssh_password configurados en M1.
+    ENS: op.exp.2
+    """
+    if not request.asset_ids:
+        raise HTTPException(400, "Se requiere al menos un asset_id")
+
+    asset_checks = []
+    skipped = []
+
+    for asset_id in request.asset_ids:
+        try:
+            asset = await _get_asset(asset_id)
+        except HTTPException as e:
+            skipped.append({"asset_id": asset_id, "reason": e.detail})
+            continue
+
+        ssh_user = asset.get("ssh_user") or asset.get("usuario_ssh")
+        ssh_password = asset.get("ssh_password") or asset.get("password_ssh")
+
+        if not ssh_user or not ssh_password:
+            skipped.append({
+                "asset_id": asset_id,
+                "reason": "Sin credenciales SSH configuradas en M1",
+            })
+            continue
+
+        asset_checks.append({
+            "asset_id": asset_id,
+            "target_ip": asset.get("ip_address") or asset.get("ip"),
+            "ssh_user": ssh_user,
+            "ssh_password": ssh_password,
+            "hostname": (asset.get("hostname")
+                         or asset.get("name")
+                         or asset.get("nombre")
+                         or f"Asset-{asset_id}"),
+        })
+
+    if not asset_checks:
+        raise HTTPException(400, detail={
+            "message": "Ningún activo tiene credenciales SSH configuradas",
+            "skipped": skipped,
+        })
+
+    task = run_hardening_batch.delay(asset_checks)
+
+    logger.info(
+        f"HARDENING_BATCH_QUEUED task_id={task.id} "
+        f"assets={[a['asset_id'] for a in asset_checks]} skipped={len(skipped)}"
+    )
+
+    return {
+        "task_id": task.id,
+        "status": "PENDING",
+        "assets_queued": len(asset_checks),
+        "assets_skipped": skipped,
+        "message": f"Verificación de bastionado iniciada para {len(asset_checks)} activo/s",
+    }
+
+@router.get("/status/{task_id}")
+async def get_hardening_status(task_id: str):
+    """
+    Consulta el estado de una tarea de bastionado.
+    Devuelve status + results cuando status == SUCCESS.
+    """
+    try:
+        result = AsyncResult(task_id, app=celery_app)
+        state = result.state
+
+        if state == "SUCCESS":
+            data = result.result or {}
+            return {
+                "task_id": task_id,
+                "status": "SUCCESS",
+                "results": data.get("results", []),
+            }
+        if state in ("FAILURE", "REVOKED"):
+            return {
+                "task_id": task_id,
+                "status": "FAILURE",
+                "error": str(result.info) if result.info else "Error desconocido",
+            }
+        progress_map = {"PENDING": 10, "STARTED": 50, "RETRY": 30}
+        return {
+            "task_id": task_id,
+            "status": state,
+            "progress": progress_map.get(state, 10),
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Error consultando tarea: {e}")
+
+@router.get("/results/{asset_id}")
+async def get_hardening_results(asset_id: int, limit: int = 5):
+    """
+    Devuelve los últimos N resultados de bastionado persistidos para un activo.
+    ENS: op.exp.2 — evidencia trimestral
+    """
+    try:
+        conn = psycopg2.connect(settings.database_url)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, asset_id, target_ip, hostname, controles,
+                       si_count, no_count, revisar_count, cumple_ens, verified_at
+                FROM hardening_results
+                WHERE asset_id = %s
+                ORDER BY verified_at DESC
+                LIMIT %s
+            """, (asset_id, limit))
+            rows = cur.fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            row = dict(r)
+            if row.get("verified_at"):
+                row["verified_at"] = row["verified_at"].isoformat()
+            if isinstance(row.get("controles"), str):
+                row["controles"] = json.loads(row["controles"])
+            results.append(row)
+
+        return {"asset_id": asset_id, "total": len(results), "results": results}
+
+    except psycopg2.errors.UndefinedTable:
+        return {"asset_id": asset_id, "total": 0, "results": []}
+    except Exception as e:
+        raise HTTPException(500, f"Error consultando resultados: {e}")
 FILE:services\scanner_engine\endpoints\scan.py
 """FastAPI endpoints for vulnerability scanning."""
 
@@ -51586,6 +52645,7 @@ NUCLEI_TEMPLATES = [
     "http/technologies/",
     "http/misconfiguration/",
     "http/exposures/",
+    "/app/templates/nuclei/custom/",
 ]
 
 # Remediaciones por tipo de finding
@@ -51677,7 +52737,7 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
     # Siempre escaneamos por IP: el contenedor del worker no resuelve los
     # hostnames internos de los assets, así que apuntar a la IP evita que
     # nuclei agote el timeout completo intentando resolver un host inexistente.
-    targets = [f"https://{target_ip}", f"http://{target_ip}"]
+    targets = [f"http://{target_ip}", f"https://{target_ip}"]
 
     # Si el hostname resuelve y es distinto de la IP, lo inyectamos como
     # cabecera Host para virtual-hosting sin depender de DNS para el destino.
@@ -51722,7 +52782,7 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=180,
+            timeout=300,
             env=env,
         )
 
@@ -52006,6 +53066,393 @@ FILE:services\scanner_engine\services\zap_wrapper.py
 """ZAP wrapper — replaced by Nikto."""
 FILE:services\scanner_engine\tasks\__init__.py
 """Celery scanner tasks module"""
+from .hardening_tasks import run_hardening_check, run_hardening_batch
+FILE:services\scanner_engine\tasks\hardening_tasks.py
+"""
+Tarea Celery de verificación de bastionado — ENS Alto
+13 controles vía SSH+paramiko. Solo lectura. Sin modificar el servidor.
+ENS: op.exp.2, mp.com.1, mp.si.5, op.exp.3, op.exp.5, op.acc.6,
+     mp.info.3, mp.com.2, op.cont.2
+"""
+
+import json
+import paramiko
+from datetime import datetime, timezone
+from typing import List, Dict, Any
+
+from shared.celery_app import app
+from shared.scan_logger import ScanLogger
+
+logger = ScanLogger("hardening_tasks")
+
+HARDENING_CONTROLS = [
+    {"id": 1,  "nombre": "Antivirus",                 "medida_ens": "op.exp.2"},
+    {"id": 2,  "nombre": "Cortafuegos (Firewall)",    "medida_ens": "mp.com.1"},
+    {"id": 3,  "nombre": "Almacenamiento externo",    "medida_ens": "mp.si.5"},
+    {"id": 4,  "nombre": "Aplicaciones permitidas",   "medida_ens": "op.exp.3"},
+    {"id": 5,  "nombre": "Configuración de logs",     "medida_ens": "op.exp.5"},
+    {"id": 6,  "nombre": "Puertos de red",            "medida_ens": "op.acc.6"},
+    {"id": 7,  "nombre": "Servidor horario (NTP)",    "medida_ens": "op.exp.3"},
+    {"id": 8,  "nombre": "Versión del software",      "medida_ens": "op.exp.2"},
+    {"id": 9,  "nombre": "Niveles de parches",        "medida_ens": "op.exp.2"},
+    {"id": 10, "nombre": "Unidades encriptadas",      "medida_ens": "mp.info.3"},
+    {"id": 11, "nombre": "Certificado SSL",           "medida_ens": "mp.com.2"},
+    {"id": 12, "nombre": "Doble factor (2FA)",        "medida_ens": "op.acc.6"},
+    {"id": 13, "nombre": "Copias de seguridad",       "medida_ens": "op.cont.2"},
+]
+
+def _ssh_exec(client: paramiko.SSHClient, cmd: str, password: str = None,
+              use_sudo: bool = False, timeout: int = 15) -> str:
+    """
+    Ejecuta un comando via SSH y devuelve stdout limpio.
+    Si use_sudo=True prefija con "echo {password} | sudo -S ".
+    Nunca lanza excepción — devuelve "" en caso de fallo.
+    """
+    try:
+        full_cmd = f"echo {password} | sudo -S {cmd}" if use_sudo and password else cmd
+        _, stdout, _ = client.exec_command(full_cmd, timeout=timeout, get_pty=False)
+        return stdout.read().decode("utf-8", errors="ignore").strip()
+    except Exception as e:
+        logger.warning(f"SSH exec error [{cmd[:40]}]: {e}")
+        return ""
+
+def _run_13_checks(client: paramiko.SSHClient, password: str) -> List[Dict]:
+    """
+    Ejecuta los 13 comandos de bastionado y devuelve lista de controles con resultado.
+    Resultado: "SI" | "NO" | "REVISAR"
+    """
+    controles = []
+
+    # 1 — Antivirus (ClamAV)
+    out = _ssh_exec(client, "systemctl is-active clamav-daemon 2>/dev/null")
+    controles.append({
+        **HARDENING_CONTROLS[0],
+        "resultado": "SI" if out == "active" else "NO",
+        "detalle": "ClamAV activo" if out == "active"
+                   else f"ClamAV no activo (estado: {out or 'no encontrado'})",
+    })
+
+    # 2 — Cortafuegos UFW
+    out = _ssh_exec(client, "ufw status 2>/dev/null | head -1", password=password, use_sudo=True)
+    if "active" in out.lower():
+        reglas = _ssh_exec(client, "ufw status 2>/dev/null | grep -c ALLOW",
+                           password=password, use_sudo=True)
+        controles.append({**HARDENING_CONTROLS[1], "resultado": "SI",
+                           "detalle": f"UFW activo, {reglas.strip() or '?'} reglas ALLOW"})
+    else:
+        controles.append({**HARDENING_CONTROLS[1], "resultado": "NO",
+                           "detalle": "UFW inactivo o no encontrado"})
+
+    # 3 — Almacenamiento externo (USB)
+    out = _ssh_exec(client, "lsblk -o NAME,TRAN 2>/dev/null | grep -i usb")
+    controles.append({
+        **HARDENING_CONTROLS[2],
+        "resultado": "SI" if not out.strip() else "NO",
+        "detalle": "Sin dispositivos USB montados" if not out.strip()
+                   else f"USB detectado: {out[:100]}",
+    })
+
+    # 4 — Aplicaciones instaladas manualmente
+    out = _ssh_exec(client, "apt-mark showmanual 2>/dev/null | wc -l")
+    try:
+        num = int(out.strip())
+        if num <= 100:
+            resultado, detalle = "REVISAR", f"{num} paquetes — lista corta, revisar contenido"
+        else:
+            resultado, detalle = "NO", f"{num} paquetes instalados manualmente — sin política formal"
+    except ValueError:
+        resultado, detalle = "REVISAR", "No se pudo obtener número de paquetes"
+    controles.append({**HARDENING_CONTROLS[3], "resultado": resultado, "detalle": detalle})
+
+    # 5 — Configuración de logs (rsyslog)
+    out = _ssh_exec(client, "systemctl is-active rsyslog 2>/dev/null")
+    if out != "active":
+        out2 = _ssh_exec(client, "systemctl is-active syslog 2>/dev/null")
+        activo = out2 == "active"
+        servicio = "syslog"
+    else:
+        activo = True
+        servicio = "rsyslog"
+    controles.append({
+        **HARDENING_CONTROLS[4],
+        "resultado": "SI" if activo else "NO",
+        "detalle": f"{servicio} activo" if activo else "rsyslog/syslog no está activo",
+    })
+
+    # 6 — Puertos de red expuestos
+    out = _ssh_exec(client, "ss -tlnp 2>/dev/null", password=password, use_sudo=True)
+    puertos_expuestos = []
+    for line in out.splitlines()[1:]:
+        if "0.0.0.0" in line or ":::" in line:
+            parts = line.split()
+            if len(parts) >= 4:
+                port_str = parts[3].split(":")[-1]
+                if port_str not in ("22", "80", "443", "56789"):
+                    puertos_expuestos.append(port_str)
+    if not puertos_expuestos:
+        controles.append({**HARDENING_CONTROLS[5], "resultado": "SI",
+                           "detalle": "Solo puertos necesarios expuestos (22/80/443)"})
+    else:
+        controles.append({**HARDENING_CONTROLS[5], "resultado": "REVISAR",
+                           "detalle": f"Puertos adicionales en 0.0.0.0: {', '.join(puertos_expuestos[:10])}"})
+
+    # 7 — NTP sincronizado
+    out = _ssh_exec(client, "timedatectl status 2>/dev/null")
+    sync_ok = "synchronized: yes" in out.lower()
+    ntp_ok = ("ntp service: active" in out.lower()
+              or "systemd-timesyncd.service active" in out.lower())
+    controles.append({
+        **HARDENING_CONTROLS[6],
+        "resultado": "SI" if (sync_ok and ntp_ok) else "NO",
+        "detalle": "Sincronizado y activo" if (sync_ok and ntp_ok)
+                   else f"sync={'sí' if sync_ok else 'no'}, NTP={'activo' if ntp_ok else 'inactivo'}",
+    })
+
+    # 8 — Versión del software (upgradable)
+    out = _ssh_exec(client, "apt list --upgradable 2>/dev/null | grep -c '/'")
+    try:
+        num = int(out.strip())
+        if num == 0:
+            resultado, detalle = "SI", "Sin actualizaciones pendientes"
+        elif num <= 5:
+            resultado, detalle = "REVISAR", f"{num} paquetes pendientes de actualizar"
+        else:
+            resultado, detalle = "NO", f"{num} paquetes pendientes de actualizar"
+    except ValueError:
+        resultado, detalle = "REVISAR", "No se pudo obtener lista de actualizaciones"
+    controles.append({**HARDENING_CONTROLS[7], "resultado": resultado, "detalle": detalle})
+
+    # 9 — Parches de seguridad pendientes
+    out = _ssh_exec(client, "apt list --upgradable 2>/dev/null | grep -i -c 'security'")
+    try:
+        num = int(out.strip())
+        controles.append({
+            **HARDENING_CONTROLS[8],
+            "resultado": "SI" if num == 0 else "NO",
+            "detalle": "Sin parches de seguridad pendientes" if num == 0
+                       else f"{num} parches de seguridad pendientes",
+        })
+    except ValueError:
+        controles.append({**HARDENING_CONTROLS[8], "resultado": "REVISAR",
+                           "detalle": "No se pudo verificar parches de seguridad"})
+
+    # 10 — Cifrado LUKS
+    out = _ssh_exec(client, "lsblk -o FSTYPE 2>/dev/null | grep -c 'crypto_LUKS'")
+    try:
+        num = int(out.strip())
+        controles.append({
+            **HARDENING_CONTROLS[9],
+            "resultado": "SI" if num > 0 else "NO",
+            "detalle": f"LUKS detectado en {num} partición/es" if num > 0
+                       else "Sin cifrado de disco detectado (LUKS no encontrado)",
+        })
+    except ValueError:
+        controles.append({**HARDENING_CONTROLS[9], "resultado": "NO",
+                           "detalle": "No se pudo verificar cifrado de disco"})
+
+    # 11 — Certificado SSL
+    cert_path = _ssh_exec(
+        client,
+        "find /etc/ssl /etc/apache2 /etc/nginx -name '*.crt' 2>/dev/null"
+        " | grep -v snakeoil | head -1",
+        password=password, use_sudo=True,
+    )
+    if cert_path.strip():
+        expiry = _ssh_exec(
+            client,
+            f"openssl x509 -in {cert_path.strip()} -noout -enddate 2>/dev/null | cut -d= -f2",
+            password=password, use_sudo=True,
+        )
+        controles.append({
+            **HARDENING_CONTROLS[10],
+            "resultado": "SI",
+            "detalle": f"Certificado encontrado. Válido hasta: {expiry.strip() or 'desconocido'}",
+        })
+    else:
+        controles.append({**HARDENING_CONTROLS[10], "resultado": "NO",
+                           "detalle": "No se encontró certificado SSL (excluido snakeoil)"})
+
+    # 12 — 2FA SSH via PAM
+    pam_2fa = _ssh_exec(
+        client,
+        "grep -c -E 'google-authenticator|pam_oath|pam_duo' /etc/pam.d/sshd 2>/dev/null",
+        password=password, use_sudo=True,
+    )
+    challenge = _ssh_exec(
+        client,
+        "grep -c 'ChallengeResponseAuthentication yes' /etc/ssh/sshd_config 2>/dev/null",
+        password=password, use_sudo=True,
+    )
+    try:
+        pam_count = int(pam_2fa.strip())
+    except ValueError:
+        pam_count = 0
+    if pam_count > 0:
+        controles.append({**HARDENING_CONTROLS[11], "resultado": "SI",
+                           "detalle": "2FA configurado en PAM SSH"})
+    elif challenge.strip() == "1":
+        controles.append({**HARDENING_CONTROLS[11], "resultado": "NO",
+                           "detalle": "ChallengeResponse activo pero sin módulo 2FA en PAM"})
+    else:
+        controles.append({**HARDENING_CONTROLS[11], "resultado": "NO",
+                           "detalle": "Sin configuración 2FA en SSH"})
+
+    # 13 — Copias de seguridad
+    svc = _ssh_exec(
+        client,
+        "systemctl list-units --type=service 2>/dev/null"
+        " | grep -c -E 'backup|rsync|borg|restic|bacula|amanda'",
+    )
+    cron_root = _ssh_exec(
+        client,
+        "crontab -l 2>/dev/null | grep -c -E 'backup|rsync|borg|restic|dump'",
+        password=password, use_sudo=True,
+    )
+    cron_user = _ssh_exec(
+        client,
+        "crontab -l 2>/dev/null | grep -c -E 'backup|rsync|borg|restic|dump'",
+    )
+    try:
+        total = (int(svc.strip() or 0)
+                 + int(cron_root.strip() or 0)
+                 + int(cron_user.strip() or 0))
+    except ValueError:
+        total = 0
+    controles.append({
+        **HARDENING_CONTROLS[12],
+        "resultado": "SI" if total > 0 else "NO",
+        "detalle": "Sistema de backup detectado" if total > 0
+                   else "Sin backup automatizado detectado",
+    })
+
+    return controles
+
+def _persist_hardening_result(asset_id: int, target_ip: str, hostname: str,
+                               controles: List[Dict]) -> None:
+    """
+    Persiste el resultado en la tabla hardening_results.
+    Usa psycopg2 directo para evitar problemas con SessionLocal en tareas Celery.
+    """
+    import psycopg2
+    import psycopg2.extras
+    from shared.config import settings
+
+    si_count = sum(1 for c in controles if c["resultado"] == "SI")
+    no_count = sum(1 for c in controles if c["resultado"] == "NO")
+    revisar_count = sum(1 for c in controles if c["resultado"] == "REVISAR")
+    cumple_ens = no_count == 0
+
+    try:
+        conn = psycopg2.connect(settings.database_url)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS hardening_results (
+                        id SERIAL PRIMARY KEY,
+                        asset_id INTEGER NOT NULL,
+                        target_ip VARCHAR(45) NOT NULL,
+                        hostname VARCHAR(255),
+                        controles JSONB NOT NULL,
+                        si_count INTEGER DEFAULT 0,
+                        no_count INTEGER DEFAULT 0,
+                        revisar_count INTEGER DEFAULT 0,
+                        cumple_ens BOOLEAN DEFAULT FALSE,
+                        verified_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                """)
+                cur.execute("""
+                    INSERT INTO hardening_results
+                        (asset_id, target_ip, hostname, controles,
+                         si_count, no_count, revisar_count, cumple_ens)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    asset_id, target_ip, hostname,
+                    json.dumps(controles),
+                    si_count, no_count, revisar_count, cumple_ens,
+                ))
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error persistiendo hardening result asset_id={asset_id}: {e}")
+
+@app.task(
+    name="tasks.run_hardening_check",
+    queue="vulnerabilities",
+    time_limit=180,
+    soft_time_limit=160,
+)
+def run_hardening_check(asset_id: int, target_ip: str, ssh_user: str,
+                        ssh_password: str, hostname: str = "") -> Dict[str, Any]:
+    """
+    Tarea Celery: ejecuta los 13 checks de bastionado sobre un activo vía SSH.
+    Solo lectura. No modifica nada en el servidor.
+    ENS: op.exp.2, mp.info.3, op.acc.6, op.cont.2, mp.com.1, mp.si.5,
+         op.exp.3, op.exp.5, mp.com.2
+    """
+    logger.info(f"HARDENING_CHECK_START asset_id={asset_id} target={target_ip}")
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        client.connect(target_ip, username=ssh_user, password=ssh_password, timeout=10)
+        controles = _run_13_checks(client, ssh_password)
+        client.close()
+    except Exception as e:
+        logger.error(f"HARDENING_SSH_ERROR asset_id={asset_id} error={e}")
+        return {
+            "status": "FAILURE",
+            "asset_id": asset_id,
+            "error": f"No se pudo conectar vía SSH: {str(e)}",
+        }
+
+    _persist_hardening_result(asset_id, target_ip, hostname, controles)
+
+    si_count = sum(1 for c in controles if c["resultado"] == "SI")
+    no_count = sum(1 for c in controles if c["resultado"] == "NO")
+    revisar_count = sum(1 for c in controles if c["resultado"] == "REVISAR")
+
+    result = {
+        "asset_id": asset_id,
+        "asset_name": hostname or f"Asset-{asset_id}",
+        "target": target_ip,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "controles": controles,
+        "resumen": {
+            "total": 13,
+            "si": si_count,
+            "no": no_count,
+            "revisar": revisar_count,
+            "cumple_ens": no_count == 0,
+        },
+    }
+    logger.info(
+        f"HARDENING_CHECK_COMPLETE asset_id={asset_id} "
+        f"SI={si_count} NO={no_count} REVISAR={revisar_count}"
+    )
+    return result
+
+@app.task(
+    name="tasks.run_hardening_batch",
+    queue="vulnerabilities",
+    time_limit=600,
+    soft_time_limit=570,
+)
+def run_hardening_batch(asset_checks: List[Dict]) -> Dict[str, Any]:
+    """
+    Tarea Celery: ejecuta hardening sobre una lista de activos secuencialmente.
+    Cada elemento de asset_checks: {asset_id, target_ip, ssh_user, ssh_password, hostname}
+    """
+    results = []
+    for a in asset_checks:
+        r = run_hardening_check(
+            asset_id=a["asset_id"],
+            target_ip=a["target_ip"],
+            ssh_user=a["ssh_user"],
+            ssh_password=a["ssh_password"],
+            hostname=a.get("hostname", ""),
+        )
+        results.append(r)
+    return {"status": "SUCCESS", "results": results}
 FILE:services\scanner_engine\tasks\vuln_tasks.py
 """
 Celery tasks for vulnerability scanning orchestration — M3.
@@ -52034,7 +53481,7 @@ logger = ScanLogger("scanner_tasks")
 
 # --- TAREA: NUCLEI (US-3.2) ---
 @app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities",
-          time_limit=240, soft_time_limit=210)
+          time_limit=360, soft_time_limit=330)
 def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
     """Ejecuta Nuclei y devuelve hallazgos sin persistir (el orquestador persiste)."""
     logger.info("NUCLEI_TASK_START", asset_id=asset_id, target=ip)
@@ -54246,18 +55693,35 @@ def _parse_auth_log_line(line: str, year: int) -> dict | None:
 
 def _ssh_read_auth_log(ip: str, user: str, password: str, lines: int = 500) -> list[dict]:
     try:
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(ip, username=user, password=password, timeout=10)
-        # Intentar con sudo -S (lee password desde stdin)
-        cmd = f'echo {password} | sudo -S tail -n {lines} /var/log/auth.log 2>/dev/null'
-        _, stdout, stderr = client.exec_command(cmd, get_pty=False)
-        raw = stdout.read().decode('utf-8', errors='ignore')
-        # Fallback: intentar sin sudo por si el usuario tiene permisos directos
-        if not raw.strip():
-            _, stdout2, _ = client.exec_command(f'tail -n {lines} /var/log/auth.log 2>/dev/null')
-            raw = stdout2.read().decode('utf-8', errors='ignore')
-        client.close()
+        import subprocess
+        import shlex
+        ssh_cmd = [
+            'sshpass', '-p', password,
+            'ssh',
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', 'HostKeyAlgorithms=+ssh-rsa',
+            '-o', 'KexAlgorithms=+diffie-hellman-group1-sha1',
+            '-o', 'ConnectTimeout=10',
+            f'{user}@{ip}',
+            f'tail -n {lines} /var/log/auth.log 2>/dev/null'
+        ]
+        # Intento 1: con sudo (para usuarios no-root)
+        ssh_cmd_sudo = ssh_cmd[:-1] + [
+            f'echo {password} | sudo -S tail -n {lines} /var/log/auth.log 2>/dev/null'
+        ]
+        result = subprocess.run(ssh_cmd_sudo, capture_output=True, text=True, timeout=20)
+        raw = result.stdout.strip()
+        # Filtrar línea "[sudo] password for ..." que va a stdout en algunos sistemas
+        raw = '\n'.join(l for l in raw.splitlines() if not l.startswith('[sudo]'))
+
+        # Intento 2: sin sudo (para root u otros con acceso directo)
+        if not raw:
+            result2 = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=20)
+            raw = result2.stdout.strip()
+
+        if not raw:
+            return [{'error': f'No output — stderr: {result.stderr[:200]}', 'ip': ip}]
         year = datetime.now().year
         return [ev for line in raw.splitlines() if (ev := _parse_auth_log_line(line, year))]
     except Exception as e:
@@ -54272,12 +55736,18 @@ async def list_auth_events(limit: int = 100):
     """
     assets = []
     try:
+        import os as _os
+        from shared.auth import create_access_token
+        _svc_token = create_access_token("scanops_service", "service")
         async with httpx.AsyncClient(verify=False, timeout=8) as client:
-            r = await client.get("http://m1:8001/api/v1/assets?page=1&page_size=100")
+            r = await client.get(
+                "http://scanops-m1:8001/api/v1/assets?page=1&page_size=100",
+                headers={"Authorization": f"Bearer {_svc_token}"}
+            )
             if r.status_code == 200:
                 assets = r.json().get('items', [])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"M1 assets fetch failed: {e}")
 
     if not assets:
         assets = [{'id': 1, 'ip': '10.202.15.100', 'name': 'srv-target'}]
@@ -57409,115 +58879,185 @@ vault_client = VaultClient()
 FILE:templates\nuclei\custom\__init__.py
 # Custom templates package
 FILE:templates\nuclei\custom\cves.yaml
-id: cve-2024-sql-injection
+id: custom-sql-injection-error
 info:
-  name: SQL Injection CVE-2024-XXXX
-  description: Potential SQL injection vulnerability
-  severity: critical
-  tags: [cve, injection, owasp, sql]
+  name: SQL Injection Error Disclosure
+  author: scanops
+  description: Detecta mensajes de error SQL en la respuesta al inyectar una comilla, indicio de SQL injection.
+  severity: high
+  tags: [custom, injection, sqli, owasp]
 http:
   - method: GET
-    path: /?id=1' OR '1'='1
+    path:
+      - "{{BaseURL}}/?id=1'"
+    matchers-condition: and
     matchers:
+      - type: word
+        part: body
+        words:
+          - "SQL syntax"
+          - "mysql_fetch"
+          - "ORA-01756"
+          - "Unclosed quotation mark"
+          - "SQLSTATE"
+          - "pg_query"
+        condition: or
       - type: status
-        status: [200]
+        status: [200, 500]
 
 ---
-id: cve-2024-xxe
+id: custom-xxe-probe
 info:
-  name: XML External Entity (XXE) CVE-2024-YYYY
-  description: XXE vulnerability in XML parser
+  name: XML External Entity (XXE) Probe
+  author: scanops
+  description: Comprueba si un endpoint XML refleja el contenido de una entidad externa definida en el cuerpo.
   severity: high
-  tags: [cve, xxe, owasp, xml]
+  tags: [custom, xxe, owasp, xml]
 http:
-  - method: POST
-    path: /api/parse
-    matchers:
-      - type: status
-        status: [200]
+  - raw:
+      - |
+        POST /api/parse HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/xml
 
----
-id: cve-2023-weak-cipher
-info:
-  name: Weak Cipher Suite CVE-2023-ZZZZ
-  description: Server uses weak cipher suites
-  severity: medium
-  tags: [cve, crypto, ssl, weak]
+        <?xml version="1.0"?><!DOCTYPE r [<!ENTITY x "scanops-xxe-canary">]><r>&x;</r>
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "scanops-xxe-canary"
 FILE:templates\nuclei\custom\hardening.yaml
-id: ssh-weak-algorithms
+id: custom-default-credentials-page
 info:
-  name: SSH Weak Key Exchange Algorithms
-  description: SSH server supports weak key exchange algorithms
-  severity: high
-  tags: [ssh, crypto, weak, hardening]
-
----
-id: unencrypted-data-transmission
-info:
-  name: Unencrypted Data Transmission
-  description: Sensitive data transmitted without encryption
-  severity: high
-  tags: [encryption, data, hardening]
-
----
-id: default-credentials
-info:
-  name: Default Credentials Detection
-  description: Application uses default/hardcoded credentials
-  severity: critical
-  tags: [auth, default, credentials, hardening]
-FILE:templates\nuclei\custom\web-apps.yaml
-id: missing-security-headers
-info:
-  name: Missing Security Headers
-  description: Missing X-Frame-Options, CSP, X-Content-Type-Options
+  name: Default Credentials Login Page Exposed
+  author: scanops
+  description: Detecta paneles de login conocidos que suelen venir con credenciales por defecto.
   severity: medium
-  tags: [security, headers, owasp]
+  tags: [custom, auth, default, credentials, hardening]
 http:
   - method: GET
-    path: /
+    path:
+      - "{{BaseURL}}/manager/html"
+      - "{{BaseURL}}/admin/login"
+      - "{{BaseURL}}/phpmyadmin/"
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "login"
+          - "password"
+          - "Tomcat"
+          - "phpMyAdmin"
+        condition: or
+      - type: status
+        status: [200, 401]
+
+---
+id: custom-directory-listing
+info:
+  name: Directory Listing Enabled
+  author: scanops
+  description: Detecta listado de directorios habilitado, que expone la estructura de ficheros del servidor.
+  severity: medium
+  tags: [custom, exposure, hardening, misconfig]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Index of /"
+          - "<title>Index of"
+          - "Directory Listing For"
+        condition: or
+FILE:templates\nuclei\custom\web-apps.yaml
+id: custom-missing-security-headers
+info:
+  name: Missing HTTP Security Headers
+  author: scanops
+  description: Detecta la ausencia de cabeceras de seguridad (X-Frame-Options, CSP, X-Content-Type-Options).
+  severity: low
+  tags: [custom, security, headers, owasp, misconfig]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers-condition: and
     matchers:
       - type: status
         status: [200]
+      - type: dsl
+        dsl:
+          - "!contains(tolower(all_headers), 'x-frame-options')"
+          - "!contains(tolower(all_headers), 'content-security-policy')"
+          - "!contains(tolower(all_headers), 'x-content-type-options')"
+        condition: or
 
 ---
-id: weak-password-policy
+id: custom-exposed-secrets-in-body
 info:
-  name: Weak Password Policy Detection
-  description: Application allows weak passwords
-  severity: low
-  tags: [auth, password, weak]
-
----
-id: exposed-api-keys
-info:
-  name: Exposed API Keys in Response
-  description: API keys visible in error messages or responses
-  severity: critical
-  tags: [api, key, exposure, secret]
+  name: Exposed API Keys or Secrets in Response
+  author: scanops
+  description: Detecta posibles claves de API o secretos expuestos en el cuerpo de la respuesta.
+  severity: high
+  tags: [custom, api, key, exposure, secret]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers:
+      - type: regex
+        part: body
+        regex:
+          - "(?i)aws_secret_access_key\\s*[=:]\\s*['\"][A-Za-z0-9/+]{20,}"
+          - "(?i)api[_-]?key\\s*[=:]\\s*['\"][A-Za-z0-9]{16,}"
+          - "AKIA[0-9A-Z]{16}"
+          - "(?i)bearer\\s+[A-Za-z0-9._-]{20,}"
+        condition: or
 FILE:templates\nuclei\custom\zero-days.yaml
-id: generic-rce-detection
+id: custom-lfi-pattern
 info:
-  name: Generic Remote Code Execution Check
-  description: Potential RCE vulnerability pattern
-  severity: critical
-  tags: [rce, injection, generic]
+  name: Local File Inclusion (LFI) Probe
+  author: scanops
+  description: Comprueba inclusión de ficheros locales intentando leer /etc/passwd vía parámetro file.
+  severity: high
+  tags: [custom, lfi, file, inclusion]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/?file=../../../../../../etc/passwd"
+      - "{{BaseURL}}/?page=../../../../../../etc/passwd"
+    stop-at-first-match: true
+    matchers:
+      - type: regex
+        part: body
+        regex:
+          - "root:.*:0:0:"
 
 ---
-id: ssrf-detection
+id: custom-ssrf-probe
 info:
-  name: Server-Side Request Forgery (SSRF) Detection
-  description: SSRF vulnerability in URL processing
+  name: Server-Side Request Forgery (SSRF) Probe
+  author: scanops
+  description: Comprueba SSRF apuntando un parámetro url al endpoint de metadatos cloud.
   severity: high
-  tags: [ssrf, request, forgery]
-
----
-id: lfi-pattern
-info:
-  name: Local File Inclusion (LFI) Pattern
-  description: LFI vulnerability pattern
-  severity: high
-  tags: [lfi, file, inclusion]
+  tags: [custom, ssrf, request, forgery]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/?url=http://169.254.169.254/latest/meta-data/"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "ami-id"
+          - "instance-id"
+          - "iam/security-credentials"
+        condition: or
 FILE:tests\conftest.py
 import sys
 from pathlib import Path

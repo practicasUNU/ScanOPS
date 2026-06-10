@@ -21,6 +21,7 @@ from shared.database import engine, get_db
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.endpoints.scan import router as scan_router
 from services.scanner_engine.api.router import router as results_router
+from services.scanner_engine.endpoints.hardening import router as hardening_router
 from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
  
 # ─── Logging Setup ─────────────────────────────
@@ -93,6 +94,7 @@ app.add_middleware(
 # ─── Include Routers ──────────────────────────
 app.include_router(scan_router, prefix="/api/v1")
 app.include_router(results_router, prefix="/api/v1")
+app.include_router(hardening_router, prefix="/api/v1")
  
  
 # ─── Root Endpoint ────────────────────────────
