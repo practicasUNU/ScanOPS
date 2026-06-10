@@ -9,13 +9,12 @@ import time
 from typing import Dict, List, Any
 from datetime import datetime, timezone
 from celery import group, chord
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+import sqlalchemy as sa
 from celery.exceptions import SoftTimeLimitExceeded
 
 from shared.celery_app import app
 from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
-from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
 from services.scanner_engine.clients.nmap_client import run_nmap_scan, extract_http_ports
 from services.scanner_engine.clients.ffuf_client import run_ffuf_scan
@@ -25,7 +24,8 @@ from services.scanner_engine.clients.testssl_client import run_testssl_scan
 logger = ScanLogger("scanner_tasks")
 
 # --- TAREA: NUCLEI (US-3.2) ---
-@app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities")
+@app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities",
+          time_limit=240, soft_time_limit=210)
 def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
     """Ejecuta Nuclei y devuelve hallazgos sin persistir (el orquestador persiste)."""
     logger.info("NUCLEI_TASK_START", asset_id=asset_id, target=ip)
@@ -70,7 +70,8 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
         loop.close()
 
 
-@app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities")
+@app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities",
+          time_limit=150, soft_time_limit=130)
 def run_nikto_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
     scheme = "https" if port == 443 else "http"
@@ -155,7 +156,7 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     """
     Recibe los resultados de todos los scanners, los une, persiste con upsert
     y genera stats. Deduplicación por (asset_id, vulnerability_id, scanner_name,
-    affected_port) — evita duplicados entre runs sucesivos.
+    COALESCE(affected_port, -1)) usando el índice funcional uix_vuln_findings_dedup.
     """
     all_findings = [finding for sublist in results_list for finding in sublist]
     db = SessionLocal()
@@ -163,13 +164,39 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     stats = {"total": 0, "new": 0, "updated": 0,
              "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
 
+    # Upsert raw SQL: ON CONFLICT referencia la expresión exacta del índice funcional.
+    # SQLAlchemy ORM no puede referenciar un índice funcional con COALESCE en index_elements,
+    # por lo que se usa text() para que PostgreSQL lo resuelva correctamente.
+    upsert_sql = sa.text("""
+        INSERT INTO vuln_findings
+            (asset_id, scan_id, vulnerability_id, title, description, severity,
+             cvss_v3_score, scanner_name, scanner_reference, affected_port,
+             evidence, discovered_at, last_verified_at, remediation_status, created_by, created_at)
+        VALUES
+            (:asset_id, :scan_id, :vulnerability_id, :title, :description, :severity,
+             :cvss_v3_score, :scanner_name, :scanner_reference, :affected_port,
+             :evidence::json, NOW(), :last_verified_at, 'open', :created_by, NOW())
+        ON CONFLICT (asset_id, vulnerability_id, scanner_name, COALESCE(affected_port, -1))
+        DO UPDATE SET
+            last_verified_at = EXCLUDED.last_verified_at,
+            evidence         = EXCLUDED.evidence,
+            description      = EXCLUDED.description,
+            severity         = EXCLUDED.severity,
+            scan_id          = EXCLUDED.scan_id,
+            updated_by       = EXCLUDED.created_by
+        RETURNING id, xmax
+    """)
+
+    import json as _json
+
     try:
         for f in all_findings:
             severity = f.get("severity", "INFO").upper()
+            if severity not in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
+                severity = "INFO"
             raw_evidence = f.get("evidence", {})
             evidence = raw_evidence if isinstance(raw_evidence, dict) else {"raw": str(raw_evidence)}
 
-            # Puerto: extraer de evidence si no viene en el finding directamente
             affected_port = f.get("affected_port") or f.get("port")
             if not affected_port:
                 port_raw = evidence.get("port")
@@ -181,36 +208,25 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
             vulnerability_id = (f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32]
             scanner_name     = f.get("scanner", "Generic")[:32]
 
-            stmt = pg_insert(VulnFinding).values(
-                asset_id         = asset_id,
-                scan_id          = scan_id,
-                vulnerability_id = vulnerability_id,
-                title            = f.get("title", "Unknown Vulnerability")[:255],
-                severity         = severity[:16],
-                description      = f.get("description", ""),
-                scanner_name     = scanner_name,
-                evidence         = evidence,
-                created_by       = "system-orchestrator",
-                cvss_v3_score    = f.get("cvss_score"),
-                scanner_reference= (f.get("cve_id") or "")[:128],
-                affected_port    = affected_port,
-                last_verified_at = datetime.now(timezone.utc),
-            ).on_conflict_do_update(
-                index_elements   = ['asset_id', 'vulnerability_id',
-                                    'scanner_name', 'affected_port'],
-                set_=dict(
-                    last_verified_at = datetime.now(timezone.utc),
-                    evidence         = evidence,
-                    description      = f.get("description", ""),
-                    severity         = severity[:16],
-                    scan_id          = scan_id,
-                    updated_by       = "system-orchestrator",
-                )
-            )
+            row = db.execute(upsert_sql, {
+                "asset_id":          asset_id,
+                "scan_id":           scan_id,
+                "vulnerability_id":  vulnerability_id,
+                "title":             f.get("title", "Unknown Vulnerability")[:255],
+                "severity":          severity[:16],
+                "description":       f.get("description", ""),
+                "cvss_v3_score":     f.get("cvss_score"),
+                "scanner_name":      scanner_name,
+                "scanner_reference": (f.get("cve_id") or "")[:128],
+                "affected_port":     affected_port,
+                "evidence":          _json.dumps(evidence),
+                "last_verified_at":  datetime.now(timezone.utc),
+                "created_by":        "system-orchestrator",
+            }).fetchone()
 
-            result = db.execute(stmt)
             stats["total"] += 1
-            if result.inserted_primary_key and result.inserted_primary_key[0]:
+            # xmax == 0 → INSERT nuevo; xmax != 0 → UPDATE (row existente)
+            if row and row[1] == 0:
                 stats["new"] += 1
             else:
                 stats["updated"] += 1

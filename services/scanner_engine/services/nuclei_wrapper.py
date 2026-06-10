@@ -5,10 +5,12 @@ from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
-# Templates ordenados por impacto — technologies para fingerprint, misconfiguration para hallazgos reales
+# Templates: technologies para fingerprint rápido, misconfiguration para hallazgos relevantes.
+# Se excluyen directorios muy lentos (fuzzing/, passive/) para mantener el escaneo ágil.
 NUCLEI_TEMPLATES = [
     "http/technologies/",
     "http/misconfiguration/",
+    "http/exposures/",
 ]
 
 # Remediaciones por tipo de finding
@@ -103,13 +105,14 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
         "-jsonl",
         "-output", output_file,
         "-duc",
-        "-timeout", "8",
-        "-bulk-size", "5",
-        "-rate-limit", "10",
+        "-timeout", "10",
+        "-bulk-size", "10",
+        "-rate-limit", "30",
         "-retries", "0",
-        "-max-host-error", "3",
+        "-max-host-error", "5",
         "-no-interactsh",
         "-follow-redirects",
+        "-nh",
     ]
 
     for template in NUCLEI_TEMPLATES:
@@ -126,9 +129,8 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=90,
+            timeout=180,
             env=env,
-            start_new_session=True,
         )
 
         findings = []
