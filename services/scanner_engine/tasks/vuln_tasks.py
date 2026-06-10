@@ -7,8 +7,9 @@ import asyncio
 import logging
 import time
 from typing import Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from celery import group, chord
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from celery.exceptions import SoftTimeLimitExceeded
 
 from shared.celery_app import app
@@ -148,44 +149,79 @@ def run_testssl_task(asset_id: int, ip: str) -> List[Dict]:
         logger.error("TESTSSL_TASK_ERROR", error=str(e))
         return []
 
-# --- CALLBACK: MERGE & PERSIST (US-3.4) ---
+# --- CALLBACK: MERGE & PERSIST con deduplicación (US-3.4) ---
 @app.task(name="tasks.merge_and_persist_results")
 def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     """
-    Recibe los resultados de todos los scanners, los une, persiste y genera stats.
+    Recibe los resultados de todos los scanners, los une, persiste con upsert
+    y genera stats. Deduplicación por (asset_id, vulnerability_id, scanner_name,
+    affected_port) — evita duplicados entre runs sucesivos.
     """
     all_findings = [finding for sublist in results_list for finding in sublist]
     db = SessionLocal()
     scan_id = f"scan_multi_{int(time.time())}"
-    
-    stats = {"total": 0, "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
-    
+    stats = {"total": 0, "new": 0, "updated": 0,
+             "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+
     try:
         for f in all_findings:
             severity = f.get("severity", "INFO").upper()
             raw_evidence = f.get("evidence", {})
             evidence = raw_evidence if isinstance(raw_evidence, dict) else {"raw": str(raw_evidence)}
-            vuln = VulnFinding(
-                asset_id=asset_id,
-                scan_id=scan_id,
-                vulnerability_id=(f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32],
-                title=f.get("title", "Unknown Vulnerability")[:255],
-                severity=severity[:16],
-                description=f.get("description", ""),
-                scanner_name=f.get("scanner", "Generic")[:32],
-                evidence=evidence,
-                created_by="system-orchestrator",
-                cvss_v3_score=f.get("cvss_score"),
-                scanner_reference=(f.get("cve_id") or "")[:128],
+
+            # Puerto: extraer de evidence si no viene en el finding directamente
+            affected_port = f.get("affected_port") or f.get("port")
+            if not affected_port:
+                port_raw = evidence.get("port")
+                try:
+                    affected_port = int(port_raw) if port_raw else None
+                except (ValueError, TypeError):
+                    affected_port = None
+
+            vulnerability_id = (f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32]
+            scanner_name     = f.get("scanner", "Generic")[:32]
+
+            stmt = pg_insert(VulnFinding).values(
+                asset_id         = asset_id,
+                scan_id          = scan_id,
+                vulnerability_id = vulnerability_id,
+                title            = f.get("title", "Unknown Vulnerability")[:255],
+                severity         = severity[:16],
+                description      = f.get("description", ""),
+                scanner_name     = scanner_name,
+                evidence         = evidence,
+                created_by       = "system-orchestrator",
+                cvss_v3_score    = f.get("cvss_score"),
+                scanner_reference= (f.get("cve_id") or "")[:128],
+                affected_port    = affected_port,
+                last_verified_at = datetime.now(timezone.utc),
+            ).on_conflict_do_update(
+                index_elements   = ['asset_id', 'vulnerability_id',
+                                    'scanner_name', 'affected_port'],
+                set_=dict(
+                    last_verified_at = datetime.now(timezone.utc),
+                    evidence         = evidence,
+                    description      = f.get("description", ""),
+                    severity         = severity[:16],
+                    scan_id          = scan_id,
+                    updated_by       = "system-orchestrator",
+                )
             )
-            db.add(vuln)
+
+            result = db.execute(stmt)
             stats["total"] += 1
+            if result.inserted_primary_key and result.inserted_primary_key[0]:
+                stats["new"] += 1
+            else:
+                stats["updated"] += 1
             if severity in stats:
                 stats[severity] += 1
-        
+
         db.commit()
-        logger.info("SCAN_MERGE_COMPLETE", asset_id=asset_id, total=stats["total"])
-        return {"status": "completed", "asset_id": asset_id, "scan_id": scan_id, "stats": stats}
+        logger.info("SCAN_MERGE_COMPLETE", asset_id=asset_id,
+                    total=stats["total"], new=stats["new"], updated=stats["updated"])
+        return {"status": "completed", "asset_id": asset_id,
+                "scan_id": scan_id, "stats": stats}
     except Exception as e:
         db.rollback()
         logger.error("MERGE_PERSIST_ERROR", error=str(e))
