@@ -25,7 +25,7 @@ logger = ScanLogger("scanner_tasks")
 
 # --- TAREA: NUCLEI (US-3.2) ---
 @app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities",
-          time_limit=240, soft_time_limit=210)
+          time_limit=360, soft_time_limit=330)
 def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
     """Ejecuta Nuclei y devuelve hallazgos sin persistir (el orquestador persiste)."""
     logger.info("NUCLEI_TASK_START", asset_id=asset_id, target=ip)

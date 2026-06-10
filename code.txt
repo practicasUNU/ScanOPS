@@ -3052,6 +3052,189 @@ def upgrade():
 
 def downgrade():
     op.drop_column('assets', 'nombre')
+FILE:alembic\versions\005_add_m4_exploit_tables.py
+"""add ssh credentials to assets and m4 exploit tables
+
+Revision ID: 005
+Revises: 004
+Create Date: 2026-06-10
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = '005'
+down_revision = '004'
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    conn = op.get_bind()
+
+    # ── assets: columnas SSH ───────────────────────────────────────────────
+    conn.execute(sa.text("""
+        ALTER TABLE assets
+        ADD COLUMN IF NOT EXISTS ssh_user     VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS ssh_password VARCHAR(255)
+    """))
+
+    # ── m4_approvals: la tabla ya existe con esquema distinto al planeado.
+    #    Añadimos las columnas que faltan sin tocar las existentes.
+    for col_ddl in [
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS asset_id      INTEGER",
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS requested_by  VARCHAR(100)",
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS totp_validated BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS pin_validated  BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS findings_json  JSONB",
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS notes          TEXT",
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS ip_origin      VARCHAR(45)",
+        "ALTER TABLE m4_approvals ADD COLUMN IF NOT EXISTS metadata       JSONB",
+    ]:
+        conn.execute(sa.text(col_ddl))
+
+    conn.execute(sa.text(
+        "CREATE INDEX IF NOT EXISTS idx_m4_approvals_status   ON m4_approvals(status)"
+    ))
+    conn.execute(sa.text(
+        "CREATE INDEX IF NOT EXISTS idx_m4_approvals_asset_id ON m4_approvals(asset_id)"
+    ))
+
+    # ── exploit_results: tabla ya existe. Añadimos columnas que faltan. ───
+    for col_ddl in [
+        "ALTER TABLE exploit_results ADD COLUMN IF NOT EXISTS session_id   INTEGER",
+        "ALTER TABLE exploit_results ADD COLUMN IF NOT EXISTS exit_code    INTEGER",
+        "ALTER TABLE exploit_results ADD COLUMN IF NOT EXISTS error        TEXT",
+        "ALTER TABLE exploit_results ADD COLUMN IF NOT EXISTS evidence_json JSONB",
+        "ALTER TABLE exploit_results ADD COLUMN IF NOT EXISTS executed_by  VARCHAR(100)",
+        "ALTER TABLE exploit_results ADD COLUMN IF NOT EXISTS metadata     JSONB",
+    ]:
+        conn.execute(sa.text(col_ddl))
+
+    for idx in [
+        "CREATE INDEX IF NOT EXISTS idx_exploit_results_approval_id  ON exploit_results(approval_id)",
+        "CREATE INDEX IF NOT EXISTS idx_exploit_results_cve_id        ON exploit_results(cve_id)",
+        "CREATE INDEX IF NOT EXISTS idx_exploit_results_target        ON exploit_results(target_ip, target_port)",
+        "CREATE INDEX IF NOT EXISTS idx_exploit_results_success       ON exploit_results(success)",
+        "CREATE INDEX IF NOT EXISTS idx_exploit_results_timestamp     ON exploit_results(started_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_exploit_results_executed_by   ON exploit_results(executed_by)",
+    ]:
+        conn.execute(sa.text(idx))
+
+    conn.execute(sa.text("""
+        CREATE OR REPLACE VIEW exploit_summary AS
+        SELECT
+            cve_id,
+            COUNT(*)                                                    AS total_attempts,
+            COUNT(CASE WHEN success THEN 1 END)                         AS successful,
+            COUNT(CASE WHEN NOT success THEN 1 END)                     AS failed,
+            ROUND(COUNT(CASE WHEN success THEN 1 END)::NUMERIC
+                  / NULLIF(COUNT(*), 0) * 100, 2)                       AS success_rate,
+            AVG(duration_seconds)                                       AS avg_duration,
+            MAX(started_at)                                             AS last_attempt
+        FROM exploit_results
+        GROUP BY cve_id
+        ORDER BY total_attempts DESC
+    """))
+
+    # ── hydra_results: tabla ya existe. Añadimos columnas que faltan. ─────
+    for col_ddl in [
+        "ALTER TABLE hydra_results ADD COLUMN IF NOT EXISTS attempts    INTEGER DEFAULT 0",
+        "ALTER TABLE hydra_results ADD COLUMN IF NOT EXISTS duration    INTEGER DEFAULT 0",
+        "ALTER TABLE hydra_results ADD COLUMN IF NOT EXISTS error       TEXT",
+        "ALTER TABLE hydra_results ADD COLUMN IF NOT EXISTS executed_by VARCHAR(100)",
+        "ALTER TABLE hydra_results ADD COLUMN IF NOT EXISTS ip_origin   VARCHAR(45)",
+    ]:
+        conn.execute(sa.text(col_ddl))
+
+    for idx in [
+        "CREATE INDEX IF NOT EXISTS idx_hydra_results_approval_id ON hydra_results(approval_id)",
+        "CREATE INDEX IF NOT EXISTS idx_hydra_results_target_ip   ON hydra_results(target_ip)",
+        "CREATE INDEX IF NOT EXISTS idx_hydra_results_service     ON hydra_results(service)",
+        "CREATE INDEX IF NOT EXISTS idx_hydra_results_success     ON hydra_results(success)",
+        "CREATE INDEX IF NOT EXISTS idx_hydra_results_timestamp   ON hydra_results(created_at DESC)",
+    ]:
+        conn.execute(sa.text(idx))
+
+    conn.execute(sa.text("""
+        CREATE OR REPLACE VIEW hydra_summary AS
+        SELECT
+            service,
+            COUNT(*)                                                    AS total_attempts,
+            COUNT(CASE WHEN success THEN 1 END)                         AS successful,
+            COUNT(CASE WHEN NOT success THEN 1 END)                     AS failed,
+            ROUND(COUNT(CASE WHEN success THEN 1 END)::NUMERIC
+                  / NULLIF(COUNT(*), 0) * 100, 2)                       AS success_rate,
+            AVG(attempts)                                               AS avg_attempts,
+            AVG(duration)                                               AS avg_duration
+        FROM hydra_results
+        GROUP BY service
+        ORDER BY successful DESC
+    """))
+
+    conn.execute(sa.text("""
+        CREATE OR REPLACE VIEW credentials_found AS
+        SELECT target_ip, service, port, username, password, created_at
+        FROM hydra_results
+        WHERE success = TRUE
+        ORDER BY created_at DESC
+    """))
+
+def downgrade():
+    conn = op.get_bind()
+    conn.execute(sa.text("DROP VIEW IF EXISTS credentials_found"))
+    conn.execute(sa.text("DROP VIEW IF EXISTS hydra_summary"))
+    conn.execute(sa.text("DROP VIEW IF EXISTS exploit_summary"))
+    conn.execute(sa.text("ALTER TABLE assets DROP COLUMN IF EXISTS ssh_user"))
+    conn.execute(sa.text("ALTER TABLE assets DROP COLUMN IF EXISTS ssh_password"))
+FILE:alembic\versions\006_add_vuln_findings_dedup_index.py
+"""add dedup unique index on vuln_findings
+
+Revision ID: 006
+Revises: 005
+Create Date: 2026-06-10
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = '006'
+down_revision = '005'
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    conn = op.get_bind()
+
+    # Eliminar duplicados existentes, conservando el más reciente por grupo
+    conn.execute(sa.text("""
+        DELETE FROM vuln_findings
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY asset_id,
+                                        vulnerability_id,
+                                        scanner_name,
+                                        COALESCE(affected_port, -1)
+                           ORDER BY created_at DESC
+                       ) AS rn
+                FROM vuln_findings
+            ) ranked
+            WHERE rn > 1
+        )
+    """))
+
+    # Índice funcional único — ON CONFLICT lo necesita para resolver por clave natural
+    conn.execute(sa.text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uix_vuln_findings_dedup
+        ON vuln_findings (
+            asset_id,
+            vulnerability_id,
+            scanner_name,
+            COALESCE(affected_port, -1)
+        )
+    """))
+
+def downgrade():
+    op.drop_index('uix_vuln_findings_dedup', table_name='vuln_findings')
 FILE:certs\localhost+2-key.pem
 -----BEGIN PRIVATE KEY-----
 MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC59wnDXKyPelSL
@@ -7076,11 +7259,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 )
 FILE:frontend\src\app\App.tsx
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router';
+import { CriticalToast } from './components/CriticalToast';
+import { useCriticalAlerts } from '../hooks/useCriticalAlerts';
 import { LoginPage } from './components/LoginPage';
 import { DashboardPage } from './components/DashboardPage';
 import { ExploitationPage } from './components/ExploitationPage';
 import { CompliancePage } from './components/CompliancePage';
-
 import { AuditLogsPage } from './components/AuditLogsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AssetManagerPage } from './components/AssetManagerPage';
@@ -7093,9 +7277,10 @@ import { AlertsPage } from './components/AlertsPage';
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
 
-export default function App() {
+function AppInner() {
+  const { toastQueue, dismissToast } = useCriticalAlerts();
   return (
-    <BrowserRouter>
+    <>
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
@@ -7137,7 +7322,6 @@ export default function App() {
         <Route path="/ai-reasoning" element={
           <ProtectedRoute><AIReasoningPage /></ProtectedRoute>
         } />
-
         <Route path="/reporting" element={
           <ProtectedRoute requiredRole={['system_manager', 'auditor']}>
             <ReportingPage />
@@ -7149,11 +7333,20 @@ export default function App() {
           </ProtectedRoute>
         } />
       </Routes>
+      <CriticalToast toasts={toastQueue} onDismiss={dismissToast} />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppInner />
     </BrowserRouter>
   );
 }
 FILE:frontend\src\app\components\AIReasoningPage.tsx
-TRUNCATED:true SIZE:54785
+TRUNCATED:true SIZE:54744
 import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -8069,10 +8262,8 @@ export function AIReasoningPage() {
                 <ShieldCheck className="w-5 h-5 text-[#00d4ff]"/>
                 <h3 className="text-sm font-bold text-white">Autorizar Vector de Ataque</h3>
               </div>
-              {authStep !== 'done' && (
-                <button onClick={() => { setAuthModalOpen(false); setAuthTotpSecret(''); setAuthLiveCode(''); setAuthCodeTimer(30); }}
-                  className="text-[#6b7280] hover:text-white text-lg leading-none">×</button>
-              )}
+              <button onClick={() => { setAuthModalOpen(false); setAuthTotpSecret(''); setAuthLiveCode(''); setAuthCodeTimer(30); setAuthStep('pin'); }}
+                className="text-[#6b7280] hover:text-white text-lg leading-none">×</button>
             </div>
 
             {/* Indicador de pasos */}
@@ -8082,7 +8273,7 @@ export function AIReasoningPage() {
                 return (
                   <React.Fragment key={label}>
                     <div className={`flex items-center gap-1.5 text-xs font-mono ${stepIdx >= i ? 'text-[#00d4ff]' : 'text-[#374151]'}`}>
-                      <div className={`w
+                      <div className={`w-5 h-5 rounded-full flex items-center jus
 FILE:frontend\src\app\components\AlertsPage.tsx
 import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
@@ -8908,7 +9099,7 @@ export function AlertsPage() {
   );
 }
 FILE:frontend\src\app\components\AssetDetailPage.tsx
-TRUNCATED:true SIZE:94169
+TRUNCATED:true SIZE:97404
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
@@ -8959,6 +9150,8 @@ interface AssetDetail {
   os_version?: string | null;
   departamento?: string | null;
   ubicacion?: string | null;
+  ssh_user?: string | null;
+  ssh_password?: string | null;
 }
 
 type EditForm = {
@@ -8976,6 +9169,8 @@ type EditForm = {
   ubicacion: string;
   mac_address: string;
   notas: string;
+  ssh_user: string;
+  ssh_password: string;
 };
 
 function toEditForm(a: AssetDetail): EditForm {
@@ -8994,6 +9189,8 @@ function toEditForm(a: AssetDetail): EditForm {
     ubicacion: a.ubicacion ?? '',
     mac_address: a.mac_address ?? '',
     notas: a.notas ?? '',
+    ssh_user: a.ssh_user ?? '',
+    ssh_password: a.ssh_password ?? '',
   };
 }
 
@@ -9131,6 +9328,7 @@ export function AssetDetailPage() {
     hostname: '', nombre: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '',
     status: 'ACTIVO', os_family: '', os_version: '', dominio: '',
     network_range: '', departamento: '', ubicacion: '', mac_address: '', notas: '',
+    ssh_user: '', ssh_password: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -9258,6 +9456,8 @@ export function AssetDetailPage() {
         ubicacion:     editForm.ubicacion     || null,
         mac_address:   editForm.mac_address   || null,
         notas:         editForm.notas         || null,
+        ssh_user:      editForm.ssh_user      || null,
+        ssh_password:  editForm.ssh_password  || null,
       };
       const res = await fetch(`${M1_BASE}/assets/${asset.id}`, {
         method: 'PUT',
@@ -9948,42 +10148,37 @@ export function AssetDetailPage() {
                       : <div className="text-sm text-[#9ca3af]">{asset.notas ?? '—'}</div>}
                   </div>
                 </div>
-              </div>
 
-              {/* Card 2: Scan Results */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">Resultados de escaneo</h2>
-                  {vulns.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-[#1e2530] text-xs text-[#9ca3af] font-mono">{filteredVulns.length}/{vulns.length}</span>
-                  )}
-                </div>
-
-                {vulns.length > 0 && (
-                  <div className="flex items-center gap-2 mb-3">
-                    <select
-                      value={filterDate}
-                      onChange={e => setFilterDate(e.target.value)}
-                      className="bg-[#0f1117] border border-[#1e2530] text-sm text-[#9ca3af] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#00d4ff] transition-colors"
-                    >
-                      <option value="all">Todos los días</option>
-                      {scanDates.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                    <select
-                      value={filterTool}
-                      onChange={e => setFilterTool(e.target.value)}
-                      className="bg-[#0f1117] border border-[#1e2530] text-sm text-[#9ca3af] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#00d4ff] transition-colors"
-                    >
-                      <option value="all">Todas las herramientas</option>
-                      {scanTools.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                {/* ── Credenciales SSH ── */}
+                <div className="mt-5 bg-[#1a1d27] border border-[#1e2530] rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Shield className="w-4 h-4 text-[#f59e0b]" />
+                    <h3 className="text-sm font-semibold text-white">Credenciales SSH</h3>
+                    <span className="text-xs text-[#4b5563]">· ENS op.acc.1 · Acceso a logs del activo</span>
                   </div>
-                )}
-
-                {vulnsLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-[#6b7280] py-4">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Cargando resu
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-[#9ca3af]">Usuario SSH</label>
+                      {editing ? (
+                        <input
+                          value={editForm.ssh_user}
+                          onChange={e => setEditForm(p => ({ ...p, ssh_user: e.target.value }))}
+                          placeholder="admin"
+                          className={inputClass}
+                        />
+                      ) : (
+                        <span className="text-sm font-mono text-white">
+                          {asset.ssh_user || <span className="text-[#4b5563]">No configurado</span>}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-[#9ca3af]">Contraseña SSH</label>
+                      {editing ? (
+                        <input
+                          type="password"
+                          value={editForm.ssh_password}
+                          onChange={e 
 FILE:frontend\src\app\components\AssetManagerPage.tsx
 TRUNCATED:true SIZE:86020
 import { useState, useCallback, useEffect } from 'react';
@@ -12672,6 +12867,104 @@ export function CompliancePage() {
     </div>
   );
 }
+FILE:frontend\src\app\components\CriticalToast.tsx
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router';
+import { AlertTriangle, X } from 'lucide-react';
+import type { CriticalAlert } from '../../hooks/useCriticalAlerts';
+
+interface Props {
+  toasts: CriticalAlert[];
+  onDismiss: (id: string) => void;
+}
+
+const AUTO_DISMISS_MS = 8000;
+
+export function CriticalToast({ toasts, onDismiss }: Props) {
+  const navigate = useNavigate();
+
+  // Auto-dismiss el toast más reciente tras 8s
+  useEffect(() => {
+    if (toasts.length === 0) return;
+    const latest = toasts[toasts.length - 1];
+    const timer = setTimeout(() => onDismiss(latest.id), AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [toasts, onDismiss]);
+
+  if (toasts.length === 0) return null;
+
+  const toast = toasts[toasts.length - 1];
+
+  return (
+    <div className="fixed bottom-6 right-6 z-[9999] w-80">
+      <div className="bg-[#1a1d27] border border-[#ff3b3b]/50 rounded-xl shadow-2xl overflow-hidden">
+        {/* Barra roja superior */}
+        <div className="h-1 bg-gradient-to-r from-[#ff3b3b] to-[#ff6b6b]" />
+
+        <div className="p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 bg-[#ff3b3b]/15 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
+              <AlertTriangle className="w-4 h-4 text-[#ff3b3b]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[10px] font-bold text-[#ff3b3b] uppercase tracking-wider">
+                  CRITICAL
+                </span>
+                <span className="text-[9px] text-[#4b5563] font-mono">
+                  {new Date(toast.timestamp).toLocaleTimeString('es-ES', {
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </span>
+              </div>
+              <p className="text-xs font-semibold text-white truncate">{toast.title}</p>
+              <p className="text-[10px] text-[#9ca3af] mt-0.5 line-clamp-2">{toast.message}</p>
+            </div>
+            <button
+              onClick={() => onDismiss(toast.id)}
+              className="text-[#4b5563] hover:text-white transition-colors cursor-pointer shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              onClick={() => { navigate(toast.link); onDismiss(toast.id); }}
+              className="flex-1 text-[10px] font-medium text-[#ff3b3b] border border-[#ff3b3b]/30
+                         hover:bg-[#ff3b3b]/10 rounded-lg py-1.5 transition-colors cursor-pointer"
+            >
+              Ver detalle →
+            </button>
+            <button
+              onClick={() => onDismiss(toast.id)}
+              className="text-[10px] text-[#4b5563] hover:text-white transition-colors cursor-pointer px-2"
+            >
+              Ignorar
+            </button>
+          </div>
+
+          {/* Barra de progreso auto-dismiss */}
+          <div className="mt-2 h-0.5 bg-[#1e2530] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#ff3b3b]/40 rounded-full"
+              style={{ animation: `scanops-shrink ${AUTO_DISMISS_MS}ms linear forwards` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {toasts.length > 1 && (
+        <div className="mt-2 text-center">
+          <span className="text-[9px] text-[#ff3b3b] bg-[#ff3b3b]/10 border border-[#ff3b3b]/20
+                           px-2 py-0.5 rounded-full font-mono">
+            +{toasts.length - 1} alertas CRITICAL más
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 FILE:frontend\src\app\components\DashboardPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -13312,8 +13605,11 @@ export function DashboardPage() {
               <div className="px-5 py-4 border-t border-[#1e2530] space-y-3">
                 {immApprovals.length > 0 && (
                   <div className="flex items-center gap-4">
-                    <img src={`data:image/png;base64,${immApprovals[0].qr_code_base64}`}
-                         alt="QR TOTP" className="w-20 h-20 rounded border border-[#1e2530] shrink-0"/>
+                    <div className="flex flex-col items-center gap-2">
+                      <img src={`data:image/png;base64,${immApprovals[0].qr_code_base64}`}
+                           alt="QR TOTP" className="w-48 h-48 rounded-lg border border-[#1e2530]"/>
+                      <p className="text-[10px] text-[#6b7280]">Escanea con Google Authenticator</p>
+                    </div>
                     <div>
                       <p className="text-xs font-bold text-white">
                         Aprobación maestra #{immApprovals[0].approval_id}
@@ -13322,9 +13618,6 @@ export function DashboardPage() {
                         {immApprovals[0].asset_ip}
                       </p>
                       <p className="text-[10px] text-[#f59e0b] font-mono mt-0.5">PIN: 1234</p>
-                      <p className="text-[10px] text-[#6b7280] mt-0.5">
-                        Escanea con Google Authenticator
-                      </p>
                     </div>
                   </div>
                 )}
@@ -13700,7 +13993,13 @@ export function ExploitationPage() {
   const [attackRunning, setAttackRunning] = useState(false);
   const [attackResult, setAttackResult] = useState<any>(null);
   const [attackLog, setAttackLog] = useState<{ ts: string; msg: string; level: string }[]>([]);
-  const [showAllFindings, setShowAllFindings] = useState(false);
+  const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
+  const toggleBlock = (i: number) =>
+    setExpandedBlocks(prev => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
   const attackLogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -13761,7 +14060,7 @@ export function ExploitationPage() {
     setAttackRunning(true);
     setAttackResult(null);
     setAttackLog([]);
-    setShowAllFindings(false);
+    setExpandedBlocks(new Set());
     const alog = (msg: string, level = 'info') => {
       const ts = new Date().toLocaleTimeString('es-ES');
       setAttackLog(p => [...p, { ts, msg, level }]);
@@ -13815,6 +14114,9 @@ export function ExploitationPage() {
           alog(`[✓]   → Target: ${data.target || selectedAsset.ip}`, 'success');
           const injections: string[] = data.injections_found || [];
           injections.slice(0, 5).forEach((line: string) => alog(`[✓]   → ${line}`, 'success'));
+          if (injections.length > 5) {
+            alog(`[▶] __SHOW_ALL_FINDINGS__:${injections.slice(5).join('|')}`, 'expand');
+          }
           alog(`[★] VULNERABILIDAD CRÍTICA — registrado en audit log ENS`, 'error');
         } else {
           alog(`[✗] No se encontró inyección SQL`, 'warn');
@@ -13851,6 +14153,11 @@ export function ExploitationPage() {
           alog(`[✓]   → ${selectedAsset.ip}:${attack?.port} (${data.service?.toUpperCase()})`, 'success');
           alog(`[✓]   → Credenciales: ${data.username}:${data.password_found}`, 'success');
           alog(`[✓]   → Intentos: ${data.attempts} | Duración: ${data.duration}s`, 'success');
+          if (data.all_credentials?.length > 1) {
+            const extra = data.all_credentials.slice(1)
+              .map((c: any) => `${c.username}:${c.password}`);
+            alog(`[▶] __SHOW_ALL_FINDINGS__:${extra.join('|')}`, 'expand');
+          }
           alog(`[★] VULNERABILIDAD CONFIRMADA — registrado en audit log`, 'error');
         }
       } else {
@@ -14350,24 +14657,25 @@ export function ExploitationPage() {
                 >
                   {attackLog.map((l, i) => {
                     if (l.level === 'expand') {
-                      const extra = l.msg.replace('[▶] __SHOW_ALL_FINDINGS__:', '').split('|');
+                      const extra = l.msg.replace('[▶] __SHOW_ALL_FINDINGS__:', '').split('|').filter(Boolean);
+                      const isExpanded = expandedBlocks.has(i);
                       return (
                         <div key={i}>
-                          {showAllFindings && extra.map((f, j) => (
+                          {isExpanded && extra.map((f, j) => (
                             <div key={j} className="flex gap-2">
                               <span className="text-[#374151] shrink-0">{l.ts}</span>
                               <span className="text-[#22c55e]">{`[✓]   → ${f}`}</span>
                             </div>
                           ))}
                           <div
-                            className="flex gap-2 cursor-pointer"
-                            onClick={() => setShowAllFindings(p => !p)}
+                            className="flex gap-2 cursor-pointer select-none"
+                            onClick={() => toggleBlock(i)}
                           >
                             <span className="text-[#374151] shrink-0">{l.ts}</span>
-                            <span className="text-[#3b82f6] hover:text-[#60a5fa]">
-                              {showAllFindings
-                                ? `[▼] Ocultar ${extra.length} rutas`
-                                : `[▶] Ver todas (${extra.length} rutas más)`}
+                            <span className="text-[#3b82f6] hover:text-[#60a5fa] transition-colors">
+                              {isExpanded
+                                ? `[▼] Ocultar ${extra.length} rutas/hallazgos`
+                                : `[▶] Ver todas — ${extra.length} hallazgos más`}
                             </span>
                           </div>
                         </div>
@@ -16582,6 +16890,7 @@ import { useNavigate } from 'react-router';
 import { getCycleState } from '../utils/cycleState';
 import type { DotColor } from '../utils/cycleState';
 import { useAuth } from '../../hooks/useAuth';
+import { useCriticalAlerts } from '../../hooks/useCriticalAlerts';
 
 interface TopBarProps {
   role?: string;
@@ -16597,6 +16906,7 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifLoading, setNotifLoading] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
+  const { alerts: criticalAlerts, unreadCount: criticalCount, markAllRead } = useCriticalAlerts();
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -16658,10 +16968,13 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
 
   const handleBellClick = () => {
     setNotifOpen(p => !p);
-    if (!notifOpen) fetchNotifications();
+    if (!notifOpen) {
+      fetchNotifications();
+      markAllRead();
+    }
   };
 
-  const unreadCount = notifications.length;
+  const unreadCount = notifications.length + criticalCount;
 
   const handleLogout = () => {
     logout();
@@ -16725,7 +17038,9 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
           >
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
-              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 bg-[#ff3b3b] rounded-full flex items-center justify-center text-[9px] font-bold text-white px-1">
+              <span className={`absolute top-0.5 right-0.5 min-w-[16px] h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white px-1 bg-[#ff3b3b] ${
+                criticalCount > 0 ? 'animate-pulse' : ''
+              }`}>
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -16750,12 +17065,20 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
                   <div className="flex items-center justify-center py-6 gap-2 text-[#6b7280] text-xs">
                     <span className="animate-spin">⟳</span> Cargando...
                   </div>
-                ) : notifications.length === 0 ? (
+                ) : notifications.length === 0 && criticalAlerts.length === 0 ? (
                   <div className="text-center py-6 text-xs text-[#6b7280]">
                     Sin notificaciones recientes
                   </div>
                 ) : (
-                  notifications.map(n => (
+                  [...criticalAlerts.map(a => ({
+                    id: a.id,
+                    type: 'critical' as const,
+                    severity: 'CRITICAL',
+                    title: a.title,
+                    message: a.message,
+                    timestamp: a.timestamp,
+                    link: a.link,
+                  })), ...notifications].map(n => (
                     <button
                       key={n.id}
                       onClick={() => { navigate(n.link); setNotifOpen(false); }}
@@ -22902,6 +23225,184 @@ export function getStoredRole(): string | null {
     return null;
   }
 }
+FILE:frontend\src\hooks\useCriticalAlerts.ts
+import { useState, useEffect, useCallback, useRef } from 'react';
+
+export interface CriticalAlert {
+  id: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  source: 'siem' | 'access';
+  link: string;
+}
+
+const POLL_INTERVAL_MS = 60_000;
+const SEEN_KEY = 'scanops_seen_critical_ids';
+
+function getToken(): string | null {
+  try {
+    return JSON.parse(sessionStorage.getItem('scanops_auth') || '{}')?.access_token ?? null;
+  } catch { return null; }
+}
+
+function getSeenIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+
+function markSeen(ids: string[]) {
+  try {
+    const existing = getSeenIds();
+    ids.forEach(id => existing.add(id));
+    const arr = Array.from(existing).slice(-200);
+    localStorage.setItem(SEEN_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+async function fetchCriticalEvents(): Promise<CriticalAlert[]> {
+  const token = getToken();
+  if (!token) return [];
+  const headers: HeadersInit = { Authorization: `Bearer ${token}` };
+  const alerts: CriticalAlert[] = [];
+
+  // Fuente 1: SIEM pipeline events (M5)
+  try {
+    const res = await fetch('http://localhost:8006/siem/pipeline-events?limit=20', {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      (data.events ?? [])
+        .filter((e: any) => e.severity === 'CRITICAL')
+        .forEach((e: any) => {
+          alerts.push({
+            id: `siem-${e.id}`,
+            title: e.event_type ?? 'Evento CRITICAL',
+            message: e.description?.slice(0, 90) ?? '—',
+            timestamp: e.timestamp ?? new Date().toISOString(),
+            source: 'siem',
+            link: '/alerts',
+          });
+        });
+    }
+  } catch {}
+
+  // Fuente 2: auth events SSH servidores (M5)
+  try {
+    const res = await fetch('http://localhost:8006/siem/auth-events?limit=20', {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      (data.events ?? [])
+        .filter((e: any) => e.severity === 'CRITICAL')
+        .forEach((e: any) => {
+          alerts.push({
+            id: `auth-${e.timestamp}-${e.src_user}`,
+            title: `Acceso CRITICAL — ${e.action_type ?? 'SSH'}`,
+            message: `${e.src_user ?? '?'} desde ${e.src_ip ?? '?'} en ${e.agent_name ?? e.agent_ip ?? '?'}`,
+            timestamp: e.timestamp ?? new Date().toISOString(),
+            source: 'access',
+            link: '/audit-logs',
+          });
+        });
+    }
+  } catch {}
+
+  // Fuente 3: login events plataforma — fuerza bruta (≥5 fallos misma IP)
+  try {
+    const res = await fetch('http://localhost:8009/auth/login-events?limit=50', {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const events: any[] = data.events ?? [];
+      const failsByIp: Record<string, any[]> = {};
+      events.filter(e => !e.success && e.ip_origin).forEach(e => {
+        failsByIp[e.ip_origin] = failsByIp[e.ip_origin] ?? [];
+        failsByIp[e.ip_origin].push(e);
+      });
+      Object.entries(failsByIp)
+        .filter(([, evs]) => evs.length >= 5)
+        .forEach(([ip, evs]) => {
+          alerts.push({
+            id: `bruteforce-${ip}`,
+            title: `Posible fuerza bruta`,
+            message: `${evs.length} intentos fallidos desde ${ip}`,
+            timestamp: evs[evs.length - 1]?.timestamp ?? new Date().toISOString(),
+            source: 'access',
+            link: '/audit-logs',
+          });
+        });
+    }
+  } catch {}
+
+  return alerts;
+}
+
+// Estado global singleton — compartido entre instancias del hook
+let globalAlerts: CriticalAlert[] = [];
+let globalUnread = 0;
+const subscribers = new Set<() => void>();
+
+function notify() { subscribers.forEach(fn => fn()); }
+
+export function useCriticalAlerts() {
+  const [alerts, setAlerts] = useState<CriticalAlert[]>(globalAlerts);
+  const [unreadCount, setUnreadCount] = useState(globalUnread);
+  const [toastQueue, setToastQueue] = useState<CriticalAlert[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const poll = useCallback(async () => {
+    const fresh = await fetchCriticalEvents();
+    if (fresh.length === 0) return;
+
+    const seen = getSeenIds();
+    const newOnes = fresh.filter(a => !seen.has(a.id));
+
+    if (newOnes.length > 0) {
+      globalAlerts = [...newOnes, ...globalAlerts].slice(0, 50);
+      globalUnread += newOnes.length;
+      setToastQueue(prev => [...prev, ...newOnes]);
+      notify();
+    }
+  }, []);
+
+  useEffect(() => {
+    const update = () => {
+      setAlerts([...globalAlerts]);
+      setUnreadCount(globalUnread);
+    };
+    subscribers.add(update);
+
+    poll();
+    timerRef.current = setInterval(poll, POLL_INTERVAL_MS);
+
+    return () => {
+      subscribers.delete(update);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [poll]);
+
+  const markAllRead = useCallback(() => {
+    markSeen(globalAlerts.map(a => a.id));
+    globalUnread = 0;
+    notify();
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToastQueue(prev => prev.filter(t => t.id !== id));
+    markSeen([id]);
+  }, []);
+
+  return { alerts, unreadCount, toastQueue, dismissToast, markAllRead, refetch: poll };
+}
 FILE:frontend\src\hooks\useCycleActions.ts
 import { ENDPOINTS } from '../config/api';
 
@@ -24784,11 +25285,15 @@ FILE:frontend\src\styles\fonts.css
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 FILE:frontend\src\styles\globals.css
-
+@keyframes scanops-shrink {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
 FILE:frontend\src\styles\index.css
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+@import './globals.css';
 FILE:frontend\src\styles\tailwind.css
 @import 'tailwindcss' source(none);
 @source '../**/*.{js,ts,jsx,tsx}';
@@ -33098,6 +33603,10 @@ class Asset(Base):
     # Vault (US-1.3)
     vault_path = Column(String(500), nullable=True)
 
+    # SSH credentials (op.acc.1 — credenciales de acceso a activo)
+    ssh_user     = Column(String(100), nullable=True)
+    ssh_password = Column(String(255), nullable=True)  # cifrado en tránsito vía HTTPS
+
     # External sync (US-1.6)
     external_id = Column(String(255), nullable=True, index=True)
     external_source = Column(String(50), nullable=True)
@@ -33233,6 +33742,8 @@ class AssetCreate(BaseModel):
     os_family: Optional[str] = Field(None, max_length=50)
     os_version: Optional[str] = Field(None, max_length=100)
     password: Optional[str] = Field(None, description="Contraseña que se enviará a Vault")
+    ssh_user:     Optional[str] = Field(None, max_length=100)
+    ssh_password: Optional[str] = Field(None, max_length=255)
 
     _validate_ip = field_validator("ip")(_validate_ip)
     _validate_mac = field_validator("mac_address")(_validate_mac)
@@ -33255,6 +33766,8 @@ class AssetUpdate(BaseModel):
     notas: Optional[str] = None
     os_family: Optional[str] = Field(None, max_length=50)
     os_version: Optional[str] = Field(None, max_length=100)
+    ssh_user:     Optional[str] = Field(None, max_length=100)
+    ssh_password: Optional[str] = Field(None, max_length=255)
 
     _validate_ip = field_validator("ip")(_validate_ip)
     _validate_mac = field_validator("mac_address")(_validate_mac)
@@ -33285,6 +33798,8 @@ class AssetResponse(BaseModel):
     network_range: Optional[str] = None
     os_family: Optional[str] = None
     os_version: Optional[str] = None
+    ssh_user:     Optional[str] = None
+    ssh_password: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
@@ -46322,6 +46837,7 @@ def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]
         'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
         'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
         'certificate.html': '04_Certificado_Activo_Critico.pdf',
+        'access_log.html': '06_Evidencia_Accesos_ENS.pdf',
     }
     filename = nombres.get(template_name, 'informe.pdf')
 
@@ -46339,6 +46855,92 @@ def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]
 
     # El return queda fuera del bloque de Drive, asegurando la descarga pase lo que pase
     return filename, sealed_bytes
+
+# --- Access Log helpers ---
+
+def _get_internal_token() -> str:
+    """Genera JWT interno para llamadas inter-servicio de M7."""
+    import jwt as _jwt
+    from datetime import datetime, timezone, timedelta
+    secret = os.getenv("JWT_SECRET_KEY", "scanops-secret-ens-alto-2026")
+    payload = {
+        "sub": "m7-reporting",
+        "role": "service",
+        "token_type": "access",
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+    return _jwt.encode(payload, secret, algorithm="HS256")
+
+async def get_access_log_data() -> dict:
+    """
+    Consolida logs de acceso de dos fuentes:
+    1. Login events de la plataforma ScanOps (JWT sessions) — desde Orchestrator
+    2. Auth events SSH de servidores — desde M5 vía paramiko
+    ENS: op.exp.5, op.acc.1
+    """
+    import httpx
+    platform_events = []
+    server_events = []
+    server_stats = []
+    brute_force_alerts = []
+
+    # Fuente 1: sesiones ScanOps (JWT logins)
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=8) as client:
+            r = await client.get(
+                "http://orchestrator:8009/auth/login-events?limit=200",
+                headers={"Authorization": f"Bearer {_get_internal_token()}"}
+            )
+            if r.status_code == 200:
+                data = r.json()
+                platform_events = data.get("events", [])
+    except Exception as e:
+        logger.warning(f"[M7] No se pudieron obtener login-events: {e}")
+
+    # Detección de fuerza bruta: ≥5 fallos en 10 min desde misma IP
+    from collections import defaultdict
+    failures_by_ip: dict = defaultdict(list)
+    for ev in platform_events:
+        if not ev.get("success") and ev.get("ip_origin"):
+            failures_by_ip[ev["ip_origin"]].append(ev.get("timestamp", ""))
+    for ip, timestamps in failures_by_ip.items():
+        if len(timestamps) >= 5:
+            brute_force_alerts.append({
+                "ip": ip,
+                "count": len(timestamps),
+                "first": min(timestamps),
+                "last": max(timestamps),
+            })
+
+    # Fuente 2: auth.log SSH de servidores
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15) as client:
+            r = await client.get("http://m5:8006/siem/auth-events?limit=200")
+            if r.status_code == 200:
+                data = r.json()
+                server_events = data.get("events", [])
+                server_stats = data.get("server_stats", [])
+    except Exception as e:
+        logger.warning(f"[M7] No se pudieron obtener auth-events M5: {e}")
+
+    total_platform = len(platform_events)
+    total_server = len(server_events)
+    failed_platform = sum(1 for e in platform_events if not e.get("success"))
+    failed_server = sum(1 for e in server_events if not e.get("success"))
+
+    return {
+        "platform_events": platform_events[:100],
+        "server_events": server_events[:100],
+        "server_stats": server_stats,
+        "brute_force_alerts": brute_force_alerts,
+        "total_platform": total_platform,
+        "total_server": total_server,
+        "failed_platform": failed_platform,
+        "failed_server": failed_server,
+        "success_platform": total_platform - failed_platform,
+        "success_server": total_server - failed_server,
+    }
 
 # --- Endpoints ---
 
@@ -46615,11 +47217,21 @@ async def generate_full_audit_zip():
             "cert_uuid": str(uuid.uuid4()).upper(),
         }
 
+        # Accesos ENS — fuente asíncrona, se obtiene antes del gather
+        access_data = await get_access_log_data()
+        ctx_access = {
+            "fecha": fecha_actual,
+            "report_id": f"ACC-FULL-{uuid.uuid4().hex[:8].upper()}",
+            "periodo": f"{datetime.now().strftime('%B %Y')}",
+            **access_data,
+        }
+
         resultados = await asyncio.gather(
             asyncio.to_thread(render_and_seal_sync, 'executive.html', ctx_exec),
             asyncio.to_thread(render_and_seal_sync, 'technical.html', ctx_tech),
             asyncio.to_thread(render_and_seal_sync, 'soa.html', ctx_soa),
             asyncio.to_thread(render_and_seal_sync, 'certificate.html', ctx_cert),
+            asyncio.to_thread(render_and_seal_sync, 'access_log.html', ctx_access),
         )
 
         zip_buffer = io.BytesIO()
@@ -46814,6 +47426,53 @@ async def generate_asset_report(asset_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando informe de activo: {str(e)}")
 
+@app.get("/report/access-log")
+async def generate_access_log_report():
+    """
+    Nuevo endpoint: PDF de evidencia de control de acceso ENS.
+    Consolida sesiones ScanOps + auth.log SSH de servidores.
+    ENS: op.exp.5 (Registro de actividad), op.acc.1 (Control de acceso)
+    Firmado AES-256 — mp.info.4
+    """
+    try:
+        data = await get_access_log_data()
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "report_id": f"ACC-{uuid.uuid4().hex[:8].upper()}",
+            "periodo": f"{datetime.now().strftime('%B %Y')}",
+            **data,
+        }
+        template = template_env.get_template("access_log.html")
+        html_content = template.render(context)
+
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_bytes)
+
+        # Backup Google Drive
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_06_Evidencia_Accesos_ENS.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup access-log: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Evidencia_Accesos_ENS.pdf"
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generando informe de accesos: {str(e)}"
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -46886,6 +47545,202 @@ BINARY:true
 FILE:services\reporting_engine\history\ScanOps_Audit_20260525_095750.zip
 BINARY:true
 
+FILE:services\reporting_engine\templates\access_log.html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<style>
+  @page { size: A4; margin: 20mm 15mm; }
+  body { font-family: Arial, sans-serif; font-size: 9pt; color: #222; }
+  h1 { font-size: 16pt; color: #1a3a5c; border-bottom: 2px solid #1a3a5c; padding-bottom: 6px; }
+  h2 { font-size: 11pt; color: #1a3a5c; margin-top: 18px; border-left: 4px solid #1a3a5c; padding-left: 8px; }
+  .header-meta { background: #f0f4f8; padding: 8px 12px; border-radius: 4px; margin-bottom: 16px; font-size: 8pt; }
+  .kpi-row { display: flex; gap: 12px; margin: 10px 0; }
+  .kpi { flex: 1; background: #1a3a5c; color: white; padding: 8px; border-radius: 4px; text-align: center; }
+  .kpi .val { font-size: 20pt; font-weight: bold; }
+  .kpi .lbl { font-size: 7pt; opacity: 0.85; }
+  .kpi.warn { background: #c0392b; }
+  .kpi.ok   { background: #27ae60; }
+  .kpi.info { background: #2980b9; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 8pt; }
+  th { background: #1a3a5c; color: white; padding: 5px 6px; text-align: left; }
+  td { padding: 4px 6px; border-bottom: 1px solid #ddd; }
+  tr:nth-child(even) { background: #f8f9fa; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 7pt; font-weight: bold; }
+  .badge.ok   { background: #d4edda; color: #155724; }
+  .badge.fail { background: #f8d7da; color: #721c24; }
+  .badge.warn { background: #fff3cd; color: #856404; }
+  .brute { background: #fff3cd; border: 1px solid #ffc107; padding: 8px 12px; border-radius: 4px; margin: 8px 0; }
+  .brute strong { color: #c0392b; }
+  .footer { margin-top: 20px; font-size: 7pt; color: #888; border-top: 1px solid #ddd; padding-top: 6px; }
+  .ens-badge { background: #1a3a5c; color: white; font-size: 7pt; padding: 2px 6px; border-radius: 3px; }
+  .section-divider { border: none; border-top: 1px solid #e0e0e0; margin: 12px 0; }
+</style>
+</head>
+<body>
+
+<h1>Evidencia de Control de Acceso ENS Alto</h1>
+
+<div class="header-meta">
+  <strong>ID Informe:</strong> {{ report_id }} &nbsp;|&nbsp;
+  <strong>Período:</strong> {{ periodo }} &nbsp;|&nbsp;
+  <strong>Generado:</strong> {{ fecha }} &nbsp;|&nbsp;
+  <strong>Generado por:</strong> ScanOps M7 Reporting Engine (UNUWARE) &nbsp;|&nbsp;
+  <span class="ens-badge">ENS Alto — op.exp.5 / op.acc.1 / mp.info.4</span>
+</div>
+
+<!-- KPIs -->
+<div class="kpi-row">
+  <div class="kpi info">
+    <div class="val">{{ total_platform }}</div>
+    <div class="lbl">Accesos Plataforma</div>
+  </div>
+  <div class="kpi {% if failed_platform > 0 %}warn{% else %}ok{% endif %}">
+    <div class="val">{{ failed_platform }}</div>
+    <div class="lbl">Fallos Login</div>
+  </div>
+  <div class="kpi ok">
+    <div class="val">{{ success_platform }}</div>
+    <div class="lbl">Accesos Exitosos</div>
+  </div>
+  <div class="kpi info">
+    <div class="val">{{ total_server }}</div>
+    <div class="lbl">Eventos SSH Servidores</div>
+  </div>
+  <div class="kpi {% if failed_server > 5 %}warn{% else %}ok{% endif %}">
+    <div class="val">{{ failed_server }}</div>
+    <div class="lbl">Fallos SSH</div>
+  </div>
+  <div class="kpi {% if brute_force_alerts|length > 0 %}warn{% else %}ok{% endif %}">
+    <div class="val">{{ brute_force_alerts|length }}</div>
+    <div class="lbl">Alertas Fuerza Bruta</div>
+  </div>
+</div>
+
+<!-- Alertas fuerza bruta -->
+{% if brute_force_alerts %}
+<h2>Alertas de Fuerza Bruta Detectadas</h2>
+{% for alert in brute_force_alerts %}
+<div class="brute">
+  <strong>IP atacante: {{ alert.ip }}</strong> — {{ alert.count }} intentos fallidos &nbsp;|&nbsp;
+  Primero: {{ alert.first }} &nbsp;|&nbsp; Último: {{ alert.last }}
+</div>
+{% endfor %}
+{% endif %}
+
+<hr class="section-divider"/>
+
+<!-- Tabla 1: Sesiones ScanOps -->
+<h2>1. Sesiones de Acceso a la Plataforma ScanOps</h2>
+<p style="font-size:8pt;color:#555;">Control de autenticación JWT — ENS <strong>op.acc.1</strong>, <strong>op.exp.5</strong></p>
+
+{% if platform_events %}
+<table>
+  <tr>
+    <th>Timestamp</th>
+    <th>Usuario</th>
+    <th>Rol</th>
+    <th>IP Origen</th>
+    <th>Resultado</th>
+    <th>Motivo</th>
+  </tr>
+  {% for ev in platform_events %}
+  <tr>
+    <td>{{ ev.timestamp | default('—') }}</td>
+    <td>{{ ev.username | default('—') }}</td>
+    <td>{{ ev.role | default('—') }}</td>
+    <td>{{ ev.ip_origin | default('—') }}</td>
+    <td>
+      <span class="badge {% if ev.success %}ok{% else %}fail{% endif %}">
+        {{ 'EXITO' if ev.success else 'FALLO' }}
+      </span>
+    </td>
+    <td>{{ ev.reason | default('—') }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p style="color:#888;font-style:italic;">Sin eventos de sesión registrados en este período.</p>
+{% endif %}
+
+<hr class="section-divider"/>
+
+<!-- Tabla 2: Auth events servidores -->
+<h2>2. Eventos de Autenticación en Servidores (auth.log)</h2>
+<p style="font-size:8pt;color:#555;">Recopilado vía SSH/paramiko — ENS <strong>op.exp.5</strong></p>
+
+{% if server_stats %}
+<table>
+  <tr>
+    <th>Servidor</th>
+    <th>IP</th>
+    <th>Total Eventos</th>
+    <th>Exitosos</th>
+    <th>Fallidos</th>
+    <th>Comandos sudo</th>
+    <th>IPs únicas</th>
+  </tr>
+  {% for s in server_stats %}
+  <tr>
+    <td>{{ s.agent_name | default('—') }}</td>
+    <td>{{ s.agent_ip | default('—') }}</td>
+    <td>{{ s.total | default(0) }}</td>
+    <td><span class="badge ok">{{ s.successes | default(0) }}</span></td>
+    <td><span class="badge {% if s.failures > 5 %}warn{% else %}fail{% endif %}">{{ s.failures | default(0) }}</span></td>
+    <td>{{ s.sudo_cmds | default(0) }}</td>
+    <td>{{ s.unique_ips | length if s.unique_ips else 0 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if server_events %}
+<br/>
+<table>
+  <tr>
+    <th>Timestamp</th>
+    <th>Servidor</th>
+    <th>Tipo</th>
+    <th>Usuario</th>
+    <th>IP Origen</th>
+    <th>Resultado</th>
+    <th>Severidad</th>
+  </tr>
+  {% for ev in server_events[:50] %}
+  <tr>
+    <td>{{ ev.timestamp | default('—') }}</td>
+    <td>{{ ev.agent_name | default(ev.agent_ip) | default('—') }}</td>
+    <td>{{ ev.action_type | default('—') }}</td>
+    <td>{{ ev.src_user | default('—') }}</td>
+    <td>{{ ev.src_ip | default('—') }}</td>
+    <td>
+      <span class="badge {% if ev.success %}ok{% else %}fail{% endif %}">
+        {{ 'EXITO' if ev.success else 'FALLO' }}
+      </span>
+    </td>
+    <td>
+      <span class="badge {% if ev.severity == 'CRITICAL' %}fail{% elif ev.severity == 'HIGH' %}warn{% else %}ok{% endif %}">
+        {{ ev.severity | default('INFO') }}
+      </span>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p style="color:#888;font-style:italic;">Sin eventos SSH registrados en este período.</p>
+{% endif %}
+
+<!-- Footer ENS -->
+<div class="footer">
+  <strong>UNUWARE ScanOps</strong> — Evidencia generada automáticamente y sellada con AES-256 (PyMuPDF) &nbsp;|&nbsp;
+  Medidas ENS cumplidas: <strong>op.exp.5</strong> (Registro de actividad) · <strong>op.acc.1</strong> (Control de acceso) · <strong>mp.info.4</strong> (Integridad) &nbsp;|&nbsp;
+  Este documento es inalterable. Cualquier modificación invalida la firma criptográfica. &nbsp;|&nbsp;
+  <strong>Report ID: {{ report_id }}</strong>
+</div>
+
+</body>
+</html>
 FILE:services\reporting_engine\templates\asset_detail.html
 <!DOCTYPE html>
 <html lang="es">
@@ -48278,15 +49133,12 @@ def run_ffuf_scan(asset_id: int, target_url: str) -> List[Dict]:
             os.remove(tmp_wordlist)
 FILE:services\scanner_engine\clients\nikto_client.py
 import subprocess
-import json
-import os
 import re
 from typing import List, Dict
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nikto_client")
 
-# Mapa de IDs Nikto conocidos a títulos descriptivos y severidad
 NIKTO_ID_MAP = {
     "013587": ("Missing Security Header", "MEDIUM"),
     "600050": ("Outdated Software Version Detected", "HIGH"),
@@ -48303,7 +49155,6 @@ NIKTO_ID_MAP = {
 NIKTO_CVSS_MAP = {
     "CVE-2017-9798": 7.5,
     "CVE-2019-0211": 7.8,
-    # Specific header keywords before the generic "missing security header"
     "strict-transport-security": 7.4,
     "content-security-policy": 6.1,
     "x-frame-options": 6.1,
@@ -48327,7 +49178,6 @@ NIKTO_CVSS_MAP = {
 }
 
 def _resolve_nikto_cvss(cve_id: str, title: str, severity: str) -> float:
-    """Resuelve CVSS: primero CVE, luego keyword en título, luego fallback severidad."""
     if cve_id and cve_id in NIKTO_CVSS_MAP:
         return NIKTO_CVSS_MAP[cve_id]
     title_lower = title.lower()
@@ -48339,7 +49189,6 @@ def _resolve_nikto_cvss(cve_id: str, title: str, severity: str) -> float:
     return NIKTO_CVSS_MAP.get(f"_{severity.upper()}", 0.0)
 
 def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
-    """Determina título y severidad a partir del ID y mensaje."""
     if nikto_id in NIKTO_ID_MAP:
         base_title, base_severity = NIKTO_ID_MAP[nikto_id]
     else:
@@ -48365,17 +49214,14 @@ def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
 
     return base_title, base_severity
 
-def _extract_cve(msg: str, references: str) -> str:
-    """Extrae CVE del mensaje o referencias."""
-    combined = f"{msg} {references}"
-    cve_match = re.search(r"CVE-\d{4}-\d+", combined, re.IGNORECASE)
+def _extract_cve(msg: str) -> str:
+    cve_match = re.search(r"CVE-\d{4}-\d+", msg, re.IGNORECASE)
     return cve_match.group(0).upper() if cve_match else ""
 
 def _get_remediation(nikto_id: str, msg: str) -> str:
-    """Genera remediación específica basada en el tipo de finding."""
     msg_upper = msg.upper()
     if "STRICT-TRANSPORT-SECURITY" in msg_upper or "HSTS" in msg_upper:
-        return "Add 'Strict-Transport-Security: max-age=31536000; includeSubDomains' header. Enforces HTTPS connections."
+        return "Add 'Strict-Transport-Security: max-age=31536000; includeSubDomains' header."
     if "CONTENT-SECURITY-POLICY" in msg_upper or "CSP" in msg_upper:
         return "Implement Content-Security-Policy header to prevent XSS and data injection attacks."
     if "X-FRAME-OPTIONS" in msg_upper:
@@ -48383,109 +49229,121 @@ def _get_remediation(nikto_id: str, msg: str) -> str:
     if "X-CONTENT-TYPE" in msg_upper:
         return "Add 'X-Content-Type-Options: nosniff' header to prevent MIME type sniffing."
     if "REFERRER-POLICY" in msg_upper:
-        return "Add 'Referrer-Policy: strict-origin-when-cross-origin' header to control referrer information."
+        return "Add 'Referrer-Policy: strict-origin-when-cross-origin' header."
     if "PERMISSIONS-POLICY" in msg_upper:
         return "Add Permissions-Policy header to control browser features and APIs."
     if "OUTDATED" in msg_upper or "OLD VERSION" in msg_upper:
-        return "Update server software to the latest stable version. Outdated versions may contain known vulnerabilities."
+        return "Update server software to the latest stable version."
     if "DIRECTORY" in msg_upper and "INDEX" in msg_upper:
         return "Disable directory listing in web server configuration (Apache: Options -Indexes)."
     if "METHOD" in msg_upper and ("PUT" in msg_upper or "DELETE" in msg_upper or "TRACE" in msg_upper):
         return "Disable dangerous HTTP methods (PUT, DELETE, TRACE) in web server configuration."
     return "Review and remediate this finding according to OWASP security best practices."
 
+# Parses nikto plain-text stdout lines like:
+#   + [013587] /path: message text
+#   + message without id
+_NIKTO_LINE_RE = re.compile(r"^\+\s+(?:\[(\d+)\]\s+)?(/[^\s:]*)?\s*:?\s*(.*)")
+
+def _parse_nikto_stdout(stdout: str, target_url: str) -> List[Dict]:
+    findings = []
+    seen = set()
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line.startswith("+"):
+            continue
+        # skip header/separator lines
+        if line.startswith("+ -") or "Start Time" in line or "Target" in line:
+            continue
+        if "No CGI" in line or "Nikto" in line or line == "+":
+            continue
+
+        m = _NIKTO_LINE_RE.match(line)
+        if not m:
+            continue
+
+        nikto_id = m.group(1) or "UNKNOWN"
+        url_path = m.group(2) or "/"
+        msg = m.group(3).strip()
+        if not msg:
+            continue
+
+        dedup_key = (nikto_id, msg[:100])
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
+        title, severity = _classify_nikto_finding(nikto_id, msg)
+        cve_id = _extract_cve(msg)
+        if cve_id:
+            severity = "HIGH"
+        remediation = _get_remediation(nikto_id, msg)
+
+        findings.append({
+            "title": title,
+            "severity": severity,
+            "description": msg,
+            "cve_id": cve_id if cve_id else None,
+            "cvss_score": _resolve_nikto_cvss(cve_id, title, severity),
+            "evidence": {
+                "nikto_id": nikto_id,
+                "url": url_path,
+                "method": "GET",
+                "target": target_url,
+                "references": "",
+            },
+            "remediation": remediation,
+            "scanner": "Nikto",
+            "ens_measure": "op.exp.2",
+        })
+    return findings
+
 def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
     logger.info("NIKTO_START", target=target_url)
 
-    output_file = f"/tmp/nikto_{asset_id}.json"
-
+    # -maxtime hace que nikto se auto-termine de forma limpia y vuelque a stdout
+    # los hallazgos parciales. A diferencia del modo -Format json (que solo
+    # escribe el fichero al completar), el texto plano de stdout sí se captura
+    # aunque el escaneo se corte por tiempo, evitando el resultado vacío.
     cmd = [
         "nikto",
         "-h", target_url,
-        "-Format", "json",
-        "-output", output_file,
         "-Tuning", "1234578",
-        "-timeout", "30",
-        "-maxtime", "90s"
+        "-timeout", "10",
+        "-maxtime", "90s",
+        "-nointeractive",
     ]
 
     try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=110,
+        )
 
-        findings = []
-        if os.path.exists(output_file):
-            with open(output_file, "r") as f:
-                try:
-                    raw = f.read().strip()
-                    if not raw:
-                        logger.warning("NIKTO_EMPTY_OUTPUT", target=target_url)
-                        os.remove(output_file)
-                        return []
-                    data = json.loads(raw)
+        findings = _parse_nikto_stdout(result.stdout or "", target_url)
 
-                    vulns = []
-                    if isinstance(data, list) and len(data) > 0:
-                        vulns = data[0].get("vulnerabilities", [])
-                    elif isinstance(data, dict):
-                        vulns = data.get("vulnerabilities", [])
-
-                    seen = set()
-                    for v in vulns:
-                        nikto_id = str(v.get("id", "Unknown"))
-                        msg = v.get("msg", "")
-                        url = v.get("url", "/")
-                        method = v.get("method", "GET")
-                        references = v.get("references", "") or ""
-
-                        dedup_key = (nikto_id, msg[:100])
-                        if dedup_key in seen:
-                            continue
-                        seen.add(dedup_key)
-
-                        title, severity = _classify_nikto_finding(nikto_id, msg)
-                        cve_id = _extract_cve(msg, references)
-                        if cve_id:
-                            severity = "HIGH"
-                        remediation = _get_remediation(nikto_id, msg)
-
-                        findings.append({
-                            "title": title,
-                            "severity": severity,
-                            "description": msg,
-                            "cve_id": cve_id if cve_id else None,
-                            "cvss_score": _resolve_nikto_cvss(cve_id, title, severity),
-                            "evidence": {
-                                "nikto_id": nikto_id,
-                                "url": url,
-                                "method": method,
-                                "target": target_url,
-                                "references": references
-                            },
-                            "remediation": remediation,
-                            "scanner": "Nikto",
-                            "ens_measure": "op.exp.2"
-                        })
-
-                except json.JSONDecodeError:
-                    logger.error("NIKTO_JSON_ERROR", target=target_url)
-
-            os.remove(output_file)
+        if not findings:
+            logger.warning("NIKTO_EMPTY_OUTPUT", target=target_url)
 
         logger.info("NIKTO_FINISH", target=target_url, count=len(findings))
         return findings
 
-    except subprocess.TimeoutExpired:
-        logger.error("NIKTO_TIMEOUT", target=target_url)
-        if os.path.exists(output_file):
-            os.remove(output_file)
-        return []
+    except subprocess.TimeoutExpired as e:
+        # nikto excedió el timeout del wrapper: rescatamos los hallazgos
+        # parciales ya volcados a stdout en lugar de descartarlos.
+        partial = e.stdout
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", errors="replace")
+        findings = _parse_nikto_stdout(partial or "", target_url)
+        logger.error("NIKTO_TIMEOUT", target=target_url, partial_findings=len(findings))
+        return findings
     except FileNotFoundError:
         logger.error("NIKTO_NOT_FOUND", target=target_url)
         return []
     except Exception as e:
         logger.error("NIKTO_ERROR", target=target_url, error=str(e))
-        if os.path.exists(output_file):
-            os.remove(output_file)
         return []
 FILE:services\scanner_engine\clients\nmap_client.py
 """
@@ -50722,10 +51580,12 @@ from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
-# Templates ordenados por impacto — technologies para fingerprint, misconfiguration para hallazgos reales
+# Templates: technologies para fingerprint rápido, misconfiguration para hallazgos relevantes.
+# Se excluyen directorios muy lentos (fuzzing/, passive/) para mantener el escaneo ágil.
 NUCLEI_TEMPLATES = [
     "http/technologies/",
     "http/misconfiguration/",
+    "http/exposures/",
 ]
 
 # Remediaciones por tipo de finding
@@ -50802,15 +51662,30 @@ def _get_professional_title(template_id: str, matcher_name: str, info_name: str)
         return info_name
     return template_id.replace("-", " ").replace("/", " - ").title()
 
+def _resolves(host: str) -> bool:
+    """True si el hostname resuelve por DNS desde este contenedor."""
+    import socket
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except Exception:
+        return False
+
 def run_nuclei_scan(target_ip: str, hostname: str = None):
     logger.info("NUCLEI_START", target=target_ip)
 
-    if hostname and hostname != target_ip:
-        targets = [f"https://{hostname}", f"http://{hostname}"]
-    else:
-        targets = [f"https://{target_ip}", f"http://{target_ip}"]
+    # Siempre escaneamos por IP: el contenedor del worker no resuelve los
+    # hostnames internos de los assets, así que apuntar a la IP evita que
+    # nuclei agote el timeout completo intentando resolver un host inexistente.
+    targets = [f"https://{target_ip}", f"http://{target_ip}"]
 
-    logger.info("NUCLEI_TARGETS", targets=targets)
+    # Si el hostname resuelve y es distinto de la IP, lo inyectamos como
+    # cabecera Host para virtual-hosting sin depender de DNS para el destino.
+    host_header = None
+    if hostname and hostname != target_ip and _resolves(hostname):
+        host_header = hostname
+
+    logger.info("NUCLEI_TARGETS", targets=targets, host_header=host_header)
 
     output_file = f"/tmp/nuclei_output_{os.getpid()}.jsonl"
 
@@ -50820,17 +51695,21 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
         "-jsonl",
         "-output", output_file,
         "-duc",
-        "-timeout", "8",
-        "-bulk-size", "5",
-        "-rate-limit", "10",
+        "-timeout", "10",
+        "-bulk-size", "10",
+        "-rate-limit", "30",
         "-retries", "0",
-        "-max-host-error", "3",
+        "-max-host-error", "5",
         "-no-interactsh",
         "-follow-redirects",
+        "-nh",
     ]
 
     for template in NUCLEI_TEMPLATES:
         cmd.extend(["-t", template])
+
+    if host_header:
+        cmd.extend(["-H", f"Host: {host_header}"])
 
     for target in targets:
         cmd.extend(["-u", target])
@@ -50843,9 +51722,8 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=90,
+            timeout=180,
             env=env,
-            start_new_session=True,
         )
 
         findings = []
@@ -51138,14 +52016,14 @@ import asyncio
 import logging
 import time
 from typing import Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from celery import group, chord
+import sqlalchemy as sa
 from celery.exceptions import SoftTimeLimitExceeded
 
 from shared.celery_app import app
 from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
-from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
 from services.scanner_engine.clients.nmap_client import run_nmap_scan, extract_http_ports
 from services.scanner_engine.clients.ffuf_client import run_ffuf_scan
@@ -51155,7 +52033,8 @@ from services.scanner_engine.clients.testssl_client import run_testssl_scan
 logger = ScanLogger("scanner_tasks")
 
 # --- TAREA: NUCLEI (US-3.2) ---
-@app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities")
+@app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities",
+          time_limit=240, soft_time_limit=210)
 def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
     """Ejecuta Nuclei y devuelve hallazgos sin persistir (el orquestador persiste)."""
     logger.info("NUCLEI_TASK_START", asset_id=asset_id, target=ip)
@@ -51199,7 +52078,8 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
     finally:
         loop.close()
 
-@app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities")
+@app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities",
+          time_limit=150, soft_time_limit=130)
 def run_nikto_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
     scheme = "https" if port == 443 else "http"
@@ -51278,44 +52158,94 @@ def run_testssl_task(asset_id: int, ip: str) -> List[Dict]:
         logger.error("TESTSSL_TASK_ERROR", error=str(e))
         return []
 
-# --- CALLBACK: MERGE & PERSIST (US-3.4) ---
+# --- CALLBACK: MERGE & PERSIST con deduplicación (US-3.4) ---
 @app.task(name="tasks.merge_and_persist_results")
 def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     """
-    Recibe los resultados de todos los scanners, los une, persiste y genera stats.
+    Recibe los resultados de todos los scanners, los une, persiste con upsert
+    y genera stats. Deduplicación por (asset_id, vulnerability_id, scanner_name,
+    COALESCE(affected_port, -1)) usando el índice funcional uix_vuln_findings_dedup.
     """
     all_findings = [finding for sublist in results_list for finding in sublist]
     db = SessionLocal()
     scan_id = f"scan_multi_{int(time.time())}"
+    stats = {"total": 0, "new": 0, "updated": 0,
+             "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
 
-    stats = {"total": 0, "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    # Upsert raw SQL: ON CONFLICT referencia la expresión exacta del índice funcional.
+    # SQLAlchemy ORM no puede referenciar un índice funcional con COALESCE en index_elements,
+    # por lo que se usa text() para que PostgreSQL lo resuelva correctamente.
+    upsert_sql = sa.text("""
+        INSERT INTO vuln_findings
+            (asset_id, scan_id, vulnerability_id, title, description, severity,
+             cvss_v3_score, scanner_name, scanner_reference, affected_port,
+             evidence, discovered_at, last_verified_at, remediation_status, created_by, created_at)
+        VALUES
+            (:asset_id, :scan_id, :vulnerability_id, :title, :description, :severity,
+             :cvss_v3_score, :scanner_name, :scanner_reference, :affected_port,
+             :evidence::json, NOW(), :last_verified_at, 'open', :created_by, NOW())
+        ON CONFLICT (asset_id, vulnerability_id, scanner_name, COALESCE(affected_port, -1))
+        DO UPDATE SET
+            last_verified_at = EXCLUDED.last_verified_at,
+            evidence         = EXCLUDED.evidence,
+            description      = EXCLUDED.description,
+            severity         = EXCLUDED.severity,
+            scan_id          = EXCLUDED.scan_id,
+            updated_by       = EXCLUDED.created_by
+        RETURNING id, xmax
+    """)
+
+    import json as _json
 
     try:
         for f in all_findings:
             severity = f.get("severity", "INFO").upper()
+            if severity not in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
+                severity = "INFO"
             raw_evidence = f.get("evidence", {})
             evidence = raw_evidence if isinstance(raw_evidence, dict) else {"raw": str(raw_evidence)}
-            vuln = VulnFinding(
-                asset_id=asset_id,
-                scan_id=scan_id,
-                vulnerability_id=(f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32],
-                title=f.get("title", "Unknown Vulnerability")[:255],
-                severity=severity[:16],
-                description=f.get("description", ""),
-                scanner_name=f.get("scanner", "Generic")[:32],
-                evidence=evidence,
-                created_by="system-orchestrator",
-                cvss_v3_score=f.get("cvss_score"),
-                scanner_reference=(f.get("cve_id") or "")[:128],
-            )
-            db.add(vuln)
+
+            affected_port = f.get("affected_port") or f.get("port")
+            if not affected_port:
+                port_raw = evidence.get("port")
+                try:
+                    affected_port = int(port_raw) if port_raw else None
+                except (ValueError, TypeError):
+                    affected_port = None
+
+            vulnerability_id = (f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32]
+            scanner_name     = f.get("scanner", "Generic")[:32]
+
+            row = db.execute(upsert_sql, {
+                "asset_id":          asset_id,
+                "scan_id":           scan_id,
+                "vulnerability_id":  vulnerability_id,
+                "title":             f.get("title", "Unknown Vulnerability")[:255],
+                "severity":          severity[:16],
+                "description":       f.get("description", ""),
+                "cvss_v3_score":     f.get("cvss_score"),
+                "scanner_name":      scanner_name,
+                "scanner_reference": (f.get("cve_id") or "")[:128],
+                "affected_port":     affected_port,
+                "evidence":          _json.dumps(evidence),
+                "last_verified_at":  datetime.now(timezone.utc),
+                "created_by":        "system-orchestrator",
+            }).fetchone()
+
             stats["total"] += 1
+            # xmax == 0 → INSERT nuevo; xmax != 0 → UPDATE (row existente)
+            if row and row[1] == 0:
+                stats["new"] += 1
+            else:
+                stats["updated"] += 1
             if severity in stats:
                 stats[severity] += 1
 
         db.commit()
-        logger.info("SCAN_MERGE_COMPLETE", asset_id=asset_id, total=stats["total"])
-        return {"status": "completed", "asset_id": asset_id, "scan_id": scan_id, "stats": stats}
+        logger.info("SCAN_MERGE_COMPLETE", asset_id=asset_id,
+                    total=stats["total"], new=stats["new"], updated=stats["updated"])
+        return {"status": "completed", "asset_id": asset_id,
+                "scan_id": scan_id, "stats": stats}
     except Exception as e:
         db.rollback()
         logger.error("MERGE_PERSIST_ERROR", error=str(e))

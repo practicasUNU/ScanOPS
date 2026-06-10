@@ -1,28 +1,43 @@
-id: missing-security-headers
+id: custom-missing-security-headers
 info:
-  name: Missing Security Headers
-  description: Missing X-Frame-Options, CSP, X-Content-Type-Options
-  severity: medium
-  tags: [security, headers, owasp]
+  name: Missing HTTP Security Headers
+  author: scanops
+  description: Detecta la ausencia de cabeceras de seguridad (X-Frame-Options, CSP, X-Content-Type-Options).
+  severity: low
+  tags: [custom, security, headers, owasp, misconfig]
 http:
   - method: GET
-    path: /
+    path:
+      - "{{BaseURL}}/"
+    matchers-condition: and
     matchers:
       - type: status
         status: [200]
+      - type: dsl
+        dsl:
+          - "!contains(tolower(all_headers), 'x-frame-options')"
+          - "!contains(tolower(all_headers), 'content-security-policy')"
+          - "!contains(tolower(all_headers), 'x-content-type-options')"
+        condition: or
 
 ---
-id: weak-password-policy
+id: custom-exposed-secrets-in-body
 info:
-  name: Weak Password Policy Detection
-  description: Application allows weak passwords
-  severity: low
-  tags: [auth, password, weak]
-
----
-id: exposed-api-keys
-info:
-  name: Exposed API Keys in Response
-  description: API keys visible in error messages or responses
-  severity: critical
-  tags: [api, key, exposure, secret]
+  name: Exposed API Keys or Secrets in Response
+  author: scanops
+  description: Detecta posibles claves de API o secretos expuestos en el cuerpo de la respuesta.
+  severity: high
+  tags: [custom, api, key, exposure, secret]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers:
+      - type: regex
+        part: body
+        regex:
+          - "(?i)aws_secret_access_key\\s*[=:]\\s*['\"][A-Za-z0-9/+]{20,}"
+          - "(?i)api[_-]?key\\s*[=:]\\s*['\"][A-Za-z0-9]{16,}"
+          - "AKIA[0-9A-Z]{16}"
+          - "(?i)bearer\\s+[A-Za-z0-9._-]{20,}"
+        condition: or

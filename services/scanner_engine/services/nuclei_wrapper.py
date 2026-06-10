@@ -11,6 +11,7 @@ NUCLEI_TEMPLATES = [
     "http/technologies/",
     "http/misconfiguration/",
     "http/exposures/",
+    "/app/templates/nuclei/custom/",
 ]
 
 # Remediaciones por tipo de finding
@@ -87,15 +88,31 @@ def _get_professional_title(template_id: str, matcher_name: str, info_name: str)
         return info_name
     return template_id.replace("-", " ").replace("/", " - ").title()
 
+def _resolves(host: str) -> bool:
+    """True si el hostname resuelve por DNS desde este contenedor."""
+    import socket
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except Exception:
+        return False
+
+
 def run_nuclei_scan(target_ip: str, hostname: str = None):
     logger.info("NUCLEI_START", target=target_ip)
 
-    if hostname and hostname != target_ip:
-        targets = [f"https://{hostname}", f"http://{hostname}"]
-    else:
-        targets = [f"https://{target_ip}", f"http://{target_ip}"]
+    # Siempre escaneamos por IP: el contenedor del worker no resuelve los
+    # hostnames internos de los assets, así que apuntar a la IP evita que
+    # nuclei agote el timeout completo intentando resolver un host inexistente.
+    targets = [f"http://{target_ip}", f"https://{target_ip}"]
 
-    logger.info("NUCLEI_TARGETS", targets=targets)
+    # Si el hostname resuelve y es distinto de la IP, lo inyectamos como
+    # cabecera Host para virtual-hosting sin depender de DNS para el destino.
+    host_header = None
+    if hostname and hostname != target_ip and _resolves(hostname):
+        host_header = hostname
+
+    logger.info("NUCLEI_TARGETS", targets=targets, host_header=host_header)
 
     output_file = f"/tmp/nuclei_output_{os.getpid()}.jsonl"
 
@@ -118,6 +135,9 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
     for template in NUCLEI_TEMPLATES:
         cmd.extend(["-t", template])
 
+    if host_header:
+        cmd.extend(["-H", f"Host: {host_header}"])
+
     for target in targets:
         cmd.extend(["-u", target])
 
@@ -129,7 +149,7 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=180,
+            timeout=300,
             env=env,
         )
 
