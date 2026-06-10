@@ -48,6 +48,8 @@ interface AssetDetail {
   os_version?: string | null;
   departamento?: string | null;
   ubicacion?: string | null;
+  ssh_user?: string | null;
+  ssh_password?: string | null;
 }
 
 type EditForm = {
@@ -65,6 +67,8 @@ type EditForm = {
   ubicacion: string;
   mac_address: string;
   notas: string;
+  ssh_user: string;
+  ssh_password: string;
 };
 
 function toEditForm(a: AssetDetail): EditForm {
@@ -83,6 +87,8 @@ function toEditForm(a: AssetDetail): EditForm {
     ubicacion: a.ubicacion ?? '',
     mac_address: a.mac_address ?? '',
     notas: a.notas ?? '',
+    ssh_user: a.ssh_user ?? '',
+    ssh_password: a.ssh_password ?? '',
   };
 }
 
@@ -220,6 +226,7 @@ export function AssetDetailPage() {
     hostname: '', nombre: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '',
     status: 'ACTIVO', os_family: '', os_version: '', dominio: '',
     network_range: '', departamento: '', ubicacion: '', mac_address: '', notas: '',
+    ssh_user: '', ssh_password: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -347,6 +354,8 @@ export function AssetDetailPage() {
         ubicacion:     editForm.ubicacion     || null,
         mac_address:   editForm.mac_address   || null,
         notas:         editForm.notas         || null,
+        ssh_user:      editForm.ssh_user      || null,
+        ssh_password:  editForm.ssh_password  || null,
       };
       const res = await fetch(`${M1_BASE}/assets/${asset.id}`, {
         method: 'PUT',
@@ -1036,6 +1045,60 @@ export function AssetDetailPage() {
                       ? <textarea value={editForm.notas} onChange={e => setEditForm(p => ({ ...p, notas: e.target.value }))} rows={3} className={`${inputClass} resize-none`} placeholder="Observaciones adicionales..." />
                       : <div className="text-sm text-[#9ca3af]">{asset.notas ?? '—'}</div>}
                   </div>
+                </div>
+
+                {/* ── Credenciales SSH ── */}
+                <div className="mt-5 bg-[#1a1d27] border border-[#1e2530] rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Shield className="w-4 h-4 text-[#f59e0b]" />
+                    <h3 className="text-sm font-semibold text-white">Credenciales SSH</h3>
+                    <span className="text-xs text-[#4b5563]">· ENS op.acc.1 · Acceso a logs del activo</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-[#9ca3af]">Usuario SSH</label>
+                      {editing ? (
+                        <input
+                          value={editForm.ssh_user}
+                          onChange={e => setEditForm(p => ({ ...p, ssh_user: e.target.value }))}
+                          placeholder="admin"
+                          className={inputClass}
+                        />
+                      ) : (
+                        <span className="text-sm font-mono text-white">
+                          {asset.ssh_user || <span className="text-[#4b5563]">No configurado</span>}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-[#9ca3af]">Contraseña SSH</label>
+                      {editing ? (
+                        <input
+                          type="password"
+                          value={editForm.ssh_password}
+                          onChange={e => setEditForm(p => ({ ...p, ssh_password: e.target.value }))}
+                          placeholder="••••••••"
+                          className={inputClass}
+                        />
+                      ) : (
+                        <span className="text-sm font-mono text-white">
+                          {asset.ssh_password ? '••••••••' : <span className="text-[#4b5563]">No configurada</span>}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {!editing && asset.ssh_user && (
+                    <div className="mt-3 flex items-center gap-1.5 text-xs text-[#22c55e]">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Credenciales configuradas — los logs de acceso usarán estas credenciales
+                    </div>
+                  )}
+                  {!editing && !asset.ssh_user && (
+                    <div className="mt-3 flex items-center gap-1.5 text-xs text-[#f59e0b]">
+                      <AlertCircle className="w-3 h-3" />
+                      Sin credenciales — se usará el fallback <code className="font-mono">admin:test123</code>
+                    </div>
+                  )}
                 </div>
               </div>
 

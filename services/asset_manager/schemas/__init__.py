@@ -67,6 +67,8 @@ class AssetCreate(BaseModel):
     os_family: Optional[str] = Field(None, max_length=50)
     os_version: Optional[str] = Field(None, max_length=100)
     password: Optional[str] = Field(None, description="Contraseña que se enviará a Vault")
+    ssh_user:     Optional[str] = Field(None, max_length=100)
+    ssh_password: Optional[str] = Field(None, max_length=255)
 
     _validate_ip = field_validator("ip")(_validate_ip)
     _validate_mac = field_validator("mac_address")(_validate_mac)
@@ -90,6 +92,8 @@ class AssetUpdate(BaseModel):
     notas: Optional[str] = None
     os_family: Optional[str] = Field(None, max_length=50)
     os_version: Optional[str] = Field(None, max_length=100)
+    ssh_user:     Optional[str] = Field(None, max_length=100)
+    ssh_password: Optional[str] = Field(None, max_length=255)
 
     _validate_ip = field_validator("ip")(_validate_ip)
     _validate_mac = field_validator("mac_address")(_validate_mac)
@@ -121,6 +125,8 @@ class AssetResponse(BaseModel):
     network_range: Optional[str] = None
     os_family: Optional[str] = None
     os_version: Optional[str] = None
+    ssh_user:     Optional[str] = None
+    ssh_password: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None

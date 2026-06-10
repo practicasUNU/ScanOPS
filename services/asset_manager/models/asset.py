@@ -103,6 +103,10 @@ class Asset(Base):
     # Vault (US-1.3)
     vault_path = Column(String(500), nullable=True)
 
+    # SSH credentials (op.acc.1 — credenciales de acceso a activo)
+    ssh_user     = Column(String(100), nullable=True)
+    ssh_password = Column(String(255), nullable=True)  # cifrado en tránsito vía HTTPS
+
     # External sync (US-1.6)
     external_id = Column(String(255), nullable=True, index=True)
     external_source = Column(String(50), nullable=True)
