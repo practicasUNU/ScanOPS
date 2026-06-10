@@ -16,6 +16,7 @@ import { AlertsPage } from './components/AlertsPage';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
+import BastionadoPage from '../pages/BastionadoPage';
 
 function AppInner() {
   const { toastQueue, dismissToast } = useCriticalAlerts();
@@ -70,6 +71,11 @@ function AppInner() {
         <Route path="/alerts" element={
           <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
             <AlertsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/bastionado" element={
+          <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
+            <BastionadoPage />
           </ProtectedRoute>
         } />
       </Routes>

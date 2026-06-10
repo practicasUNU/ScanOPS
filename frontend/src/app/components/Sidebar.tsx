@@ -79,6 +79,7 @@ export function Sidebar() {
         { icon: Brain, label: 'M8 - IA Reasoning', path: '/ai-reasoning' },
         { icon: ClipboardList, label: 'M4 - Explotación', path: '/exploitation' },
         { icon: Bell, label: 'M5 - Alertas SIEM', path: '/alerts' },
+        { icon: Shield, label: 'Bastionado', path: '/bastionado' },
         { icon: FileText, label: 'M7 - Reportes', path: '/reporting' },
       ]
     },
