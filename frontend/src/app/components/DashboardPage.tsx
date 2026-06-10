@@ -637,8 +637,11 @@ export function DashboardPage() {
               <div className="px-5 py-4 border-t border-[#1e2530] space-y-3">
                 {immApprovals.length > 0 && (
                   <div className="flex items-center gap-4">
-                    <img src={`data:image/png;base64,${immApprovals[0].qr_code_base64}`}
-                         alt="QR TOTP" className="w-20 h-20 rounded border border-[#1e2530] shrink-0"/>
+                    <div className="flex flex-col items-center gap-2">
+                      <img src={`data:image/png;base64,${immApprovals[0].qr_code_base64}`}
+                           alt="QR TOTP" className="w-48 h-48 rounded-lg border border-[#1e2530]"/>
+                      <p className="text-[10px] text-[#6b7280]">Escanea con Google Authenticator</p>
+                    </div>
                     <div>
                       <p className="text-xs font-bold text-white">
                         Aprobación maestra #{immApprovals[0].approval_id}
@@ -647,9 +650,6 @@ export function DashboardPage() {
                         {immApprovals[0].asset_ip}
                       </p>
                       <p className="text-[10px] text-[#f59e0b] font-mono mt-0.5">PIN: 1234</p>
-                      <p className="text-[10px] text-[#6b7280] mt-0.5">
-                        Escanea con Google Authenticator
-                      </p>
                     </div>
                   </div>
                 )}

@@ -915,10 +915,8 @@ export function AIReasoningPage() {
                 <ShieldCheck className="w-5 h-5 text-[#00d4ff]"/>
                 <h3 className="text-sm font-bold text-white">Autorizar Vector de Ataque</h3>
               </div>
-              {authStep !== 'done' && (
-                <button onClick={() => { setAuthModalOpen(false); setAuthTotpSecret(''); setAuthLiveCode(''); setAuthCodeTimer(30); }}
-                  className="text-[#6b7280] hover:text-white text-lg leading-none">×</button>
-              )}
+              <button onClick={() => { setAuthModalOpen(false); setAuthTotpSecret(''); setAuthLiveCode(''); setAuthCodeTimer(30); setAuthStep('pin'); }}
+                className="text-[#6b7280] hover:text-white text-lg leading-none">×</button>
             </div>
 
             {/* Indicador de pasos */}
@@ -989,7 +987,7 @@ export function AIReasoningPage() {
                   <img
                     src={`data:image/png;base64,${authQrBase64}`}
                     alt="QR TOTP"
-                    className="w-48 h-48 rounded-lg border border-[#1e2530]"
+                    className="w-64 h-64 rounded-lg border border-[#1e2530]"
                   />
                 </div>
                 <p className="text-xs text-[#6b7280] text-center">
