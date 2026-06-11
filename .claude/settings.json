@@ -9,7 +9,16 @@
       "Bash(Select-String -Context 2,0 \"siem|correlation\")",
       "PowerShell(docker compose ps --format \"table {{.Name}}\\\\t{{.Status}}\" 2>&1)",
       "PowerShell(docker compose up -d --force-recreate celery-worker 2>&1)",
-      "Read(//c/Users/borja/.claude/projects/c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS/memory/**)"
+      "Read(//c/Users/borja/.claude/projects/c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS/memory/**)",
+      "PowerShell(docker compose build scanops-exploit-engine 2>&1)",
+      "PowerShell(docker compose build m4 2>&1)",
+      "PowerShell(docker exec scanops-m4 python3 -c \"import sys; sys.path.insert\\(0,'/app/services/exploit_engine'\\); from testssl_client import get_testssl_client; c = get_testssl_client\\(\\); print\\('OK', type\\(c\\)\\)\")",
+      "PowerShell(docker exec scanops-postgres psql -U scanops -c \"SELECT id, cve_id, target_ip, status FROM m4_approvals ORDER BY id DESC LIMIT 5;\")",
+      "PowerShell($token = \\(Invoke-WebRequest -Uri \"http://localhost:8009/auth/token\" -Method POST -ContentType \"application/x-www-form-urlencoded\" -Body \"username=admin&password=scanops_admin_2026\"\\).Content | ConvertFrom-Json | Select-Object -ExpandProperty access_token; Write-Host \"TOKEN OK: $\\($token.Substring\\(0,20\\)\\)...\")",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(curl -s -X POST http://localhost:8009/auth/token -H \"Content-Type: application/x-www-form-urlencoded\" -d \"username=admin&password=scanops_admin_2026\")",
+      "Bash(curl -s -X POST http://localhost:8009/auth/token -H 'Content-Type: application/x-www-form-urlencoded' -d 'username=admin&password=scanops_admin_2026')",
+      "Bash(xargs grep -l \"nikto\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\borja\\.claude\\projects\\c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS\\memory"

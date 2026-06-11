@@ -236,6 +236,12 @@ RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
        -O /usr/share/wordlists/common.txt \
     || echo "common.txt no descargado — usar docker cp"
 
+# testssl.sh — validación TLS para ENS mp.com.2 / mp.com.3
+RUN apt-get update && apt-get install -y bsdmainutils dnsutils procps \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && git clone --depth 1 https://github.com/drwetter/testssl.sh.git /opt/testssl \
+    && chmod +x /opt/testssl/testssl.sh
+
 # Instalar NetExec desde GitHub
 RUN pip install --no-cache-dir git+https://github.com/Pennyw0rth/NetExec
 
@@ -24547,52 +24553,49 @@ export function UnifiedScannerLayout() {
         });
         if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
         const { task_id } = await m3Launch.json();
-        log(`[M3] Tarea creada — esperando resultados...`);
-        // Espera inicial más corta: 8s en lugar de 15s
-        await new Promise(r => setTimeout(r, 8000));
+        log(`[M3] Tarea creada — task_id=${task_id}`);
+        await new Promise(r => setTimeout(r, 10000));
+
         let m3Done = false;
-        // 48 iteraciones × 5s = 240s máximo (4 minutos)
-        for (let i = 0; i < 48; i++) {
-          await new Promise(r => setTimeout(r, 5000));
+        // Polling dual: cada iteración consulta /results directamente.
+        // No dependemos del status del task padre porque scan_asset_parallel
+        // termina en <1s devolviendo "parallel_scans_initiated" — su status
+        // es SUCCESS inmediatamente aunque el chord interno siga corriendo.
+        for (let i = 0; i < 36; i++) {
+          await new Promise(r => setTimeout(r, 8000));
           try {
-            const statusRes = await fetch(`http://localhost:8002/api/v1/scan/status/${task_id}`,
-              { headers: authH(), signal: AbortSignal.timeout(8000) });
-            if (statusRes.ok) {
-              const s = await statusRes.json();
-              const done = s.status === 'SUCCESS' || s.status === 'FAILED' || s.status === 'FAILURE';
-              if (done) {
-                const resultsRes = await fetch(
-                  `http://localhost:8002/api/v1/scan/results/${assetId}`,
-                  { headers: authH(), signal: AbortSignal.timeout(8000) }
-                );
-                if (resultsRes.ok) {
-                  const results = await resultsRes.json();
-                  setAdhocM3Result(results);
-                  const n = results.total_findings ?? 0;
-                  log(n > 0
-                    ? `[M3] ✓ Completado — ${n} vulnerabilidades encontradas`
-                    : `[M3] ✓ Completado — sin vulnerabilidades detectadas en este host`
-                  );
-                  m3Done = true;
-                  break;
-                }
+            const resultsRes = await fetch(
+              `http://localhost:8002/api/v1/scan/results/${assetId}`,
+              { headers: authH(), signal: AbortSignal.timeout(8000) }
+            );
+            if (resultsRes.ok) {
+              const results = await resultsRes.json();
+              const n = results.total_findings ?? 0;
+              if (n > 0) {
+                setAdhocM3Result(results);
+                log(`[M3] ✓ Completado — ${n} vulnerabilidades encontradas`);
+                m3Done = true;
+                break;
               }
             }
-          } catch (_e) {
-            // timeout parcial — continuar esperando
-          }
-          if (i % 4 === 0) log(`[M3] Escaneando... ${8 + (i + 1) * 5}s`);
+          } catch (_e) {}
+          if (i % 3 === 0) log(`[M3] Escaneando... ${10 + (i + 1) * 8}s`);
         }
+        // Mostrar resultado final siempre — aunque sea 0 hallazgos
         if (!m3Done) {
-          // Intentar obtener resultados parciales aunque no haya terminado
           try {
-            const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/${assetId}`,
-              { headers: authH(), signal: AbortSignal.timeout(8000) });
+            const resultsRes = await fetch(
+              `http://localhost:8002/api/v1/scan/results/${assetId}`,
+              { headers: authH(), signal: AbortSignal.timeout(8000) }
+            );
             if (resultsRes.ok) {
               const results = await resultsRes.json();
               setAdhocM3Result(results);
-              const count = results.total_findings ?? 0;
-              log(`[M3] ⚠ Timeout de espera — ${count > 0 ? `${count} hallazgos parciales` : 'sin resultados aún (scan puede seguir en background)'}`);
+              const n = results.total_findings ?? 0;
+              log(n > 0
+                ? `[M3] ✓ Completado — ${n} vulnerabilidades`
+                : `[M3] ✓ Completado — sin vulnerabilidades detectadas en este host`
+              );
             }
           } catch {}
         }
@@ -38080,6 +38083,7 @@ try:
     from sqlmap_executor import get_sqlmap_executor
     from hydra_executor import get_hydra_executor
     from netexec_client import get_netexec_client
+    from testssl_client import get_testssl_client
     from production_monitor import get_monitor
     from approval_service import ApprovalService
 except ImportError as e:
@@ -38089,6 +38093,7 @@ except ImportError as e:
     EXPLOITS = []
     M4_DRY_RUN = False
     HYDRA_MAX_RETRIES = 2
+    get_testssl_client = None
 
 logger = logging.getLogger("M4Orchestrator")
 logging.basicConfig(level=logging.INFO)
@@ -38112,6 +38117,7 @@ class M4Orchestrator:
         self.sqlmap = get_sqlmap_executor()
         self.hydra_executor = get_hydra_executor()
         self.netexec = get_netexec_client()
+        self.testssl = get_testssl_client() if get_testssl_client else None
         self.approval_svc = ApprovalService(db_config)
 
     def _get_connection(self):
@@ -38176,6 +38182,28 @@ class M4Orchestrator:
         netexec_laterals = 0
         exploits_executed = 0
         exploits_failed = 0
+
+        # ═══════════════════════════════════════════════════════════
+        # FASE 0: VALIDACIÓN TLS — ENS mp.com.2 / mp.com.3
+        # ═══════════════════════════════════════════════════════════
+        if self.testssl:
+            logger.info("🔒 FASE 0: Validación TLS con testssl.sh")
+            tls_targets = set()
+            for appr in approvals:
+                try:
+                    tip, _, _ = self._resolve_and_validate_target(appr)
+                    tls_targets.add(tip)
+                except Exception:
+                    pass
+
+            for tip in tls_targets:
+                for tls_port in [443, 8443]:
+                    tls_result = self.testssl.scan(
+                        target_ip=tip,
+                        port=tls_port,
+                        approval_id=None
+                    )
+                    self._persist_testssl_result(tip, tls_port, tls_result)
 
         for approval in approvals:
             approval_id = approval['id']
@@ -38688,6 +38716,49 @@ class M4Orchestrator:
                     logger.info(f"✅ Resultado sqlmap guardado para approval {approval_id}")
         except Exception as e:
             logger.error(f"❌ Error guardando resultado sqlmap: {e}")
+
+    def _persist_testssl_result(self, target_ip: str, port: int, result: Dict):
+        """Persiste resultado testssl en exploit_results como evidencia ENS mp.com.2/mp.com.3"""
+        conn = None
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO exploit_results (
+                        approval_id, cve_id, target_ip, target_port,
+                        msf_module, payload, success, started_at,
+                        ended_at, duration_seconds, output,
+                        executor_email, ip_origin
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    None,
+                    f"TLS-AUDIT-{port}",
+                    target_ip,
+                    port,
+                    "testssl/tls/audit",
+                    "tls_validation",
+                    result.get("success", False),
+                    result.get("started_at"),
+                    result.get("ended_at"),
+                    result.get("duration_seconds", 0),
+                    json.dumps({
+                        "critical_count": result.get("critical_count", 0),
+                        "medium_count": result.get("medium_count", 0),
+                        "critical_findings": result.get("critical_findings", []),
+                        "ens_controls": ["mp.com.2", "mp.com.3"]
+                    })[:3000],
+                    "system",
+                    "127.0.0.1"
+                ))
+                conn.commit()
+                logger.info(f"✅ Resultado testssl guardado: {target_ip}:{port}")
+        except Exception as e:
+            logger.error(f"❌ Error persistiendo testssl: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                conn.close()
 
 # Singleton instance
 _orchestrator = None
@@ -40278,6 +40349,141 @@ def run_approved_exploits(self):
     except Exception as e:
         logger.error(f"Phase 4 error: {e}")
         raise self.retry(exc=e, countdown=300)
+FILE:services\exploit_engine\testssl_client.py
+"""
+testssl_client.py — Validación TLS/SSL para ENS Alto
+Controles: mp.com.2 (cifrado en tránsito), mp.com.3 (certificados)
+"""
+
+import subprocess
+import json
+import logging
+import os
+from datetime import datetime
+from typing import Dict, Optional
+
+logger = logging.getLogger("TestSSLClient")
+
+TESTSSL_BIN = os.getenv("TESTSSL_BIN", "/opt/testssl/testssl.sh")
+
+class TestSSLClient:
+
+    def scan(self, target_ip: str, port: int = 443, approval_id: Optional[int] = None) -> Dict:
+        """
+        Ejecuta testssl.sh contra target_ip:port.
+        Devuelve dict con findings, severidad y evidencia para BD.
+        """
+        started_at = datetime.utcnow()
+
+        if not os.path.exists(TESTSSL_BIN):
+            logger.error(f"testssl.sh no encontrado en {TESTSSL_BIN}")
+            return self._error_result(target_ip, port, started_at, "testssl.sh binary not found")
+
+        target = f"{target_ip}:{port}"
+        cmd = [
+            TESTSSL_BIN,
+            "--jsonfile", "/tmp/testssl_output.json",
+            "--severity", "LOW",
+            "--nodns", "min",
+            "--connect-timeout", "10",
+            "--openssl-timeout", "10",
+            "--warnings", "off",
+            "--color", "0",
+            target
+        ]
+
+        logger.info(f"🔐 testssl.sh → {target}")
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            raw_output = proc.stdout + proc.stderr
+            findings = self._parse_json_output("/tmp/testssl_output.json")
+            ended_at = datetime.utcnow()
+            duration = (ended_at - started_at).total_seconds()
+
+            critical_findings = [f for f in findings if f.get("severity") in ("CRITICAL", "HIGH")]
+            medium_findings   = [f for f in findings if f.get("severity") == "MEDIUM"]
+
+            result = {
+                "tool": "testssl",
+                "target_ip": target_ip,
+                "port": port,
+                "approval_id": approval_id,
+                "started_at": started_at.isoformat(),
+                "ended_at": ended_at.isoformat(),
+                "duration_seconds": duration,
+                "success": True,
+                "total_findings": len(findings),
+                "critical_count": len(critical_findings),
+                "medium_count": len(medium_findings),
+                "critical_findings": critical_findings,
+                "medium_findings": medium_findings,
+                "raw_output": raw_output[:3000],
+                "ens_controls": ["mp.com.2", "mp.com.3"]
+            }
+
+            logger.info(
+                f"✅ testssl completado: {len(critical_findings)} críticos, "
+                f"{len(medium_findings)} medios en {target}"
+            )
+            return result
+
+        except subprocess.TimeoutExpired:
+            return self._error_result(target_ip, port, started_at, "timeout after 120s")
+        except Exception as e:
+            return self._error_result(target_ip, port, started_at, str(e))
+
+    def _parse_json_output(self, json_path: str) -> list:
+        """Parsea el JSON de testssl y extrae findings con severidad."""
+        try:
+            if not os.path.exists(json_path):
+                return []
+            with open(json_path, "r") as f:
+                data = json.load(f)
+
+            findings = []
+            for entry in data:
+                severity = entry.get("severity", "INFO").upper()
+                if severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+                    findings.append({
+                        "id": entry.get("id", ""),
+                        "severity": severity,
+                        "finding": entry.get("finding", ""),
+                        "cve": entry.get("cve", ""),
+                    })
+            return findings
+
+        except Exception as e:
+            logger.warning(f"⚠️ Error parseando JSON de testssl: {e}")
+            return []
+
+    def _error_result(self, target_ip: str, port: int, started_at: datetime, error: str) -> Dict:
+        return {
+            "tool": "testssl",
+            "target_ip": target_ip,
+            "port": port,
+            "started_at": started_at.isoformat(),
+            "ended_at": datetime.utcnow().isoformat(),
+            "success": False,
+            "error": error,
+            "total_findings": 0,
+            "critical_count": 0,
+            "ens_controls": ["mp.com.2", "mp.com.3"]
+        }
+
+_client: Optional[TestSSLClient] = None
+
+def get_testssl_client() -> TestSSLClient:
+    global _client
+    if _client is None:
+        _client = TestSSLClient()
+    return _client
 FILE:services\exploit_engine\api\__init__.py
 from .approval_api import router as approval_router
 FILE:services\exploit_engine\api\approval_api.py
@@ -51637,7 +51843,7 @@ async def get_hardening_results(asset_id: int, limit: int = 5):
 FILE:services\scanner_engine\endpoints\scan.py
 """FastAPI endpoints for vulnerability scanning."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends, Response
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
@@ -51809,7 +52015,7 @@ async def start_asset_scan(
                 600,
                 _json.dumps({
                     "asset_id": asset_id,
-                    "started_at": datetime.utcnow().isoformat(),
+                    "started_at": datetime.now(timezone.utc).isoformat(),
                     "scan_types": [str(t) for t in request.scan_types],
                 })
             )
@@ -51925,6 +52131,10 @@ async def get_scan_status(task_id: str) -> ScanStatusResponse:
                 fb_asset_id = scan_meta.get("asset_id")
                 started_at_str = scan_meta.get("started_at", datetime.utcnow().isoformat())
                 started_at_dt = datetime.fromisoformat(started_at_str)
+                # Forzar UTC-aware para que la comparación con PostgreSQL sea correcta
+                if started_at_dt.tzinfo is None:
+                    from datetime import timezone as _tz
+                    started_at_dt = started_at_dt.replace(tzinfo=_tz.utc)
 
                 if fb_asset_id:
                     db = SessionLocal()
@@ -53710,7 +53920,7 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
         VALUES
             (:asset_id, :scan_id, :vulnerability_id, :title, :description, :severity,
              :cvss_v3_score, :scanner_name, :scanner_reference, :affected_port,
-             :evidence::json, NOW(), :last_verified_at, 'open', :created_by, NOW())
+             CAST(:evidence AS json), NOW(), :last_verified_at, 'open', :created_by, NOW())
         ON CONFLICT (asset_id, vulnerability_id, scanner_name, COALESCE(affected_port, -1))
         DO UPDATE SET
             last_verified_at = EXCLUDED.last_verified_at,
