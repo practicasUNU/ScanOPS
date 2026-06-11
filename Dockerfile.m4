@@ -32,6 +32,12 @@ RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
        -O /usr/share/wordlists/common.txt \
     || echo "common.txt no descargado — usar docker cp"
 
+# Default credentials wordlist — ENS op.acc.1
+RUN printf 'admin\nroot\nadministrator\nguest\nuser\ntest\nubuntu\noperator\nservice\nbackup\npostgres\nmysql\noracle\nftp\nssh\n' \
+    > /usr/share/wordlists/default_users.txt && \
+    printf 'admin\npassword\n123456\nroot\ntoor\nletmein\n1234\n12345\nadmin123\npassword1\ntest\nguest\nchangeme\ndefault\nblank\ntest123\nowaspbwa\n\n' \
+    > /usr/share/wordlists/default_passwords.txt
+
 # nikto — auditoría web forense para ENS op.exp.2
 RUN apt-get update && apt-get install -y \
     perl \
