@@ -1745,16 +1745,75 @@ export function AssetDetailPage() {
                           );
                           if (execRes.ok) {
                             const execData = await execRes.json();
-                            setPipelineExecResult(execData);
-                            if (execData.success) {
-                              plog(`[EXEC] ✓ ACCESO OBTENIDO`, 'success');
-                              plog(`[EXEC]   → Target: ${execData.target_ip}:22 (SSH)`, 'success');
-                              plog(`[EXEC]   → Usuario: admin | Contraseña: ${execData.password_found}`, 'success');
-                              plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'success');
-                              plog(`[EXEC] ★ VULNERABILIDAD CONFIRMADA — Sistema comprometido`, 'error');
+
+                            // El backend devuelve 202 accepted — el bruteforce corre en background.
+                            // Hacemos polling de /api/m4/approval-status/{id} hasta que status = EXECUTED.
+                            if (execData.status === 'accepted') {
+                              plog(`[EXEC] Pipeline iniciado en background — esperando resultado...`, 'info');
+                              let pollData: any = null;
+                              const POLL_INTERVAL = 5000;
+                              const POLL_MAX = 60; // 5 min máximo
+                              for (let i = 0; i < POLL_MAX; i++) {
+                                await new Promise(r => setTimeout(r, POLL_INTERVAL));
+                                plog(`[EXEC] Comprobando estado... (${(i + 1) * 5}s)`, 'info');
+                                try {
+                                  const statusRes = await fetch(
+                                    `http://localhost:8004/api/m4/approval-status/${pipelineApprovalId}`,
+                                    { headers: authHeader() }
+                                  );
+                                  if (statusRes.ok) {
+                                    const statusData = await statusRes.json();
+                                    if (statusData.status === 'EXECUTED') {
+                                      pollData = statusData;
+                                      break;
+                                    }
+                                  }
+                                } catch {}
+                              }
+
+                              if (pollData) {
+                                // execution_result es el JSON guardado por _run_crack
+                                const r = pollData.execution_result
+                                  ? (typeof pollData.execution_result === 'string'
+                                      ? JSON.parse(pollData.execution_result)
+                                      : pollData.execution_result)
+                                  : {};
+                                const finalData = {
+                                  ...execData,
+                                  success: r.success ?? false,
+                                  password_found: r.password ?? null,
+                                  attempts: r.attempts ?? 0,
+                                  duration: r.duration ?? 0,
+                                  target_ip: execData.target_ip,
+                                };
+                                setPipelineExecResult(finalData);
+                                if (finalData.success) {
+                                  plog(`[EXEC] ✓ ACCESO OBTENIDO`, 'success');
+                                  plog(`[EXEC]   → Target: ${finalData.target_ip}:22 (SSH)`, 'success');
+                                  plog(`[EXEC]   → Usuario: admin | Contraseña: ${finalData.password_found}`, 'success');
+                                  plog(`[EXEC]   → Intentos: ${finalData.attempts} | Duración: ${finalData.duration}s`, 'success');
+                                  plog(`[EXEC] ★ VULNERABILIDAD CONFIRMADA — Sistema comprometido`, 'error');
+                                } else {
+                                  plog(`[EXEC] ✗ Sin credenciales válidas encontradas`, 'warn');
+                                  plog(`[EXEC]   → Intentos: ${finalData.attempts} | Duración: ${finalData.duration}s`, 'info');
+                                }
+                              } else {
+                                plog(`[EXEC] ⏱ Timeout esperando resultado — consulta M4 manualmente`, 'warn');
+                              }
+
                             } else {
-                              plog(`[EXEC] ✗ Sin credenciales válidas encontradas`, 'warn');
-                              plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'info');
+                              // Respuesta síncrona legacy (por si acaso)
+                              setPipelineExecResult(execData);
+                              if (execData.success) {
+                                plog(`[EXEC] ✓ ACCESO OBTENIDO`, 'success');
+                                plog(`[EXEC]   → Target: ${execData.target_ip}:22 (SSH)`, 'success');
+                                plog(`[EXEC]   → Usuario: admin | Contraseña: ${execData.password_found}`, 'success');
+                                plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'success');
+                                plog(`[EXEC] ★ VULNERABILIDAD CONFIRMADA — Sistema comprometido`, 'error');
+                              } else {
+                                plog(`[EXEC] ✗ Sin credenciales válidas encontradas`, 'warn');
+                                plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'info');
+                              }
                             }
                           } else {
                             plog(`[EXEC] ✗ Error al ejecutar: HTTP ${execRes.status}`, 'error');

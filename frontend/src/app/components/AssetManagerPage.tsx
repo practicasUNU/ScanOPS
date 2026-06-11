@@ -5,7 +5,7 @@ import { TopBar } from './TopBar';
 import {
   Server, ShieldAlert, KeyRound, Plus, RefreshCw, AlertCircle,
   Play, Loader2, Eye, Info, Terminal, Monitor, HelpCircle, ChevronDown, ChevronRight, ExternalLink,
-  Copy, Check, Lock, Pencil, Save, Trash2, Maximize2, ShieldX,
+  Copy, Check, Lock, Pencil, Save, Trash2, Maximize2, ShieldX, Wifi,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';

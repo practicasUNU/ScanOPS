@@ -32,7 +32,8 @@
       "PowerShell(docker exec scanops-postgres psql -U scanops -c \"UPDATE m4_approvals SET status = 'APPROVED' WHERE id = 1;\")",
       "PowerShell($resp = Invoke-RestMethod -Uri \"http://localhost:8009/auth/token\" -Method POST -ContentType \"application/x-www-form-urlencoded\" -Body \"username=admin&password=scanops_admin_2026\" -UseBasicParsing; $token = $resp.access_token; Invoke-RestMethod -Uri \"http://localhost:8004/api/m4/execute?approval_id=1\" -Method POST -Headers @{Authorization=\"Bearer $token\"} -UseBasicParsing | ConvertTo-Json)",
       "PowerShell(docker exec scanops-postgres psql -U scanops -c \"SELECT id, service, port, username, password, success FROM hydra_results WHERE service LIKE 'DEFAULT-%' ORDER BY id DESC LIMIT 10;\")",
-      "PowerShell(docker exec scanops-m4 wc -l /usr/share/wordlists/default_users.txt /usr/share/wordlists/default_passwords.txt)"
+      "PowerShell(docker exec scanops-m4 wc -l /usr/share/wordlists/default_users.txt /usr/share/wordlists/default_passwords.txt)",
+      "Bash(npm run *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\borja\\.claude\\projects\\c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS\\memory"
