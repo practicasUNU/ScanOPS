@@ -108,15 +108,17 @@ export function UnifiedScannerLayout() {
           assetId = m1Asset.id;
           log(`[M1] ✓ Activo registrado — asset_id=${assetId}`);
         } else if (m1Register.status === 409) {
-          // Asset already exists — fetch it by IP to get its id
-          const m1Find = await fetch(`http://localhost:8001/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=1`,
-            { headers: authH(), signal: AbortSignal.timeout(10000) });
+          // Asset already exists — buscar por IP exacta
+          const m1Find = await fetch(
+            `http://localhost:8001/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=50`,
+            { headers: authH(), signal: AbortSignal.timeout(10000) }
+          );
           if (!m1Find.ok) throw new Error(`M1 lookup HTTP ${m1Find.status}`);
           const m1List = await m1Find.json();
-          const existing = (m1List.items ?? [])[0];
-          if (!existing) throw new Error(`M1: activo no encontrado para ${cleanTarget}`);
+          const existing = (m1List.items ?? []).find(a => a.ip === cleanTarget);
+          if (!existing) throw new Error(`M1: activo con IP ${cleanTarget} no encontrado`);
           assetId = existing.id;
-          log(`[M1] Activo ya registrado — asset_id=${assetId}`);
+          log(`[M1] Activo ya registrado — asset_id=${assetId} (IP: ${existing.ip})`);
         } else {
           throw new Error(`M1 HTTP ${m1Register.status}`);
         }
@@ -130,21 +132,51 @@ export function UnifiedScannerLayout() {
         });
         if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
         const { task_id } = await m3Launch.json();
-        log(`[M3] Tarea creada — esperando resultados...`);
-        await new Promise(r => setTimeout(r, 15000));
-        for (let i = 0; i < 30; i++) {
-          await new Promise(r => setTimeout(r, 5000));
-          const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/${assetId}`,
-            { headers: authH(), signal: AbortSignal.timeout(8000) });
-          if (resultsRes.ok) {
-            const results = await resultsRes.json();
-            if ((results.total_findings ?? 0) > 0) {
-              setAdhocM3Result(results);
-              log(`[M3] ✓ Completado — ${results.total_findings} vulnerabilidades`);
-              break;
+        log(`[M3] Tarea creada — task_id=${task_id}`);
+        await new Promise(r => setTimeout(r, 10000));
+
+        let m3Done = false;
+        // Polling dual: cada iteración consulta /results directamente.
+        // No dependemos del status del task padre porque scan_asset_parallel
+        // termina en <1s devolviendo "parallel_scans_initiated" — su status
+        // es SUCCESS inmediatamente aunque el chord interno siga corriendo.
+        for (let i = 0; i < 36; i++) {
+          await new Promise(r => setTimeout(r, 8000));
+          try {
+            const resultsRes = await fetch(
+              `http://localhost:8002/api/v1/scan/results/${assetId}`,
+              { headers: authH(), signal: AbortSignal.timeout(8000) }
+            );
+            if (resultsRes.ok) {
+              const results = await resultsRes.json();
+              const n = results.total_findings ?? 0;
+              if (n > 0) {
+                setAdhocM3Result(results);
+                log(`[M3] ✓ Completado — ${n} vulnerabilidades encontradas`);
+                m3Done = true;
+                break;
+              }
             }
-          }
-          if (i % 3 === 0) log(`[M3] Escaneando... ${15 + (i + 1) * 5}s`);
+          } catch (_e) {}
+          if (i % 3 === 0) log(`[M3] Escaneando... ${10 + (i + 1) * 8}s`);
+        }
+        // Mostrar resultado final siempre — aunque sea 0 hallazgos
+        if (!m3Done) {
+          try {
+            const resultsRes = await fetch(
+              `http://localhost:8002/api/v1/scan/results/${assetId}`,
+              { headers: authH(), signal: AbortSignal.timeout(8000) }
+            );
+            if (resultsRes.ok) {
+              const results = await resultsRes.json();
+              setAdhocM3Result(results);
+              const n = results.total_findings ?? 0;
+              log(n > 0
+                ? `[M3] ✓ Completado — ${n} vulnerabilidades`
+                : `[M3] ✓ Completado — sin vulnerabilidades detectadas en este host`
+              );
+            }
+          } catch {}
         }
 
       } else {

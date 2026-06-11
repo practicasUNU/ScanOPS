@@ -71,7 +71,7 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
 
 
 @app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities",
-          time_limit=150, soft_time_limit=130)
+          time_limit=70, soft_time_limit=60)
 def run_nikto_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
     scheme = "https" if port == 443 else "http"
@@ -175,7 +175,7 @@ def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
         VALUES
             (:asset_id, :scan_id, :vulnerability_id, :title, :description, :severity,
              :cvss_v3_score, :scanner_name, :scanner_reference, :affected_port,
-             :evidence::json, NOW(), :last_verified_at, 'open', :created_by, NOW())
+             CAST(:evidence AS json), NOW(), :last_verified_at, 'open', :created_by, NOW())
         ON CONFLICT (asset_id, vulnerability_id, scanner_name, COALESCE(affected_port, -1))
         DO UPDATE SET
             last_verified_at = EXCLUDED.last_verified_at,
@@ -296,10 +296,12 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
         if "ffuf" in scan_types:
             tasks.append(run_ffuf_task.s(asset_id, asset_ip, port))
 
-    if "whatweb" in scan_types:
-        tasks.append(run_whatweb_task.s(asset_id, asset_ip))
-    if "testssl" in scan_types:
-        tasks.append(run_testssl_task.s(asset_id, asset_ip))
+    # whatweb y testssl solo tienen sentido si hay puertos HTTP/HTTPS abiertos
+    if http_ports:
+        if "whatweb" in scan_types:
+            tasks.append(run_whatweb_task.s(asset_id, asset_ip))
+        if "testssl" in scan_types and (443 in http_ports or 8443 in http_ports):
+            tasks.append(run_testssl_task.s(asset_id, asset_ip))
 
     if not tasks:
         # Solo nmap se ejecutó, persistir sus findings directamente
@@ -311,3 +313,37 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types,
                 http_ports=http_ports, hostname=asset_name)
     return {"status": "parallel_scans_initiated", "task_id": workflow.id}
+
+
+@app.task(name="services.scanner_engine.tasks.vuln_tasks.run_full_vulnerability_scan",
+          queue="vulnerabilities")
+def run_full_vulnerability_scan():
+    """
+    Tarea batch semanal (ENS op.exp.2): lanza scan_asset_parallel
+    sobre todos los assets ACTIVO en la BD.
+    Referenciada en celery_app.py beat_schedule (martes 00:00).
+    """
+    from shared.database import SessionLocal
+    from services.asset_manager.models.asset import Asset
+
+    db = SessionLocal()
+    try:
+        assets = db.query(Asset).filter(Asset.status == "ACTIVO").all()
+        logger.info("FULL_VULN_SCAN_START", total_assets=len(assets))
+        launched = 0
+        for asset in assets:
+            try:
+                scan_asset_parallel.delay(
+                    asset_id=asset.id,
+                    asset_ip=asset.ip,
+                    asset_name=asset.hostname or f"Asset-{asset.id}",
+                    scan_types=["nmap", "nuclei", "nikto"],
+                )
+                launched += 1
+            except Exception as e:
+                logger.error("FULL_VULN_SCAN_ASSET_ERROR",
+                             asset_id=asset.id, error=str(e))
+        logger.info("FULL_VULN_SCAN_DISPATCHED", launched=launched)
+        return {"status": "dispatched", "total": len(assets), "launched": launched}
+    finally:
+        db.close()

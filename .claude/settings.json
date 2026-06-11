@@ -6,7 +6,13 @@
       "PowerShell(docker compose build scanner-engine celery-worker 2>&1)",
       "PowerShell(docker compose up -d --force-recreate scanner-engine celery-worker 2>&1)",
       "Bash(python -c ' *)",
-      "Bash(Select-String -Context 2,0 \"siem|correlation\")"
+      "Bash(Select-String -Context 2,0 \"siem|correlation\")",
+      "PowerShell(docker compose ps --format \"table {{.Name}}\\\\t{{.Status}}\" 2>&1)",
+      "PowerShell(docker compose up -d --force-recreate celery-worker 2>&1)",
+      "Read(//c/Users/borja/.claude/projects/c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS/memory/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\borja\\.claude\\projects\\c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS\\memory"
     ]
   }
 }

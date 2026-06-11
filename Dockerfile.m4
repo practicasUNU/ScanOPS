@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     hydra \
     sqlmap \
     sshpass \
+    openssh-client \
     gobuster \
     wget \
     iputils-ping \
@@ -24,7 +25,7 @@ RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
     fi && \
     if [ ! -f /usr/share/wordlists/rockyou.txt ]; then \
         mkdir -p /usr/share/wordlists && \
-        printf 'admin\npassword\n123456\nroot\ntoor\nletmein\nqwerty\n12345678\nadmin123\npassword1\ntest\nguest\nubuntu\nchangeme\nscanops\ntest123\n'  \
+        printf 'admin\npassword\n123456\nroot\ntoor\nletmein\nqwerty\n12345678\nadmin123\npassword1\ntest\nguest\nubuntu\nchangeme\nscanops\ntest123\nowaspbwa\n'  \
         > /usr/share/wordlists/rockyou.txt; \
     fi \
     && wget -q "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt" \

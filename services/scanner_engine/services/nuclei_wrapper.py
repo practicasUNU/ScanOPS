@@ -191,11 +191,18 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
                             continue
                         seen.add(dedup_key)
 
+                        _cvss_raw = info.get("classification", {}).get("cvss-score")
+                        try:
+                            _cvss = float(_cvss_raw) if _cvss_raw is not None else None
+                        except (ValueError, TypeError):
+                            _cvss = None
+
                         findings.append({
                             "title": title,
                             "severity": severity,
                             "description": description,
                             "cve_id": cve_str,
+                            "cvss_score": _cvss,
                             "evidence": matched_at,
                             "remediation": remediation,
                             "ens_measure": "op.exp.2"

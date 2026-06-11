@@ -50,7 +50,7 @@ def run_whatweb_scan(asset_id: int, target_url: str) -> List[Dict]:
             target_url,
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        subprocess.run(cmd, capture_output=True, text=True, timeout=20)
 
         findings = []
         if os.path.exists(output_file):

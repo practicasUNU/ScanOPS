@@ -183,7 +183,7 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
         "-h", target_url,
         "-Tuning", "1234578",
         "-timeout", "10",
-        "-maxtime", "90s",
+        "-maxtime", "40s",
         "-nointeractive",
     ]
 
@@ -192,7 +192,7 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=110,
+            timeout=55,
         )
 
         findings = _parse_nikto_stdout(result.stdout or "", target_url)

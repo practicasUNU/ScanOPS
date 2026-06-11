@@ -210,6 +210,7 @@ RUN apt-get update && apt-get install -y \
     hydra \
     sqlmap \
     sshpass \
+    openssh-client \
     gobuster \
     wget \
     iputils-ping \
@@ -228,7 +229,7 @@ RUN if [ -f /usr/share/wordlists/rockyou.txt.gz ]; then \
     fi && \
     if [ ! -f /usr/share/wordlists/rockyou.txt ]; then \
         mkdir -p /usr/share/wordlists && \
-        printf 'admin\npassword\n123456\nroot\ntoor\nletmein\nqwerty\n12345678\nadmin123\npassword1\ntest\nguest\nubuntu\nchangeme\nscanops\ntest123\n'  \
+        printf 'admin\npassword\n123456\nroot\ntoor\nletmein\nqwerty\n12345678\nadmin123\npassword1\ntest\nguest\nubuntu\nchangeme\nscanops\ntest123\nowaspbwa\n'  \
         > /usr/share/wordlists/rockyou.txt; \
     fi \
     && wget -q "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt" \
@@ -1350,7 +1351,7 @@ services:
       ZAP_HOST: scanops-zap
       ZAP_PORT: 8080
       ZAP_API_KEY: [REDACTED]
-      M1_URL: http://m1:8001/api/v1
+      M1_URL: http://m1:8001
       M1_TOKEN: [REDACTED]
     depends_on:
       - postgres
@@ -24522,15 +24523,17 @@ export function UnifiedScannerLayout() {
           assetId = m1Asset.id;
           log(`[M1] ✓ Activo registrado — asset_id=${assetId}`);
         } else if (m1Register.status === 409) {
-          // Asset already exists — fetch it by IP to get its id
-          const m1Find = await fetch(`http://localhost:8001/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=1`,
-            { headers: authH(), signal: AbortSignal.timeout(10000) });
+          // Asset already exists — buscar por IP exacta
+          const m1Find = await fetch(
+            `http://localhost:8001/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=50`,
+            { headers: authH(), signal: AbortSignal.timeout(10000) }
+          );
           if (!m1Find.ok) throw new Error(`M1 lookup HTTP ${m1Find.status}`);
           const m1List = await m1Find.json();
-          const existing = (m1List.items ?? [])[0];
-          if (!existing) throw new Error(`M1: activo no encontrado para ${cleanTarget}`);
+          const existing = (m1List.items ?? []).find(a => a.ip === cleanTarget);
+          if (!existing) throw new Error(`M1: activo con IP ${cleanTarget} no encontrado`);
           assetId = existing.id;
-          log(`[M1] Activo ya registrado — asset_id=${assetId}`);
+          log(`[M1] Activo ya registrado — asset_id=${assetId} (IP: ${existing.ip})`);
         } else {
           throw new Error(`M1 HTTP ${m1Register.status}`);
         }
@@ -24545,20 +24548,53 @@ export function UnifiedScannerLayout() {
         if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
         const { task_id } = await m3Launch.json();
         log(`[M3] Tarea creada — esperando resultados...`);
-        await new Promise(r => setTimeout(r, 15000));
-        for (let i = 0; i < 30; i++) {
+        // Espera inicial más corta: 8s en lugar de 15s
+        await new Promise(r => setTimeout(r, 8000));
+        let m3Done = false;
+        // 48 iteraciones × 5s = 240s máximo (4 minutos)
+        for (let i = 0; i < 48; i++) {
           await new Promise(r => setTimeout(r, 5000));
-          const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/${assetId}`,
-            { headers: authH(), signal: AbortSignal.timeout(8000) });
-          if (resultsRes.ok) {
-            const results = await resultsRes.json();
-            if ((results.total_findings ?? 0) > 0) {
-              setAdhocM3Result(results);
-              log(`[M3] ✓ Completado — ${results.total_findings} vulnerabilidades`);
-              break;
+          try {
+            const statusRes = await fetch(`http://localhost:8002/api/v1/scan/status/${task_id}`,
+              { headers: authH(), signal: AbortSignal.timeout(8000) });
+            if (statusRes.ok) {
+              const s = await statusRes.json();
+              const done = s.status === 'SUCCESS' || s.status === 'FAILED' || s.status === 'FAILURE';
+              if (done) {
+                const resultsRes = await fetch(
+                  `http://localhost:8002/api/v1/scan/results/${assetId}`,
+                  { headers: authH(), signal: AbortSignal.timeout(8000) }
+                );
+                if (resultsRes.ok) {
+                  const results = await resultsRes.json();
+                  setAdhocM3Result(results);
+                  const n = results.total_findings ?? 0;
+                  log(n > 0
+                    ? `[M3] ✓ Completado — ${n} vulnerabilidades encontradas`
+                    : `[M3] ✓ Completado — sin vulnerabilidades detectadas en este host`
+                  );
+                  m3Done = true;
+                  break;
+                }
+              }
             }
+          } catch (_e) {
+            // timeout parcial — continuar esperando
           }
-          if (i % 3 === 0) log(`[M3] Escaneando... ${15 + (i + 1) * 5}s`);
+          if (i % 4 === 0) log(`[M3] Escaneando... ${8 + (i + 1) * 5}s`);
+        }
+        if (!m3Done) {
+          // Intentar obtener resultados parciales aunque no haya terminado
+          try {
+            const resultsRes = await fetch(`http://localhost:8002/api/v1/scan/results/${assetId}`,
+              { headers: authH(), signal: AbortSignal.timeout(8000) });
+            if (resultsRes.ok) {
+              const results = await resultsRes.json();
+              setAdhocM3Result(results);
+              const count = results.total_findings ?? 0;
+              log(`[M3] ⚠ Timeout de espera — ${count > 0 ? `${count} hallazgos parciales` : 'sin resultados aún (scan puede seguir en background)'}`);
+            }
+          } catch {}
         }
 
       } else {
@@ -37309,6 +37345,13 @@ DEFAULT_WORDLIST = os.getenv("HYDRA_WORDLIST", "/usr/share/wordlists/rockyou.txt
 HYDRA_THREADS = int(os.getenv("HYDRA_THREADS", "4"))
 HYDRA_TIMEOUT = int(os.getenv("HYDRA_TIMEOUT", "120"))
 
+def kill_switch_svc_import() -> bool:
+    try:
+        from services.exploit_engine.kill_switch_service import kill_switch_svc
+        return kill_switch_svc.is_active()
+    except Exception:
+        return False
+
 def _run_hydra(cmd: list, timeout: int) -> tuple[bool, str]:
     """
     Ejecuta hydra como subprocess local y devuelve (returncode_ok, output).
@@ -37366,38 +37409,67 @@ class HydraClient:
         username: str = "root",
         wordlist: str = None
     ) -> Optional[Dict]:
-        """Cracka SSH con Hydra local."""
+        """Cracka SSH con sshpass+ssh para soportar targets con algoritmos legacy (ssh-rsa/ssh-dss)."""
         wl = wordlist or self.wordlist
         started_at = datetime.now()
         logger.info(f"🔐 Cracking SSH: {target_host}:{target_port} usuario:{username}")
 
-        cmd = [
-            "hydra",
-            "-l", username,
-            "-P", wl,
-            "-t", str(self.threads),
-            "-s", str(target_port),
-            "-W", "3",
-            "-f",
-            "-o", f"/tmp/hydra_{target_host}_ssh.txt",
-            target_host, "ssh"
-        ]
+        try:
+            with open(wl, 'r', errors='ignore') as f:
+                passwords = [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            return {
+                "success": False, "target": f"{target_host}:{target_port}",
+                "service": "ssh", "username": username, "password": None,
+                "attempts": 0, "duration": 0, "output": f"[ERROR] No se pudo leer wordlist: {e}", "error": str(e)
+            }
 
-        ok, output = _run_hydra(cmd, self.timeout)
+        found_password = None
+        attempts = 0
+        output_lines = []
+
+        for pw in passwords:
+            if kill_switch_svc_import():
+                break
+            attempts += 1
+            cmd = [
+                "sshpass", "-p", pw,
+                "ssh",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "HostKeyAlgorithms=+ssh-rsa",
+                "-o", "KexAlgorithms=+diffie-hellman-group14-sha1",
+                "-o", f"ConnectTimeout=5",
+                "-p", str(target_port),
+                f"{username}@{target_host}",
+                "echo ok",
+            ]
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                line = f"[{target_port}][ssh] host: {target_host}  login: {username}  pw: {pw}  rc: {res.returncode}"
+                output_lines.append(line)
+                if res.returncode == 0 and "ok" in res.stdout:
+                    found_password = pw
+                    output_lines.append(f"[{target_port}][ssh] host: {target_host}   login: {username}   password: {pw}")
+                    break
+            except subprocess.TimeoutExpired:
+                output_lines.append(f"[TIMEOUT] {pw}")
+            except Exception as e:
+                output_lines.append(f"[ERR] {pw}: {e}")
+
         duration = int((datetime.now() - started_at).total_seconds())
-        password = self._parse_hydra_output(output)
-        success = password is not None
+        output = "\n".join(output_lines[-50:])
 
         return {
-            "success": success,
+            "success": found_password is not None,
             "target": f"{target_host}:{target_port}",
             "service": "ssh",
             "username": username,
-            "password": password,
-            "attempts": self._count_attempts(output),
+            "password": found_password,
+            "attempts": attempts,
             "duration": duration,
             "output": output,
-            "error": None if ok else output
+            "error": None
         }
 
     def crack_ftp(
@@ -40537,17 +40609,17 @@ async def manual_attack(req: ManualAttackSchema):
             import httpx as _httpx_sq
             _port = req.port or 80
             _target_url = (
-                f"http://{req.target_ip}:{_port}/vulnerabilities/sqli/?id=1&Submit=Submit"
+                f"http://{req.target_ip}:{_port}/dvwa/vulnerabilities/sqli/?id=1&Submit=Submit"
             )
             # Obtener cookie de sesión válida haciendo login en DVWA (con CSRF token)
             try:
                 import re as _re
-                _s = _httpx_sq.Client(follow_redirects=True, timeout=5.0)
-                _r_get = _s.get(f"http://{req.target_ip}:{_port}/login.php")
+                _s = _httpx_sq.Client(follow_redirects=True, timeout=10.0)
+                _r_get = _s.get(f"http://{req.target_ip}:{_port}/dvwa/login.php")
                 _m = _re.search(r"name='user_token'\s+value='([^']+)'", _r_get.text)
                 _user_token = _m.group(1) if _m else ''
                 _s.post(
-                    f"http://{req.target_ip}:{_port}/login.php",
+                    f"http://{req.target_ip}:{_port}/dvwa/login.php",
                     data={"username": "admin", "password": "password",
                           "Login": "Login", "user_token": _user_token},
                 )
@@ -50185,7 +50257,7 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
         "-h", target_url,
         "-Tuning", "1234578",
         "-timeout", "10",
-        "-maxtime", "90s",
+        "-maxtime", "40s",
         "-nointeractive",
     ]
 
@@ -50194,7 +50266,7 @@ def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=110,
+            timeout=55,
         )
 
         findings = _parse_nikto_stdout(result.stdout or "", target_url)
@@ -50595,8 +50667,6 @@ def extract_http_ports(nmap_findings: List[Dict]) -> List[int]:
             continue
         if service.lower() in HTTP_SERVICE_NAMES or port in HTTP_PORTS_ALWAYS:
             ports.add(port)
-    # Always include port 80 as baseline
-    ports.add(80)
     return sorted(ports)
 FILE:services\scanner_engine\clients\nuclei_client.py
 """Nuclei CLI-based vulnerability scanner client."""
@@ -51206,7 +51276,7 @@ def run_testssl_scan(asset_id: int, target_url: str) -> List[Dict]:
             f"{target_host}:{port}",
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
         findings = []
         if os.path.exists(output_file):
@@ -51312,7 +51382,7 @@ def run_whatweb_scan(asset_id: int, target_url: str) -> List[Dict]:
             target_url,
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        subprocess.run(cmd, capture_output=True, text=True, timeout=20)
 
         findings = []
         if os.path.exists(output_file):
@@ -51599,7 +51669,7 @@ async def get_asset_from_m1(asset_id: int) -> dict:
         try:
             _svc_token = create_access_token("scanops_service", "service")
             response = await client.get(
-                f"{M1_BASE_URL}/assets/{asset_id}",
+                f"{M1_BASE_URL}/api/v1/assets/{asset_id}",
                 headers={"Authorization": f"Bearer {_svc_token}", "Content-Type": "application/json"},
             )
             if response.status_code == 404:
@@ -51731,7 +51801,9 @@ async def start_asset_scan(
         try:
             import redis as redis_lib
             import json as _json
-            _r = redis_lib.Redis(host='redis', port=6379, db=0, decode_responses=True)
+            import urllib.parse as _urlparse
+            _redis_url = os.getenv("REDIS_URL", "redis://scanops-main-redis:6379/0")
+            _r = redis_lib.Redis.from_url(_redis_url, decode_responses=True)
             _r.setex(
                 f"scanops:scan:{task.id}",
                 600,
@@ -51845,7 +51917,8 @@ async def get_scan_status(task_id: str) -> ScanStatusResponse:
         # Celery hasn't registered a result yet; check whether findings
         # already landed in the DB (chord completed but result expired/missed).
         try:
-            _r = redis_lib.Redis(host='redis', port=6379, db=0, decode_responses=True)
+            _redis_url = os.getenv("REDIS_URL", "redis://scanops-main-redis:6379/0")
+            _r = redis_lib.Redis.from_url(_redis_url, decode_responses=True)
             scan_meta_raw = _r.get(f"scanops:scan:{task_id}")
             if scan_meta_raw:
                 scan_meta = _json.loads(scan_meta_raw)
@@ -52824,11 +52897,18 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
                             continue
                         seen.add(dedup_key)
 
+                        _cvss_raw = info.get("classification", {}).get("cvss-score")
+                        try:
+                            _cvss = float(_cvss_raw) if _cvss_raw is not None else None
+                        except (ValueError, TypeError):
+                            _cvss = None
+
                         findings.append({
                             "title": title,
                             "severity": severity,
                             "description": description,
                             "cve_id": cve_str,
+                            "cvss_score": _cvss,
                             "evidence": matched_at,
                             "remediation": remediation,
                             "ens_measure": "op.exp.2"
@@ -53526,7 +53606,7 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
         loop.close()
 
 @app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities",
-          time_limit=150, soft_time_limit=130)
+          time_limit=70, soft_time_limit=60)
 def run_nikto_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
     scheme = "https" if port == 443 else "http"
@@ -53750,10 +53830,12 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
         if "ffuf" in scan_types:
             tasks.append(run_ffuf_task.s(asset_id, asset_ip, port))
 
-    if "whatweb" in scan_types:
-        tasks.append(run_whatweb_task.s(asset_id, asset_ip))
-    if "testssl" in scan_types:
-        tasks.append(run_testssl_task.s(asset_id, asset_ip))
+    # whatweb y testssl solo tienen sentido si hay puertos HTTP/HTTPS abiertos
+    if http_ports:
+        if "whatweb" in scan_types:
+            tasks.append(run_whatweb_task.s(asset_id, asset_ip))
+        if "testssl" in scan_types and (443 in http_ports or 8443 in http_ports):
+            tasks.append(run_testssl_task.s(asset_id, asset_ip))
 
     if not tasks:
         # Solo nmap se ejecutó, persistir sus findings directamente
@@ -53765,6 +53847,39 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types,
                 http_ports=http_ports, hostname=asset_name)
     return {"status": "parallel_scans_initiated", "task_id": workflow.id}
+
+@app.task(name="services.scanner_engine.tasks.vuln_tasks.run_full_vulnerability_scan",
+          queue="vulnerabilities")
+def run_full_vulnerability_scan():
+    """
+    Tarea batch semanal (ENS op.exp.2): lanza scan_asset_parallel
+    sobre todos los assets ACTIVO en la BD.
+    Referenciada en celery_app.py beat_schedule (martes 00:00).
+    """
+    from shared.database import SessionLocal
+    from services.asset_manager.models.asset import Asset
+
+    db = SessionLocal()
+    try:
+        assets = db.query(Asset).filter(Asset.status == "ACTIVO").all()
+        logger.info("FULL_VULN_SCAN_START", total_assets=len(assets))
+        launched = 0
+        for asset in assets:
+            try:
+                scan_asset_parallel.delay(
+                    asset_id=asset.id,
+                    asset_ip=asset.ip,
+                    asset_name=asset.hostname or f"Asset-{asset.id}",
+                    scan_types=["nmap", "nuclei", "nikto"],
+                )
+                launched += 1
+            except Exception as e:
+                logger.error("FULL_VULN_SCAN_ASSET_ERROR",
+                             asset_id=asset.id, error=str(e))
+        logger.info("FULL_VULN_SCAN_DISPATCHED", launched=launched)
+        return {"status": "dispatched", "total": len(assets), "launched": launched}
+    finally:
+        db.close()
 FILE:services\scanner_engine\tests\__init__.py
 """Scanner Engine tests module."""
 FILE:services\scanner_engine\tests\conftest.py
