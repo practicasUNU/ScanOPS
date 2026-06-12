@@ -33,7 +33,10 @@
       "PowerShell($resp = Invoke-RestMethod -Uri \"http://localhost:8009/auth/token\" -Method POST -ContentType \"application/x-www-form-urlencoded\" -Body \"username=admin&password=scanops_admin_2026\" -UseBasicParsing; $token = $resp.access_token; Invoke-RestMethod -Uri \"http://localhost:8004/api/m4/execute?approval_id=1\" -Method POST -Headers @{Authorization=\"Bearer $token\"} -UseBasicParsing | ConvertTo-Json)",
       "PowerShell(docker exec scanops-postgres psql -U scanops -c \"SELECT id, service, port, username, password, success FROM hydra_results WHERE service LIKE 'DEFAULT-%' ORDER BY id DESC LIMIT 10;\")",
       "PowerShell(docker exec scanops-m4 wc -l /usr/share/wordlists/default_users.txt /usr/share/wordlists/default_passwords.txt)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "PowerShell(docker exec -i scanops-postgres psql -U scanops_user -d scanops)",
+      "PowerShell(docker exec scanops-postgres psql -U postgres -c \"\\\\du\" 2>&1)",
+      "PowerShell(docker exec scanops-postgres bash -c \"psql -U \\\\$\\(whoami\\) -c '\\\\du'\" 2>&1; docker exec scanops-postgres bash -c \"cat /etc/passwd | grep -E 'psql|postgres|scanops'\" 2>&1)"
     ],
     "additionalDirectories": [
       "c:\\Users\\borja\\.claude\\projects\\c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS\\memory"

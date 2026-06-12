@@ -887,6 +887,17 @@ FILE:activos_hito1.json
         }
     ]
 }
+FILE:cleanup_discovered.sql
+-- Verificación previa (revisar antes de borrar)
+SELECT COUNT(*) AS total_basura
+FROM assets
+WHERE hostname LIKE 'discovered-%'
+  AND responsable = 'Pendiente asignar';
+
+-- Borrado de activos registrados automáticamente por el discovery
+DELETE FROM assets
+WHERE hostname LIKE 'discovered-%'
+  AND responsable = 'Pendiente asignar';
 FILE:demo_scan.py
 #!/usr/bin/env python3
 """
@@ -10211,7 +10222,7 @@ export function AssetDetailPage() {
                           value={editForm.ssh_password}
                           onChange={e 
 FILE:frontend\src\app\components\AssetManagerPage.tsx
-TRUNCATED:true SIZE:86020
+TRUNCATED:true SIZE:93244
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { Sidebar } from './Sidebar';
@@ -10219,7 +10230,7 @@ import { TopBar } from './TopBar';
 import {
   Server, ShieldAlert, KeyRound, Plus, RefreshCw, AlertCircle,
   Play, Loader2, Eye, Info, Terminal, Monitor, HelpCircle, ChevronDown, ChevronRight, ExternalLink,
-  Copy, Check, Lock, Pencil, Save, Trash2, Maximize2, ShieldX,
+  Copy, Check, Lock, Pencil, Save, Trash2, Maximize2, ShieldX, Wifi,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
@@ -10302,6 +10313,10 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
   const [blacklistLoading, setBlacklistLoading] = useState(false);
   const [blacklistError, setBlacklistError] = useState<string | null>(null);
   const [blacklistSuccess, setBlacklistSuccess] = useState<string | null>(null);
+  const [networkScanCidr, setNetworkScanCidr] = useState('10.202.15.0/24');
+  const [networkScanState, setNetworkScanState] = useState<'idle' | 'scanning' | 'done' | 'error'>('idle');
+  const [networkScanMsg, setNetworkScanMsg] = useState<string | null>(null);
+  const [discoveredIPs, setDiscoveredIPs] = useState<{ ip: string; existing: boolean }[]>([]);
 
   const handleRescan = async (snap: M2Snapshot) => {
     setRescanState(prev => ({ ...prev, [snap.snapshot_id]: { status: 'scanning' } }));
@@ -10373,6 +10388,65 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
 
   const blockedCount = alreadyRegistered.filter(s => s.isBlacklisted).length;
 
+  const handleNetworkScan = async () => {
+    if (!networkScanCidr.trim()) return;
+    setNetworkScanState('scanning');
+    setNetworkScanMsg(null);
+    try {
+      const res = await fetch(`${M1_BASE}/assets/discovery`, {
+        method: 'POST',
+        headers: authHeader(),
+        body: JSON.stringify({ network_ranges: [networkScanCidr.trim()] }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? `Error ${res.status}`);
+      }
+      const data = await res.json();
+      const taskId = data.tasks?.[0]?.task_id;
+      if (!taskId) throw new Error('No se recibió task_id');
+
+      const deadline = Date.now() + 180_000;
+      let result: any = null;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 5000));
+        const pollRes = await fetch(`${M1_BASE}/assets/discovery/${taskId}`, {
+          headers: authHeader(),
+        });
+        if (!pollRes.ok) continue;
+        const pollData = await pollRes.json();
+        if (pollData.status === 'SUCCESS') {
+          result = pollData.result;
+          break;
+        }
+        if (pollData.status === 'FAILURE') {
+          throw new Error('La tarea de descubrimiento falló');
+        }
+      }
+
+      if (result) {
+        const newIPs: { ip: string; existing: boolean }[] = [
+          ...(result.new_ips ?? []).map((ip: string) => ({ ip, existing: false })),
+          ...(result.existing_ips ?? []).map((ip: string) => ({ ip, existing: true })),
+        ];
+        setDiscoveredIPs(newIPs);
+        setNetworkScanMsg(`Escaneo completado: ${result.hosts_found ?? 0} hosts activos, ${result.new_ips?.length ?? 0} sin registrar`);
+        setNetworkScanState('done');
+      } else {
+        setNetworkScanMsg('Escaneo lanzado — los resultados aparecerán en breve');
+        setNetworkScanState('done');
+      }
+      refetch();
+    } catch (e: any) {
+      setNetworkScanMsg(e?.message ?? 'Error al lanzar el escaneo');
+      setNetworkScanState('error');
+    }
+    setTimeout(() => {
+      setNetworkScanState('idle');
+      setNetworkScanMsg(null);
+    }, 6000);
+  };
+
   return (
     <div className="space-y-3">
       {blockedCount > 0 && (
@@ -10398,6 +10472,104 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
           Clasificar como activo conocido o marcar como no autorizado.
         </span>
       </div>
+
+      {/* Network Scan Button */}
+      <div className="flex items-center gap-3 bg-[#1a1d27] border border-[#1e2530] rounded-lg px-4 py-3">
+        <Wifi className="w-4 h-4 text-[#00d4ff] shrink-0" />
+        <span className="text-sm text-[#9ca3af] whitespace-nowrap">Rango CIDR:</span>
+        <input
+          type="text"
+          value={networkScanCidr}
+          onChange={e => setNetworkScanCidr(e.target.value)}
+          placeholder="10.202.15.0/24"
+          disabled={networkScanState === 'scanning'}
+          className="flex-1 bg-[#111318] border border-[#1e2530] rounded-lg px-3 py-1.5 text-sm text-white font-mono placeholder-[#4b5563] focus:outline-none focus:border-[#00d4ff]/50 disabled:opacity-50"
+        />
+        <button
+          onClick={handleNetworkScan}
+          disabled={networkScanState === 'scanning' || !networkScanCidr.trim()}
+          className="flex items-center gap-2 px-4 py-1.5 text-sm bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg hover:bg-[#00d4ff]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          {networkScanState === 'scanning' ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Escaneando...</>
+          ) : (
+            <><Wifi className="w-4 h-4" /> Escanear red</>
+          )}
+        </button>
+      </div>
+
+      {networkScanMsg && (
+        <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${
+          networkScanState === 'error'
+            ? 'bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 text-[#ff3b3b]'
+            : 'bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#22c55e]'
+        }`}>
+          <Wifi className="w-4 h-4 shrink-0" />
+          {networkScanMsg}
+        </div>
+      )}
+
+      {discoveredIPs.length > 0 && (
+        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-[#111318] border-b border-[#1e2530]">
+            <div className="flex items-center gap-2">
+              <Wifi className="w-4 h-4 text-[#00d4ff]" />
+              <span className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider">
+                Hosts descubiertos — {discoveredIPs.length} en total
+              </span>
+            </div>
+            <button
+              onClick={() => setDiscoveredIPs([])}
+              className="text-xs text-[#6b7280] hover:text-white transition-colors"
+            >
+              Limpiar
+            </button>
+          </div>
+          <table className="w-full text-sm text-left">
+            <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+              <tr>
+                <th className="px-4 py-2.5 font-semibold">IP</th>
+                <th className="px-4 py-2.5 font-semibold">Estado</th>
+                <th className="px-4 py-2.5 font-semibold">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#1e2530]">
+              {discoveredIPs.map(({ ip, existing }) => (
+                <tr key={ip} className="hover:bg-[#1e2530]/40 transition-colors">
+                  <td className="px-4 py-3 font-mono text-white">{ip}</td>
+                  <td className="px-4 py-3">
+                    {existing ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-[#9ca3af]">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#6b7280]" />
+                        Ya registrado
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-[#f59e0b]">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
+                        Sin registrar
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {!existing && (
+                      <button
+                        onClick={() => {
+                          onRegisterAsset(ip);
+                          setDiscoveredIPs(prev => prev.filter(d => d.ip !== ip));
+                        }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg hover:bg-[#22c55e]/20 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Registrar en M1
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-3 text-sm text-[#f59e0b]">
@@ -11115,156 +11287,7 @@ export function AssetManagerPage() {
       const {
         ip, hostname, nombre, tipo, criticidad, responsable,
         dominio, mac_address, network_range, os_family, os_version,
-        departamento, ubicacion, entorno, fabricante, usuario_asignado, notas,
-      } = newAssetForm;
-
-      const notasParts = [
-        usuario_asignado.trim() && `Usuario: ${usuario_asignado.trim()}`,
-        fabricante.trim()       && `Fabricante: ${fabricante.trim()}`,
-        entorno.trim()          && `Entorno: ${entorno.trim()}`,
-        notas.trim(),
-      ].filter(Boolean) as string[];
-      const notasValue = notasParts.length ? notasParts.join(' · ') : undefined;
-
-      const rawPayload: Record<string, string | undefined> = {
-        ip:            ip.trim(),
-        hostname:      hostname.trim()      || undefined,
-        nombre:        nombre.trim()        || undefined,
-        tipo,
-        criticidad,
-        responsable:   responsable.trim(),
-        dominio:       dominio.trim()       || undefined,
-        mac_address:   mac_address.trim()   || undefined,
-        network_range: network_range.trim() || undefined,
-        os_family:     os_family            || undefined,
-        os_version:    os_version.trim()    || undefined,
-        departamento:  departamento.trim()  || undefined,
-        ubicacion:     ubicacion.trim()     || undefined,
-        notas:         notasValue,
-      };
-
-      const payload = Object.fromEntries(
-        Object.entries(rawPayload).filter(([, v]) => v !== undefined),
-      );
-
-      await createAsset(payload as any);
-      setCreateDialogOpen(false);
-      setNewAssetForm(emptyNewAssetForm());
-      setNewAssetErrors({});
-      refetch();
-    } catch (e: any) {
-      const msg = e?.detail ?? e?.message ?? (typeof e === 'string' ? e : 'Error al crear el activo');
-      setCreateApiError(msg);
-    } finally {
-      setNewAssetSubmitting(false);
-    }
-  }, [createAsset, newAssetForm, refetch]);
-
-  const resetCreateForm = () => {
-    setNewAssetForm(emptyNewAssetForm());
-    setNewAssetErrors({});
-    setCreateApiError(null);
-  };
-
-  const handleOpenCreateDialog = useCallback((ip?: string) => {
-    resetCreateForm();
-    if (ip) setNewAssetForm(prev => ({ ...prev, ip }));
-    setCreateDialogOpen(true);
-  }, []);
-
-  const dynamicFields = getFieldsForTipo(newAssetForm.tipo);
-
-  return (
-    <div className="flex h-screen bg-[#0f1117]">
-      <Sidebar />
-
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar role="System Manager" />
-
-        <main className="flex-1 overflow-auto p-6 space-y-6">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-white mb-1">Asset Manager (M1)</h1>
-              <p className="text-[#9ca3af] text-sm">Inventario centralizado y gestión de credenciales (ENS op.exp.1)</p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={refetch}
-                disabled={loading}
-                className="flex items-center gap-2 px-3 py-2 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-sm text-[#9ca3af] hover:text-white transition-colors disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                Actualizar
-              </button>
-              <button
-                onClick={() => handleOpenCreateDialog()}
-                className="flex items-center gap-2 px-4 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-semibold rounded-lg transition-colors text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                Nuevo Activo
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-4 py-3 text-sm text-[#ff3b3b]">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              M1 API Error: {error}
-            </div>
-          )}
-
-          {/* Tabs */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="bg-[#1a1d27] border border-[#1e2530] h-10 justify-start rounded-lg p-1">
-              <TabsTrigger value="cmdb" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff]">
-                <Server className="w-3.5 h-3.5" /> Inventario Oficial
-              </TabsTrigger>
-              <TabsTrigger value="shadow" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#f59e0b]/10 data-[state=active]:text-[#f59e0b]">
-                <ShieldAlert className="w-3.5 h-3.5" /> Shadow IT (M2 Discovery)
-              </TabsTrigger>
-              <TabsTrigger value="vault" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#22c55e]/10 data-[state=active]:text-[#22c55e]">
-                <KeyRound className="w-3.5 h-3.5" /> Credenciales (Vault)
-              </TabsTrigger>
-            </TabsList>
-
-            {/* TAB 1: Inventario Oficial */}
-            <TabsContent value="cmdb" className="mt-4 space-y-3">
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
-                    <tr>
-                      <th className="px-6 py-3 font-semibold">ID</th>
-                      <th className="px-6 py-3 font-semibold">Activo</th>
-                      <th className="px-6 py-3 font-semibold">Criticidad</th>
-                      <th className="px-6 py-3 font-semibold">Tipo</th>
-                      <th className="px-6 py-3 font-semibold">Responsable</th>
-                      <th className="px-6 py-3 font-semibold">Estado</th>
-                      <th className="px-6 py-3 font-semibold">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#1e2530]">
-                    {loading ? (
-                      <tr><td colSpan={7} className="px-6 py-8 text-center text-[#6b7280] font-mono">Cargando inventario...</td></tr>
-                    ) : assets.length === 0 ? (
-                      <tr><td colSpan={7} className="px-6 py-8 text-center text-[#6b7280] font-mono">No hay activos registrados.</td></tr>
-                    ) : (
-                      assets.map((asset) => {
-                        const rs = rowState[asset.id] ?? { status: 'idle' };
-                        const activeTool = rowTool[asset.id] ?? 'nikto';
-                        return (
-                          <tr
-                            key={asset.id}
-                            className="hover:bg-[#1e2530]/50 transition-colors cursor-pointer"
-                            onClick={(e) => {
-                              if ((e.target as HTMLElement).closest('button')) return;
-                              handleOpenSheet(asset);
-                            }}
-                          >
-                            <td className="px-6 py-4 font-mono text-[#6b7280]">{asset.id}</td>
-                            <td className="px-6 py-4">
-                              <div className="text-white font-mono">{asset.ip}</div>
-                              <div className="text-xs text-[#9ca3af] m
+        departamento, ubicacion, entorno, fabricante, usua
 FILE:frontend\src\app\components\AuditLogsPage.tsx
 TRUNCATED:true SIZE:60674
 // frontend/src/app/components/AuditLogsPage.tsx
@@ -34898,16 +34921,14 @@ from shared.celery_app import app
 from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
 from services.asset_manager.services import asset_service
-from services.asset_manager.schemas import AssetCreate
 
 logger = ScanLogger("discovery")
 
 def _ping_sweep(cidr: str) -> list[str]:
     """Ejecuta nmap -sn sobre un rango CIDR y devuelve IPs activas."""
     try:
-        # ENS Alto: [op.acc.1] Identificación de dispositivos conectados a la red
         result = subprocess.run(
-            ["nmap", "-sn", "-oG", "-", cidr],
+            ["nmap", "--unprivileged", "-sn", "-oG", "-", cidr],
             capture_output=True,
             text=True,
             timeout=300,
@@ -34929,48 +34950,29 @@ def _ping_sweep(cidr: str) -> list[str]:
 
 @app.task(name="tasks.run_network_discovery", bind=True, max_retries=2)
 def run_network_discovery(self, network_range: str):
-    """Task Celery que ejecuta discovery y dispara escaneos de vulnerabilidades [op.acc.1]."""
-
-    # Importación diferida para evitar importaciones circulares entre M1 y M3
-    from services.scanner_engine.tasks.vuln_tasks import run_nuclei_task
-
+    """
+    Task Celery que ejecuta discovery y devuelve IPs activas SIN registrar nada.
+    El registro es responsabilidad del operador desde la UI. [op.acc.1]
+    """
     db = SessionLocal()
     try:
-        # Validar formato CIDR
         ipaddress.ip_network(network_range, strict=False)
-
-        # Escanear la red
         found_ips = _ping_sweep(network_range)
 
-        new_count = 0
-        new_ids = []
+        existing_ips = set()
         for ip in found_ips:
-            # US-2.6: Evitar duplicados en el inventario [cite: 219]
-            if not asset_service.get_asset_by_ip(db, ip):
-                asset = asset_service.create_asset(
-                    db=db,
-                    data=AssetCreate(
-                        ip=ip,
-                        hostname=f"discovered-{ip.replace('.', '-')}",
-                        responsable="Pendiente asignar",
-                        criticidad="PENDIENTE_CLASIFICAR",
-                        tipo="OTRO",
-                    ),
-                    user_id="system-discovery",
-                )
-                new_ids.append(asset.id)
-                new_count += 1
-                logger.info("ASSET_DISCOVERED", ip=ip, asset_id=asset.id)
+            if asset_service.get_asset_by_ip(db, ip):
+                existing_ips.add(ip)
 
-                # --- US-3.4 PARALELISMO: Trigger automático M1 -> M3 ---
-                # Enviamos el escaneo de vulnerabilidades a la cola específica
-                run_nuclei_task.delay(asset.id, ip)
+        new_ips = [ip for ip in found_ips if ip not in existing_ips]
 
+        logger.info("DISCOVERY_DONE", cidr=network_range, found=len(found_ips), new=len(new_ips))
         return {
             "network_range": network_range,
             "hosts_found": len(found_ips),
-            "new_assets": new_count,
-            "new_asset_ids": new_ids,
+            "new_ips": new_ips,
+            "existing_ips": list(existing_ips),
+            "new_assets": 0,
         }
 
     except ValueError as e:

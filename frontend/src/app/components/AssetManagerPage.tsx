@@ -88,6 +88,10 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
   const [blacklistLoading, setBlacklistLoading] = useState(false);
   const [blacklistError, setBlacklistError] = useState<string | null>(null);
   const [blacklistSuccess, setBlacklistSuccess] = useState<string | null>(null);
+  const [networkScanCidr, setNetworkScanCidr] = useState('10.202.15.0/24');
+  const [networkScanState, setNetworkScanState] = useState<'idle' | 'scanning' | 'done' | 'error'>('idle');
+  const [networkScanMsg, setNetworkScanMsg] = useState<string | null>(null);
+  const [discoveredIPs, setDiscoveredIPs] = useState<{ ip: string; existing: boolean }[]>([]);
 
   const handleRescan = async (snap: M2Snapshot) => {
     setRescanState(prev => ({ ...prev, [snap.snapshot_id]: { status: 'scanning' } }));
@@ -159,6 +163,65 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
 
   const blockedCount = alreadyRegistered.filter(s => s.isBlacklisted).length;
 
+  const handleNetworkScan = async () => {
+    if (!networkScanCidr.trim()) return;
+    setNetworkScanState('scanning');
+    setNetworkScanMsg(null);
+    try {
+      const res = await fetch(`${M1_BASE}/assets/discovery`, {
+        method: 'POST',
+        headers: authHeader(),
+        body: JSON.stringify({ network_ranges: [networkScanCidr.trim()] }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).detail ?? `Error ${res.status}`);
+      }
+      const data = await res.json();
+      const taskId = data.tasks?.[0]?.task_id;
+      if (!taskId) throw new Error('No se recibió task_id');
+
+      const deadline = Date.now() + 180_000;
+      let result: any = null;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 5000));
+        const pollRes = await fetch(`${M1_BASE}/assets/discovery/${taskId}`, {
+          headers: authHeader(),
+        });
+        if (!pollRes.ok) continue;
+        const pollData = await pollRes.json();
+        if (pollData.status === 'SUCCESS') {
+          result = pollData.result;
+          break;
+        }
+        if (pollData.status === 'FAILURE') {
+          throw new Error('La tarea de descubrimiento falló');
+        }
+      }
+
+      if (result) {
+        const newIPs: { ip: string; existing: boolean }[] = [
+          ...(result.new_ips ?? []).map((ip: string) => ({ ip, existing: false })),
+          ...(result.existing_ips ?? []).map((ip: string) => ({ ip, existing: true })),
+        ];
+        setDiscoveredIPs(newIPs);
+        setNetworkScanMsg(`Escaneo completado: ${result.hosts_found ?? 0} hosts activos, ${result.new_ips?.length ?? 0} sin registrar`);
+        setNetworkScanState('done');
+      } else {
+        setNetworkScanMsg('Escaneo lanzado — los resultados aparecerán en breve');
+        setNetworkScanState('done');
+      }
+      refetch();
+    } catch (e: any) {
+      setNetworkScanMsg(e?.message ?? 'Error al lanzar el escaneo');
+      setNetworkScanState('error');
+    }
+    setTimeout(() => {
+      setNetworkScanState('idle');
+      setNetworkScanMsg(null);
+    }, 6000);
+  };
+
   return (
     <div className="space-y-3">
       {blockedCount > 0 && (
@@ -184,6 +247,104 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
           Clasificar como activo conocido o marcar como no autorizado.
         </span>
       </div>
+
+      {/* Network Scan Button */}
+      <div className="flex items-center gap-3 bg-[#1a1d27] border border-[#1e2530] rounded-lg px-4 py-3">
+        <Wifi className="w-4 h-4 text-[#00d4ff] shrink-0" />
+        <span className="text-sm text-[#9ca3af] whitespace-nowrap">Rango CIDR:</span>
+        <input
+          type="text"
+          value={networkScanCidr}
+          onChange={e => setNetworkScanCidr(e.target.value)}
+          placeholder="10.202.15.0/24"
+          disabled={networkScanState === 'scanning'}
+          className="flex-1 bg-[#111318] border border-[#1e2530] rounded-lg px-3 py-1.5 text-sm text-white font-mono placeholder-[#4b5563] focus:outline-none focus:border-[#00d4ff]/50 disabled:opacity-50"
+        />
+        <button
+          onClick={handleNetworkScan}
+          disabled={networkScanState === 'scanning' || !networkScanCidr.trim()}
+          className="flex items-center gap-2 px-4 py-1.5 text-sm bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg hover:bg-[#00d4ff]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+        >
+          {networkScanState === 'scanning' ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Escaneando...</>
+          ) : (
+            <><Wifi className="w-4 h-4" /> Escanear red</>
+          )}
+        </button>
+      </div>
+
+      {networkScanMsg && (
+        <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm ${
+          networkScanState === 'error'
+            ? 'bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 text-[#ff3b3b]'
+            : 'bg-[#22c55e]/10 border border-[#22c55e]/20 text-[#22c55e]'
+        }`}>
+          <Wifi className="w-4 h-4 shrink-0" />
+          {networkScanMsg}
+        </div>
+      )}
+
+      {discoveredIPs.length > 0 && (
+        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-[#111318] border-b border-[#1e2530]">
+            <div className="flex items-center gap-2">
+              <Wifi className="w-4 h-4 text-[#00d4ff]" />
+              <span className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider">
+                Hosts descubiertos — {discoveredIPs.length} en total
+              </span>
+            </div>
+            <button
+              onClick={() => setDiscoveredIPs([])}
+              className="text-xs text-[#6b7280] hover:text-white transition-colors"
+            >
+              Limpiar
+            </button>
+          </div>
+          <table className="w-full text-sm text-left">
+            <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+              <tr>
+                <th className="px-4 py-2.5 font-semibold">IP</th>
+                <th className="px-4 py-2.5 font-semibold">Estado</th>
+                <th className="px-4 py-2.5 font-semibold">Acción</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#1e2530]">
+              {discoveredIPs.map(({ ip, existing }) => (
+                <tr key={ip} className="hover:bg-[#1e2530]/40 transition-colors">
+                  <td className="px-4 py-3 font-mono text-white">{ip}</td>
+                  <td className="px-4 py-3">
+                    {existing ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-[#9ca3af]">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#6b7280]" />
+                        Ya registrado
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-[#f59e0b]">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
+                        Sin registrar
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {!existing && (
+                      <button
+                        onClick={() => {
+                          onRegisterAsset(ip);
+                          setDiscoveredIPs(prev => prev.filter(d => d.ip !== ip));
+                        }}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded-lg hover:bg-[#22c55e]/20 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Registrar en M1
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg px-4 py-3 text-sm text-[#f59e0b]">
