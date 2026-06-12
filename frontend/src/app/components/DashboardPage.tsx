@@ -1,7 +1,7 @@
 ﻿import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { ENSComplianceWidget } from './ENSComplianceWidget';
-import { Activity, AlertTriangle, CheckCircle2, CalendarClock, Play, Pause, Zap, Power, Shield, Loader2 } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, CalendarClock, Play, Pause, Zap, Power, Shield, Loader2, Users, Circle, RefreshCw } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { getCycleState, mapApiCycleToUI } from '../utils/cycleState';
@@ -15,6 +15,23 @@ interface PipelineModule {
   label?: string;
   isHuman?: boolean;
   status: string;
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  system_manager:   'Admin',
+  security_officer: 'Resp. Seguridad',
+  auditor:          'Auditor',
+  service:          'Servicio',
+};
+
+const ORCHESTRATOR_BASE = '/api/orchestrator';
+
+interface ActiveSession {
+  username: string;
+  role: string;
+  last_seen: string;
+  ip: string;
+  user_agent: string;
 }
 
 export function DashboardPage() {
@@ -34,6 +51,12 @@ export function DashboardPage() {
   }[]>([]);
   const [immAuthorized, setImmAuthorized] = useState(false);
   const immLogRef = useRef<HTMLDivElement>(null);
+
+  // ── Active sessions (admin only) ──────────────────────────────────────────
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsLastUpdate, setSessionsLastUpdate] = useState<Date | null>(null);
 
   const ilog = (msg: string, level: 'info'|'success'|'warn'|'error' = 'info') => {
     const ts = new Date().toLocaleTimeString('es-ES');
@@ -59,6 +82,36 @@ export function DashboardPage() {
     return t ? { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }
              : { 'Content-Type': 'application/json' };
   }
+
+  // Read role from session storage once
+  useEffect(() => {
+    try {
+      const auth = JSON.parse(sessionStorage.getItem('scanops_auth') || '{}');
+      setUserRole(auth?.role ?? null);
+    } catch { /* ignore */ }
+  }, []);
+
+  // Poll active sessions every 30s (admin only)
+  useEffect(() => {
+    if (userRole !== 'system_manager') return;
+    const fetchSessions = async () => {
+      setSessionsLoading(true);
+      try {
+        const res = await fetch(`${ORCHESTRATOR_BASE}/users/active-sessions`, { headers: authH() });
+        if (res.ok) {
+          const data = await res.json();
+          setActiveSessions(data.active_sessions ?? []);
+          setSessionsLastUpdate(new Date());
+        }
+      } catch { /* silent */ } finally {
+        setSessionsLoading(false);
+      }
+    };
+    fetchSessions();
+    const interval = setInterval(fetchSessions, 30_000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole]);
 
   const handleImmediateCycle = async () => {
     setImmRunning(true);
@@ -425,6 +478,73 @@ export function DashboardPage() {
           </div>
 
           <ENSComplianceWidget />
+
+          {/* ── Active Sessions (admin only) ──────────────────────── */}
+          {userRole === 'system_manager' && (
+            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1e2530]">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 bg-[#a78bfa]/10 rounded-lg flex items-center justify-center">
+                    <Users className="w-3.5 h-3.5 text-[#a78bfa]" />
+                  </div>
+                  <span className="text-sm font-semibold text-white">Usuarios conectados</span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-[#a78bfa]/20 text-[#a78bfa] border border-[#a78bfa]/30">
+                    {activeSessions.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-[#4b5563] font-mono">
+                  {sessionsLastUpdate && (
+                    <span>actualizado {sessionsLastUpdate.toLocaleTimeString('es-ES')}</span>
+                  )}
+                  {sessionsLoading
+                    ? <Loader2 className="w-3 h-3 text-[#6b7280] animate-spin" />
+                    : <RefreshCw className="w-3 h-3 text-[#4b5563]" />
+                  }
+                </div>
+              </div>
+
+              {activeSessions.length === 0 ? (
+                <div className="px-5 py-6 text-center text-xs text-[#4b5563] font-mono">
+                  {sessionsLoading ? 'Cargando sesiones...' : 'Sin sesiones activas registradas'}
+                </div>
+              ) : (
+                <div className="divide-y divide-[#1e2530]">
+                  {activeSessions.map((s) => {
+                    const ago = Math.round((Date.now() - new Date(s.last_seen).getTime()) / 60000);
+                    const agoLabel = ago < 1 ? 'ahora mismo' : ago < 60 ? `hace ${ago}m` : `hace ${Math.round(ago/60)}h`;
+                    return (
+                      <div key={s.username} className="flex items-center gap-4 px-5 py-3 hover:bg-[#111318]/60 transition-colors">
+                        <div className="relative shrink-0">
+                          <div className="w-8 h-8 rounded-full bg-[#7c3aed]/20 flex items-center justify-center text-xs font-bold text-[#a78bfa]">
+                            {s.username.charAt(0).toUpperCase()}
+                          </div>
+                          <Circle className="absolute -bottom-0.5 -right-0.5 w-3 h-3 text-[#22c55e] fill-[#22c55e]" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-mono text-white">{s.username}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#7c3aed]/15 text-[#a78bfa] border border-[#7c3aed]/20 font-semibold">
+                              {ROLE_LABELS[s.role] ?? s.role}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#6b7280] font-mono truncate mt-0.5">
+                            {s.ip !== '—' ? s.ip : 'IP desconocida'}
+                            {s.user_agent !== '—' && (
+                              <span className="ml-2 text-[#4b5563]">· {s.user_agent.split(' ')[0]}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-[11px] text-[#22c55e] font-mono">● activo</div>
+                          <div className="text-[10px] text-[#4b5563]">{agoLabel}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Temporal pipeline */}
           <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6">
