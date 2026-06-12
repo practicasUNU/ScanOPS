@@ -671,8 +671,15 @@ async def generate_full_audit_zip():
 
         timestamp_name = f"ScanOps_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
         file_path = os.path.join(HISTORY_DIR, timestamp_name)
+        zip_bytes = zip_buffer.getvalue()
         with open(file_path, "wb") as f:
-            f.write(zip_buffer.getvalue())
+            f.write(zip_bytes)
+
+        # ─── SUBIDA DEL ZIP COMPLETO A GOOGLE DRIVE ───
+        try:
+            drive_uploader.upload_zip(timestamp_name, zip_bytes)
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló subida ZIP a Drive: {drive_err}")
 
         return Response(
             content=zip_buffer.getvalue(),
