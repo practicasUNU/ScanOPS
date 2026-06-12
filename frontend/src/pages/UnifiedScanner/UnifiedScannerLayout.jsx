@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router';
 // [NUEVO] Importamos los iconos necesarios para identificar cada tipo de activo
 import { 
@@ -83,7 +83,7 @@ export function UnifiedScannerLayout() {
         setAdhocPhase('M2');
         log(`[M2] Iniciando reconocimiento Nmap sobre ${cleanTarget}...`);
         const m2Res = await fetch(
-          `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(cleanTarget)}`,
+          `/api/m2/api/v1/scan?target=${encodeURIComponent(cleanTarget)}`,
           { method: 'POST', headers: authH(), signal: AbortSignal.timeout(120000) }
         );
         if (!m2Res.ok) throw new Error(`M2 HTTP ${m2Res.status}`);
@@ -98,7 +98,7 @@ export function UnifiedScannerLayout() {
         setAdhocPhase('M1');
         log(`[M1] Registrando activo ${cleanTarget} en inventario...`);
         let assetId;
-        const m1Register = await fetch('http://localhost:8001/api/v1/assets', {
+        const m1Register = await fetch('/api/m1/api/v1/assets', {
           method: 'POST', headers: authH(),
           body: JSON.stringify({ ip: cleanTarget, hostname: cleanTarget, tipo: 'OTRO', criticidad: 'PENDIENTE_CLASIFICAR', responsable: 'adhoc-scan' }),
           signal: AbortSignal.timeout(15000),
@@ -110,7 +110,7 @@ export function UnifiedScannerLayout() {
         } else if (m1Register.status === 409) {
           // Asset already exists — buscar por IP exacta
           const m1Find = await fetch(
-            `http://localhost:8001/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=50`,
+            `/api/m1/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=50`,
             { headers: authH(), signal: AbortSignal.timeout(10000) }
           );
           if (!m1Find.ok) throw new Error(`M1 lookup HTTP ${m1Find.status}`);
@@ -125,7 +125,7 @@ export function UnifiedScannerLayout() {
 
         setAdhocPhase('M3');
         log(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${cleanTarget}...`);
-        const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/${assetId}`, {
+        const m3Launch = await fetch(`/api/m3/api/v1/scan/asset/${assetId}`, {
           method: 'POST', headers: authH(),
           body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto', 'ffuf', 'whatweb', 'testssl'], description: `Ad-hoc IP: ${cleanTarget}` }),
           signal: AbortSignal.timeout(15000),
@@ -144,7 +144,7 @@ export function UnifiedScannerLayout() {
           await new Promise(r => setTimeout(r, 8000));
           try {
             const resultsRes = await fetch(
-              `http://localhost:8002/api/v1/scan/results/${assetId}`,
+              `/api/m3/api/v1/scan/results/${assetId}`,
               { headers: authH(), signal: AbortSignal.timeout(8000) }
             );
             if (resultsRes.ok) {
@@ -164,7 +164,7 @@ export function UnifiedScannerLayout() {
         if (!m3Done) {
           try {
             const resultsRes = await fetch(
-              `http://localhost:8002/api/v1/scan/results/${assetId}`,
+              `/api/m3/api/v1/scan/results/${assetId}`,
               { headers: authH(), signal: AbortSignal.timeout(8000) }
             );
             if (resultsRes.ok) {
@@ -190,7 +190,7 @@ export function UnifiedScannerLayout() {
 
         const wcResults = await Promise.allSettled(
           webcheckEndpoints.map(ep =>
-            fetch(`http://localhost:3000/api/${ep}?url=${encodeURIComponent(webUrl)}`,
+            fetch(`/api/webcheck/api/${ep}?url=${encodeURIComponent(webUrl)}`,
               { signal: AbortSignal.timeout(30000) })
               .then(r => r.ok ? r.json() : null)
               .catch(() => null)
@@ -214,7 +214,7 @@ export function UnifiedScannerLayout() {
         log(`[M2] Lanzando reconocimiento Nmap sobre ${cleanTarget}...`);
         try {
           const m2Res = await fetch(
-            `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(cleanTarget)}`,
+            `/api/m2/api/v1/scan?target=${encodeURIComponent(cleanTarget)}`,
             { method: 'POST', headers: authH(), signal: AbortSignal.timeout(120000) }
           );
           if (m2Res.ok) {

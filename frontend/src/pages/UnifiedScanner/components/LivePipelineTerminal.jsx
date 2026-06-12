@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { ScrollArea } from '@/app/components/ui/scroll-area';
 import { Wifi, WifiOff } from 'lucide-react';
 
-const SSE_URL = 'http://localhost:8002/stream/findings';
+const SSE_URL = '/api/m3/stream/findings';
 const MAX_LINES = 200;
 
 /** Maps a JSON finding to a formatted terminal line. */
