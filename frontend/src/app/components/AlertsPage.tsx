@@ -134,6 +134,7 @@ export function AlertsPage() {
   const [kpisLoading, setKpisLoading] = useState(true);
   const [liveAlerts, setLiveAlerts] = useState<M5Alert[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(true);
+  const [m5Reachable, setM5Reachable] = useState<boolean | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [pipelineEvents, setPipelineEvents] = useState<any[]>([]);
   const [refetchTick, setRefetchTick] = useState(0);
@@ -205,6 +206,7 @@ export function AlertsPage() {
         if (res.ok) {
           const data = await res.json();
           setPipelineEvents(data.events ?? []);
+          setM5Reachable(true);
         }
       } catch { /* silencioso */ }
     };
@@ -273,13 +275,17 @@ export function AlertsPage() {
           combined.push(...mapped);
         }
 
+        const anyOk = suricataRes.status === 'fulfilled' && suricataRes.value.ok
+          || cowrieRes.status === 'fulfilled' && cowrieRes.value.ok;
+        setM5Reachable(anyOk);
+
         if (combined.length > 0) {
           combined.sort((a, b) =>
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
           );
           setLiveAlerts(combined.slice(0, 50));
         }
-      } catch { /* silencioso */ }
+      } catch { setM5Reachable(false); }
       finally { setAlertsLoading(false); }
     };
 
@@ -301,7 +307,7 @@ export function AlertsPage() {
   }));
 
   const combined = [...pipelineAsAlerts, ...liveAlerts];
-  const isMock = combined.length === 0;
+  const isMock = m5Reachable === false && combined.length === 0;
   const alerts: (M5Alert | SiemAlert)[] = isMock ? MOCK_ALERTS : combined;
   const filteredAlerts = alerts.filter(alert => {
     const a = alert as M5Alert;
