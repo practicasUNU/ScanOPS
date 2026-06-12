@@ -12,8 +12,9 @@ from fastapi.responses import StreamingResponse
 
 from services.orchestrator.cycle_state import CycleStatus, get_cycle_status
 from services.orchestrator.health_checker import check_all_modules
-from shared.auth import create_access_token
+from shared.auth import create_access_token, _USERS_DB, UserInDB, get_password_hash
 from shared.auth_router import router as auth_router
+from shared.user_router import router as user_router
 
 try:
     from shared.vault_client import vault_client as _vault
@@ -46,6 +47,47 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(user_router)
+
+
+def _sync_db_users_to_memory():
+    """Carga usuarios de la BD en el caché en memoria al arrancar."""
+    import urllib.parse
+    import psycopg2
+    db_url = os.getenv("DATABASE_URL", "")
+    try:
+        if db_url:
+            p = urllib.parse.urlparse(db_url)
+            conn = psycopg2.connect(
+                host=p.hostname, port=p.port or 5432,
+                database=p.path.lstrip("/"),
+                user=p.username, password=p.password,
+            )
+        else:
+            conn = psycopg2.connect(
+                host=os.getenv("DB_HOST", "localhost"),
+                port=int(os.getenv("DB_PORT", "5432")),
+                database=os.getenv("DB_NAME", "scanops"),
+                user=os.getenv("DB_USER", "scanops"),
+                password=os.getenv("DB_PASSWORD", "scanops"),
+            )
+        with conn.cursor() as cur:
+            cur.execute("SELECT username, hashed_password, role, disabled FROM scanops_users")
+            for row in cur.fetchall():
+                username, hashed, role, disabled = row
+                _USERS_DB[username] = UserInDB(
+                    username=username,
+                    hashed_password=hashed,
+                    role=role,
+                    disabled=bool(disabled),
+                )
+        conn.close()
+    except Exception as e:
+        import logging
+        logging.getLogger("scanops.auth").warning(f"No se pudo sincronizar usuarios desde BD: {e}")
+
+
+_sync_db_users_to_memory()
 
 # In-memory state (for MVP — replace with Redis/DB later)
 _kill_switch_active: bool = False

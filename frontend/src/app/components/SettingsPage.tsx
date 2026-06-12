@@ -1,9 +1,11 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   // Iconos generales y pestañas
-  Brain, Plug, BellRing, Crosshair, ShieldCheck, CalendarClock,
+  Brain, Plug, BellRing, Crosshair, ShieldCheck, CalendarClock, Users,
+  // Iconos generales
+  Plus, Pencil, Trash2, Eye, EyeOff, UserCheck, UserX, X,
   // Iconos de IA
   Cpu, Sliders, Database, RefreshCw, CheckCircle2, XCircle, ToggleLeft, ToggleRight,
   // Iconos de Alertas
@@ -18,7 +20,30 @@ import {
   Save, ScanSearch, Bug, FlaskConical, FileBarChart2, Sparkles, AlertTriangle,
 } from 'lucide-react';
 
-type TabKey = 'ia' | 'integrations' | 'alerts' | 'scanners' | 'security' | 'orchestrator';
+type TabKey = 'ia' | 'integrations' | 'alerts' | 'scanners' | 'security' | 'orchestrator' | 'users';
+
+// ── Tipos para gestión de usuarios ────────────────────────────────────────────
+interface Department { id: number; name: string; description?: string; }
+interface ScanopsUser {
+  id: number;
+  username: string;
+  role: string;
+  full_name: string | null;
+  email: string | null;
+  disabled: boolean;
+  created_at: string;
+  departments: { id: number; name: string }[];
+}
+const ROLE_LABELS: Record<string, string> = {
+  system_manager:   'Administrador',
+  security_officer: 'Responsable de Seguridad',
+  auditor:          'Auditor',
+};
+const ROLE_COLORS: Record<string, string> = {
+  system_manager:   'text-[#ff3b3b] bg-[#ff3b3b]/10 border-[#ff3b3b]/30',
+  security_officer: 'text-[#f59e0b] bg-[#f59e0b]/10 border-[#f59e0b]/30',
+  auditor:          'text-[#00d4ff] bg-[#00d4ff]/10 border-[#00d4ff]/30',
+};
 
 interface SettingTab {
   id: TabKey;
@@ -67,13 +92,14 @@ const DAYS_OF_WEEK = [
   { value: '7', label: 'Domingo' },
 ];
 
-const SETTING_TABS: SettingTab[] = [
+const SETTING_TABS: (SettingTab & { adminOnly?: boolean })[] = [
   { id: 'ia', label: 'IA y Razonamiento', icon: Brain, description: 'Modelos LLM, RAG y parámetros de inferencia' },
   { id: 'integrations', label: 'Integraciones CMDB', icon: Plug, description: 'Snipe-IT, MISP y CCN-CERT LUCÍA' },
   { id: 'alerts', label: 'Alertas y Notificaciones', icon: BellRing, description: 'Telegram, Slack, Email y cadencias' },
   { id: 'scanners', label: 'Escáneres (M3 & M4)', icon: Crosshair, description: 'Timeouts, concurrencia y fuerza bruta' },
   { id: 'security', label: 'Seguridad y Accesos', icon: ShieldCheck, description: 'MFA, Kill Switch y sesiones JWT' },
   { id: 'orchestrator', label: 'Orquestador y Ciclos', icon: CalendarClock, description: 'Horarios de ejecución del pipeline semanal' },
+  { id: 'users', label: 'Usuarios y Departamentos', icon: Users, description: 'Gestión de cuentas, roles y departamentos', adminOnly: true },
 ];
 
 export function SettingsPage() {
@@ -139,6 +165,119 @@ export function SettingsPage() {
   const [vaultStatus, setVaultStatus] = useState<Record<string, string>>({});
   const [secretSaving, setSecretSaving] = useState<Record<string, boolean>>({});
   const [secretResult, setSecretResult] = useState<Record<string, 'saved' | 'error' | null>>({});
+
+  // ─── ESTADOS: USUARIOS Y DEPARTAMENTOS ───
+  const [userRole] = useState<string>(() => {
+    try { return JSON.parse(sessionStorage.getItem('scanops_auth') || '{}')?.role ?? ''; }
+    catch { return ''; }
+  });
+  const [users, setUsers] = useState<ScanopsUser[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  // Modal crear/editar usuario
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<ScanopsUser | null>(null);
+  const [uForm, setUForm] = useState({ username: '', password: '', role: 'auditor', full_name: '', email: '', department_ids: [] as number[] });
+  const [uSaving, setUSaving] = useState(false);
+  const [uError, setUError] = useState<string | null>(null);
+  const [showPass, setShowPass] = useState(false);
+  // Modal nuevo departamento
+  const [showDeptModal, setShowDeptModal] = useState(false);
+  const [deptName, setDeptName] = useState('');
+  const [deptDesc, setDeptDesc] = useState('');
+  const [deptSaving, setDeptSaving] = useState(false);
+
+  const fetchUsers = useCallback(async () => {
+    if (userRole !== 'system_manager') return;
+    setUsersLoading(true);
+    try {
+      const [uRes, dRes] = await Promise.all([
+        fetch(`${ORCHESTRATOR_BASE}/users/`, { headers: authHeaders() }),
+        fetch(`${ORCHESTRATOR_BASE}/users/departments`, { headers: authHeaders() }),
+      ]);
+      if (uRes.ok) setUsers((await uRes.json()).users);
+      if (dRes.ok) setDepartments((await dRes.json()).departments);
+    } catch { /* silencioso */ }
+    finally { setUsersLoading(false); }
+  }, [userRole]);
+
+  useEffect(() => {
+    if (activeTab === 'users') fetchUsers();
+  }, [activeTab, fetchUsers]);
+
+  const openCreateUser = () => {
+    setEditingUser(null);
+    setUForm({ username: '', password: '', role: 'auditor', full_name: '', email: '', department_ids: [] });
+    setUError(null);
+    setShowPass(false);
+    setShowUserModal(true);
+  };
+  const openEditUser = (u: ScanopsUser) => {
+    setEditingUser(u);
+    setUForm({ username: u.username, password: '', role: u.role, full_name: u.full_name ?? '', email: u.email ?? '', department_ids: u.departments.map(d => d.id) });
+    setUError(null);
+    setShowPass(false);
+    setShowUserModal(true);
+  };
+
+  const handleSaveUser = async () => {
+    setUSaving(true);
+    setUError(null);
+    try {
+      const isEdit = !!editingUser;
+      const body = isEdit
+        ? { role: uForm.role, full_name: uForm.full_name, email: uForm.email, department_ids: uForm.department_ids, ...(uForm.password ? { password: uForm.password } : {}) }
+        : { username: uForm.username, password: uForm.password, role: uForm.role, full_name: uForm.full_name, email: uForm.email, department_ids: uForm.department_ids };
+      const url = isEdit ? `${ORCHESTRATOR_BASE}/users/${editingUser!.username}` : `${ORCHESTRATOR_BASE}/users/`;
+      const res = await fetch(url, { method: isEdit ? 'PUT' : 'POST', headers: authHeaders(), body: JSON.stringify(body) });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error((e as any)?.detail ?? `Error ${res.status}`); }
+      setShowUserModal(false);
+      fetchUsers();
+    } catch (e: any) { setUError(e.message); }
+    finally { setUSaving(false); }
+  };
+
+  const handleToggleDisable = async (u: ScanopsUser) => {
+    try {
+      await fetch(`${ORCHESTRATOR_BASE}/users/${u.username}`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({ disabled: !u.disabled }),
+      });
+      fetchUsers();
+    } catch { /* silencioso */ }
+  };
+
+  const handleDeleteUser = async (username: string) => {
+    if (!confirm(`¿Eliminar usuario "${username}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      await fetch(`${ORCHESTRATOR_BASE}/users/${username}`, { method: 'DELETE', headers: authHeaders() });
+      fetchUsers();
+    } catch { /* silencioso */ }
+  };
+
+  const handleCreateDept = async () => {
+    if (!deptName.trim()) return;
+    setDeptSaving(true);
+    try {
+      const res = await fetch(`${ORCHESTRATOR_BASE}/users/departments`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ name: deptName.trim(), description: deptDesc.trim() || null }),
+      });
+      if (!res.ok) throw new Error();
+      setShowDeptModal(false);
+      setDeptName(''); setDeptDesc('');
+      fetchUsers();
+    } catch { /* silencioso */ }
+    finally { setDeptSaving(false); }
+  };
+
+  const handleDeleteDept = async (id: number) => {
+    if (!confirm('¿Eliminar este departamento?')) return;
+    try {
+      await fetch(`${ORCHESTRATOR_BASE}/users/departments/${id}`, { method: 'DELETE', headers: authHeaders() });
+      fetchUsers();
+    } catch { /* silencioso */ }
+  };
 
   // ─── HANDLERS ───
   const handleTestOllamaConnection = async () => {
@@ -474,7 +613,7 @@ export function SettingsPage() {
           <div className="flex flex-1 gap-6 min-h-0">
             {/* PANEL IZQUIERDO */}
             <aside className="w-72 shrink-0 flex flex-col gap-1 overflow-y-auto pr-2 custom-scrollbar">
-              {SETTING_TABS.map((tab) => {
+              {SETTING_TABS.filter(t => !t.adminOnly || userRole === 'system_manager').map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
                 return (
@@ -483,11 +622,13 @@ export function SettingsPage() {
                     onClick={() => setActiveTab(tab.id)}
                     className={`w-full flex items-start gap-3 p-3 rounded-lg text-left transition-all cursor-pointer ${
                       isActive
-                        ? 'bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff]'
+                        ? tab.id === 'users'
+                          ? 'bg-[#7c3aed]/10 border border-[#7c3aed]/30 text-[#a78bfa]'
+                          : 'bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff]'
                         : 'bg-transparent border border-transparent text-[#9ca3af] hover:bg-[#1a1d27] hover:border-[#1e2530] hover:text-white'
                     }`}
                   >
-                    <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${isActive ? 'text-[#00d4ff]' : 'text-[#6b7280]'}`} />
+                    <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${isActive ? (tab.id === 'users' ? 'text-[#a78bfa]' : 'text-[#00d4ff]') : 'text-[#6b7280]'}`} />
                     <div>
                       <div className={`text-sm font-semibold ${isActive ? 'text-white' : ''}`}>{tab.label}</div>
                       <div className={`text-xs mt-0.5 ${isActive ? 'text-[#9ca3af]' : 'text-[#6b7280]'}`}>
@@ -1107,6 +1248,284 @@ export function SettingsPage() {
                       {saveStatus === 'idle' && <Save className="w-4 h-4" />}
                       {saveStatus === 'saving' ? 'Enviando al Orquestador...' : saveStatus === 'saved' ? 'Ciclo guardado' : 'Guardar Ciclo Semanal'}
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── PESTAÑA: USUARIOS Y DEPARTAMENTOS (admin only) ─── */}
+              {activeTab === 'users' && userRole === 'system_manager' && (
+                <div className="space-y-6 animate-fadeIn">
+
+                  {/* ── Lista de usuarios ─────────────────────────────── */}
+                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                        <Users className="w-4 h-4 text-[#a78bfa]" />
+                        Usuarios del sistema
+                      </div>
+                      <button
+                        onClick={openCreateUser}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7c3aed]/20 hover:bg-[#7c3aed]/30 border border-[#7c3aed]/40 text-[#a78bfa] text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Nuevo usuario
+                      </button>
+                    </div>
+
+                    {usersLoading ? (
+                      <div className="text-center py-8 text-[#6b7280] text-xs flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Cargando usuarios...
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {users.map(u => (
+                          <div key={u.id} className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${u.disabled ? 'opacity-50 border-[#1e2530] bg-[#0f1117]/40' : 'border-[#1e2530] bg-[#0f1117]/60'}`}>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${u.disabled ? 'bg-[#374151] text-[#6b7280]' : 'bg-[#7c3aed]/20 text-[#a78bfa]'}`}>
+                              {(u.full_name || u.username).charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-mono text-white">{u.username}</span>
+                                {u.disabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#374151] text-[#9ca3af] font-semibold">DESHABILITADO</span>}
+                              </div>
+                              <div className="text-xs text-[#6b7280] truncate">{u.full_name || '—'} · {u.email || '—'}</div>
+                              {u.departments.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {u.departments.map(d => (
+                                    <span key={d.id} className="text-[10px] px-1.5 py-0.5 bg-[#1e2530] rounded text-[#9ca3af]">{d.name}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold shrink-0 ${ROLE_COLORS[u.role] ?? 'text-[#9ca3af] bg-[#1e2530] border-[#374151]'}`}>
+                              {ROLE_LABELS[u.role] ?? u.role}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => openEditUser(u)}
+                                className="p-1.5 text-[#6b7280] hover:text-[#a78bfa] hover:bg-[#7c3aed]/10 rounded transition-colors"
+                                title="Editar"
+                              ><Pencil className="w-3.5 h-3.5" /></button>
+                              <button
+                                onClick={() => handleToggleDisable(u)}
+                                disabled={u.username === 'admin'}
+                                className="p-1.5 text-[#6b7280] hover:text-[#f59e0b] hover:bg-[#f59e0b]/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                title={u.disabled ? 'Habilitar' : 'Deshabilitar'}
+                              >{u.disabled ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}</button>
+                              <button
+                                onClick={() => handleDeleteUser(u.username)}
+                                disabled={u.username === 'admin'}
+                                className="p-1.5 text-[#6b7280] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Eliminar"
+                              ><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                          </div>
+                        ))}
+                        {users.length === 0 && <p className="text-xs text-[#6b7280] text-center py-4">No hay usuarios cargados.</p>}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Departamentos ──────────────────────────────────── */}
+                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                        <ShieldAlert className="w-4 h-4 text-[#00d4ff]" />
+                        Departamentos
+                      </div>
+                      <button
+                        onClick={() => { setDeptName(''); setDeptDesc(''); setShowDeptModal(true); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 border border-[#00d4ff]/30 text-[#00d4ff] text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Nuevo departamento
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {departments.map(d => (
+                        <div key={d.id} className="flex items-center justify-between px-3 py-2.5 bg-[#0f1117] border border-[#1e2530] rounded-lg">
+                          <div>
+                            <div className="text-sm text-white font-medium">{d.name}</div>
+                            {d.description && <div className="text-xs text-[#6b7280]">{d.description}</div>}
+                          </div>
+                          <button
+                            onClick={() => handleDeleteDept(d.id)}
+                            className="p-1.5 text-[#6b7280] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded transition-colors ml-2"
+                          ><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ))}
+                      {departments.length === 0 && <p className="text-xs text-[#6b7280] col-span-2 text-center py-3">Sin departamentos.</p>}
+                    </div>
+                  </div>
+
+                  {/* ── ENS note ───────────────────────────────────────── */}
+                  <div className="flex items-start gap-2 text-xs text-[#6b7280] bg-[#0f1117] border border-[#1e2530] rounded-lg px-4 py-3">
+                    <Lock className="w-3.5 h-3.5 text-[#a78bfa] shrink-0 mt-0.5" />
+                    <span>Gestión de identidades bajo <span className="text-[#9ca3af] font-mono">ENS op.acc.1 / op.acc.4</span>. Solo el rol <span className="text-[#a78bfa] font-mono">system_manager</span> puede crear, editar o eliminar usuarios.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* ── MODAL: CREAR/EDITAR USUARIO ─── */}
+              {showUserModal && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                        <Users className="w-4 h-4 text-[#a78bfa]" />
+                        {editingUser ? `Editar · ${editingUser.username}` : 'Nuevo usuario'}
+                      </h3>
+                      <button onClick={() => setShowUserModal(false)} className="text-[#6b7280] hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {!editingUser && (
+                        <div>
+                          <label className="text-xs text-[#9ca3af] mb-1 block">Usuario *</label>
+                          <input
+                            value={uForm.username}
+                            onChange={e => setUForm(p => ({ ...p, username: e.target.value }))}
+                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#a78bfa]"
+                            placeholder="nombre_usuario"
+                          />
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="text-xs text-[#9ca3af] mb-1 block">{editingUser ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña *'}</label>
+                        <div className="relative">
+                          <input
+                            type={showPass ? 'text' : 'password'}
+                            value={uForm.password}
+                            onChange={e => setUForm(p => ({ ...p, password: e.target.value }))}
+                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#a78bfa] pr-10"
+                            placeholder={editingUser ? '••••••••' : 'Mínimo 8 caracteres'}
+                          />
+                          <button type="button" onClick={() => setShowPass(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6b7280] hover:text-white">
+                            {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-[#9ca3af] mb-1 block">Nombre completo</label>
+                          <input
+                            value={uForm.full_name}
+                            onChange={e => setUForm(p => ({ ...p, full_name: e.target.value }))}
+                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
+                            placeholder="Juan García"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-[#9ca3af] mb-1 block">Email</label>
+                          <input
+                            value={uForm.email}
+                            onChange={e => setUForm(p => ({ ...p, email: e.target.value }))}
+                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
+                            placeholder="user@empresa.com"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-[#9ca3af] mb-1 block">Rol *</label>
+                        <select
+                          value={uForm.role}
+                          onChange={e => setUForm(p => ({ ...p, role: e.target.value }))}
+                          className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
+                        >
+                          <option value="system_manager">Administrador (system_manager)</option>
+                          <option value="security_officer">Responsable de Seguridad (security_officer)</option>
+                          <option value="auditor">Auditor (auditor)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-[#9ca3af] mb-1.5 block">Departamentos</label>
+                        <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
+                          {departments.map(d => (
+                            <label key={d.id} className="flex items-center gap-2 px-2.5 py-2 bg-[#0f1117] border border-[#1e2530] rounded-lg cursor-pointer hover:border-[#374151] transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={uForm.department_ids.includes(d.id)}
+                                onChange={e => setUForm(p => ({
+                                  ...p,
+                                  department_ids: e.target.checked
+                                    ? [...p.department_ids, d.id]
+                                    : p.department_ids.filter(id => id !== d.id),
+                                }))}
+                                className="accent-[#a78bfa] w-3.5 h-3.5"
+                              />
+                              <span className="text-xs text-[#9ca3af]">{d.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {uError && (
+                        <div className="flex items-center gap-2 text-xs text-[#ff3b3b] bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg px-3 py-2">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />{uError}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={handleSaveUser}
+                        disabled={uSaving}
+                        className="flex-1 py-2.5 bg-[#7c3aed] hover:bg-[#6d28d9] disabled:opacity-60 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        {uSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                        {editingUser ? 'Guardar cambios' : 'Crear usuario'}
+                      </button>
+                      <button onClick={() => setShowUserModal(false)} className="px-5 py-2.5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold text-sm rounded-lg transition-colors">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── MODAL: NUEVO DEPARTAMENTO ─── */}
+              {showDeptModal && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-semibold text-white">Nuevo departamento</h3>
+                      <button onClick={() => setShowDeptModal(false)} className="text-[#6b7280] hover:text-white"><X className="w-4 h-4" /></button>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs text-[#9ca3af] mb-1 block">Nombre *</label>
+                        <input
+                          value={deptName}
+                          onChange={e => setDeptName(e.target.value)}
+                          className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                          placeholder="Ej: Infraestructura"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-[#9ca3af] mb-1 block">Descripción</label>
+                        <input
+                          value={deptDesc}
+                          onChange={e => setDeptDesc(e.target.value)}
+                          className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                          placeholder="Descripción opcional"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleCreateDept}
+                        disabled={deptSaving || !deptName.trim()}
+                        className="flex-1 py-2.5 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        {deptSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                        Crear
+                      </button>
+                      <button onClick={() => setShowDeptModal(false)} className="px-5 py-2.5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold text-sm rounded-lg transition-colors">
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
