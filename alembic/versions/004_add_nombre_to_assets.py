@@ -14,7 +14,12 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column('assets', sa.Column('nombre', sa.String(255), nullable=True))
+    op.execute("""
+        DO $$ BEGIN
+            ALTER TABLE assets ADD COLUMN nombre VARCHAR(255);
+        EXCEPTION WHEN duplicate_column THEN NULL;
+        END $$;
+    """)
 
 
 def downgrade():
