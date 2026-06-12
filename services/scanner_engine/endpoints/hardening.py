@@ -40,7 +40,7 @@ async def _get_asset(asset_id: int) -> dict:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(
-                f"{M1_BASE_URL}/assets/{asset_id}",
+                f"{M1_BASE_URL}/api/v1/assets/{asset_id}",
                 headers={"Authorization": f"Bearer {token}",
                          "Content-Type": "application/json"},
             )
