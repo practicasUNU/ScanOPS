@@ -18,7 +18,12 @@ from weasyprint import HTML
 # CORRECCIÓN EN services/reporting_engine/main.py
 from google_drive_service import drive_uploader
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
 logger = logging.getLogger("m7.reporting")
+logging.getLogger("m7.google_drive").setLevel(logging.INFO)
 
 app = FastAPI(title="ScanOps M7 - Reporting Engine")
 
@@ -238,44 +243,25 @@ def seal_pdf(pdf_bytes: bytes) -> bytes:
     return out_bytes
 
 
+NOMBRES_PDF = {
+    'executive.html':  '01_Informe_Ejecutivo_ScanOps.pdf',
+    'technical.html':  '02_Informe_Tecnico_ScanOps.pdf',
+    'soa.html':        '03_Declaracion_Aplicabilidad_SoA.pdf',
+    'certificate.html': '04_Certificado_Activo_Critico.pdf',
+    'access_log.html': '06_Evidencia_Accesos_ENS.pdf',
+}
+
+
 def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]:
-    """
-    Renderiza el HTML, genera el PDF, lo sella criptográficamente
-    y lo envía de forma tolerante a fallos hacia Google Drive.
-    """
+    """Renderiza HTML → PDF sellado AES-256. Sin llamadas a Drive (no es thread-safe)."""
     template = template_env.get_template(template_name)
     html_content = template.render(context)
-    
     pdf_file = io.BytesIO()
     HTML(string=html_content).write_pdf(target=pdf_file)
     raw_pdf_bytes = pdf_file.getvalue()
     pdf_file.close()
-    
-    # Sellado del PDF (Cifrado de ScanOps)
     sealed_bytes = seal_pdf(raw_pdf_bytes)
-    
-    nombres = {
-        'executive.html': '01_Informe_Ejecutivo_ScanOps.pdf',
-        'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
-        'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
-        'certificate.html': '04_Certificado_Activo_Critico.pdf',
-        'access_log.html': '06_Evidencia_Accesos_ENS.pdf',
-    }
-    filename = nombres.get(template_name, 'informe.pdf')
-    
-    # ─── [NUEVO] SUBIDA EN SEGUNDO PLANO TOLERANTE A FALLOS ───
-    try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        drive_filename = f"{timestamp}_{filename}"
-        
-        # Intentar subir el archivo sin bloquear el retorno principal
-        drive_uploader.upload_pdf(drive_filename, sealed_bytes)
-        
-    except Exception as drive_err:
-        # Si Google Drive falla, se captura el error aquí para que NO tire el endpoint
-        logger.error(f"[M7_DRIVE_SHIELD] Falló la subida de respaldo a la nube: {drive_err}. Prosiguiendo con la entrega local.")
-    
-    # El return queda fuera del bloque de Drive, asegurando la descarga pase lo que pase
+    filename = NOMBRES_PDF.get(template_name, 'informe.pdf')
     return filename, sealed_bytes
 
 
@@ -656,33 +642,41 @@ async def generate_full_audit_zip():
             **access_data,
         }
 
-        resultados = await asyncio.gather(
-            asyncio.to_thread(render_and_seal_sync, 'executive.html', ctx_exec),
-            asyncio.to_thread(render_and_seal_sync, 'technical.html', ctx_tech),
-            asyncio.to_thread(render_and_seal_sync, 'soa.html', ctx_soa),
-            asyncio.to_thread(render_and_seal_sync, 'certificate.html', ctx_cert),
-            asyncio.to_thread(render_and_seal_sync, 'access_log.html', ctx_access),
-        )
+        # WeasyPrint (Cairo/Pango) no es thread-safe — renderizar secuencialmente
+        resultados = []
+        for tmpl, ctx in [
+            ('executive.html',  ctx_exec),
+            ('technical.html',  ctx_tech),
+            ('soa.html',        ctx_soa),
+            ('certificate.html', ctx_cert),
+            ('access_log.html', ctx_access),
+        ]:
+            resultados.append(await asyncio.to_thread(render_and_seal_sync, tmpl, ctx))
 
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             for filename, pdf_bytes in resultados:
                 zip_file.writestr(filename, pdf_bytes)
 
-        timestamp_name = f"ScanOps_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-        file_path = os.path.join(HISTORY_DIR, timestamp_name)
         zip_bytes = zip_buffer.getvalue()
+        timestamp_name = f"ScanOps_Audit_{timestamp}.zip"
+        file_path = os.path.join(HISTORY_DIR, timestamp_name)
         with open(file_path, "wb") as f:
             f.write(zip_bytes)
 
-        # ─── SUBIDA DEL ZIP COMPLETO A GOOGLE DRIVE ───
+        # ─── SUBIDA A GOOGLE DRIVE (hilo principal, httplib2 thread-safe aquí) ───
         try:
-            drive_uploader.upload_zip(timestamp_name, zip_bytes)
+            drive_id = drive_uploader.upload_zip(timestamp_name, zip_bytes)
+            if drive_id:
+                logger.info(f"[M7_DRIVE] ZIP subido a Drive OK — ID: {drive_id} — {timestamp_name}")
+            else:
+                logger.warning("[M7_DRIVE] upload_zip devolvió None — credenciales o permisos")
         except Exception as drive_err:
             logger.error(f"[M7_DRIVE_SHIELD] Falló subida ZIP a Drive: {drive_err}")
 
         return Response(
-            content=zip_buffer.getvalue(),
+            content=zip_bytes,
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=ScanOps_Auditoria_Completa.zip"},
         )
