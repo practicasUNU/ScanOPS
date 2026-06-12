@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -6,7 +6,7 @@ import {
   Loader2, AlertCircle,
 } from 'lucide-react';
 
-const M7_BASE = 'http://localhost:8007';
+const M7_BASE = '/api/m7';
 
 function getAuthHeader(): HeadersInit {
   try {
@@ -120,7 +120,7 @@ export function ReportingPage() {
 
   useEffect(() => {
     setAssetsLoading(true);
-    fetch('http://localhost:8001/api/v1/assets', { headers: getAuthHeader() })
+    fetch('/api/m1/api/v1/assets', { headers: getAuthHeader() })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => {
         const list = Array.isArray(data) ? data : (data.assets ?? data.items ?? []);

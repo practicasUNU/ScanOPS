@@ -1,4 +1,4 @@
-// frontend/src/app/components/TopBar.tsx
+﻿// frontend/src/app/components/TopBar.tsx
 import { Bell, Shield, LogOut, Settings } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
@@ -43,8 +43,8 @@ export function TopBar({ role = 'System Manager', cycleLabel, dotColor }: TopBar
       const h: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
       const [siemRes, m4Res] = await Promise.allSettled([
-        fetch('http://localhost:8006/siem/pipeline-events?limit=5', { headers: h, signal: AbortSignal.timeout(5000) }),
-        fetch('http://localhost:8004/api/m4/pending-approvals?limit=5', { headers: h, signal: AbortSignal.timeout(5000) }),
+        fetch('/api/m5/siem/pipeline-events?limit=5', { headers: h, signal: AbortSignal.timeout(5000) }),
+        fetch('/api/m4/api/m4/pending-approvals?limit=5', { headers: h, signal: AbortSignal.timeout(5000) }),
       ]);
 
       const notifs: any[] = [];

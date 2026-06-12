@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
 
 export interface CriticalAlert {
   id: string;
@@ -42,7 +42,7 @@ async function fetchCriticalEvents(): Promise<CriticalAlert[]> {
 
   // Fuente 1: SIEM pipeline events (M5)
   try {
-    const res = await fetch('http://localhost:8006/siem/pipeline-events?limit=20', {
+    const res = await fetch('/api/m5/siem/pipeline-events?limit=20', {
       headers,
       signal: AbortSignal.timeout(5000),
     });
@@ -65,7 +65,7 @@ async function fetchCriticalEvents(): Promise<CriticalAlert[]> {
 
   // Fuente 2: auth events SSH servidores (M5)
   try {
-    const res = await fetch('http://localhost:8006/siem/auth-events?limit=20', {
+    const res = await fetch('/api/m5/siem/auth-events?limit=20', {
       headers,
       signal: AbortSignal.timeout(5000),
     });
@@ -88,7 +88,7 @@ async function fetchCriticalEvents(): Promise<CriticalAlert[]> {
 
   // Fuente 3: login events plataforma — fuerza bruta (≥5 fallos misma IP)
   try {
-    const res = await fetch('http://localhost:8009/auth/login-events?limit=50', {
+    const res = await fetch('/api/orchestrator/auth/login-events?limit=50', {
       headers,
       signal: AbortSignal.timeout(5000),
     });

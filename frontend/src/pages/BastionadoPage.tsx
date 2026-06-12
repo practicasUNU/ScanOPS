@@ -1,4 +1,4 @@
-// frontend/src/pages/BastionadoPage.tsx
+﻿// frontend/src/pages/BastionadoPage.tsx
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { Shield, CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp, FileText, Loader2, ArrowLeft } from 'lucide-react';
@@ -136,7 +136,7 @@ function AssetResultCard({ result }: { result: HardeningResult }) {
     setPdfLoading(true);
     try {
       const res = await fetch(
-        `http://localhost:8007/report/hardening/${result.asset_id}`,
+        `/api/m7/report/hardening/${result.asset_id}`,
         { headers: authHeaders() },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -253,7 +253,7 @@ export function BastionadoPage() {
 
   // Cargar activos desde M1
   useEffect(() => {
-    fetch('http://localhost:8001/api/v1/assets?page=1&page_size=100', {
+    fetch('/api/m1/api/v1/assets?page=1&page_size=100', {
       headers: authHeaders(),
     })
       .then(r => {
@@ -275,7 +275,7 @@ export function BastionadoPage() {
   }, []);
 
   const poll = useCallback((id: string) => {
-    fetch(`http://localhost:8002/api/v1/hardening/status/${id}`, { headers: authHeaders() })
+    fetch(`/api/m3/api/v1/hardening/status/${id}`, { headers: authHeaders() })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json() as Promise<TaskStatus>;
@@ -325,7 +325,7 @@ export function BastionadoPage() {
     setPollingError(null);
     setRunning(true);
     try {
-      const res = await fetch('http://localhost:8002/api/v1/hardening/run', {
+      const res = await fetch('/api/m3/api/v1/hardening/run', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ asset_ids: Array.from(selectedIds) }),

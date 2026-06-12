@@ -1,4 +1,4 @@
-import {
+﻿import {
   Shield,
   LayoutDashboard,
   FileCheck,
@@ -24,7 +24,7 @@ function useModuleHealth() {
       try {
         const raw = sessionStorage.getItem('scanops_auth');
         const token = raw ? JSON.parse(raw)?.access_token : null;
-        const res = await fetch('http://localhost:8009/orchestrator/modules/health', {
+        const res = await fetch('/api/orchestrator/orchestrator/modules/health', {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           signal: AbortSignal.timeout(4000),
         });

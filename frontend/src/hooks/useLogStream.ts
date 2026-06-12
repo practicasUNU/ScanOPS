@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 
 export interface LogEntry {
   timestamp: string;
@@ -7,7 +7,7 @@ export interface LogEntry {
   message: string;
 }
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
+const ORCHESTRATOR_BASE = '/api/orchestrator';
 const MAX_ENTRIES = 50;
 
 export function useLogStream() {

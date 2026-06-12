@@ -1,4 +1,4 @@
-import { Sidebar } from './Sidebar';
+﻿import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { ENSComplianceWidget } from './ENSComplianceWidget';
 import { Activity, AlertTriangle, CheckCircle2, CalendarClock, Play, Pause, Zap, Power, Shield, Loader2 } from 'lucide-react';
@@ -72,7 +72,7 @@ export function DashboardPage() {
     try {
       // ── FASE M1: Obtener activos ────────────────────────────
       ilog('[M1] Obteniendo inventario de activos...');
-      const assetsRes = await fetch('http://localhost:8001/api/v1/assets?page=1&page_size=50',
+      const assetsRes = await fetch('/api/m1/api/v1/assets?page=1&page_size=50',
         { headers: authH(), signal: AbortSignal.timeout(10000) });
       if (!assetsRes.ok) throw new Error(`M1 falló: HTTP ${assetsRes.status}`);
       const assetsData = await assetsRes.json();
@@ -89,7 +89,7 @@ export function DashboardPage() {
         ilog(`[M2] Reconocimiento Nmap sobre ${asset.ip}...`);
         try {
           const m2Res = await fetch(
-            `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(asset.ip)}`,
+            `/api/m2/api/v1/scan?target=${encodeURIComponent(asset.ip)}`,
             { method: 'POST', headers: authH(), signal: AbortSignal.timeout(120000) });
           if (m2Res.ok) {
             const m2Data = await m2Res.json();
@@ -102,7 +102,7 @@ export function DashboardPage() {
         setImmPhase('m3');
         ilog(`[M3] Lanzando Nmap+Nuclei+Nikto+ffuf+whatweb+testssl sobre ${asset.ip}...`);
         try {
-          const m3Launch = await fetch(`http://localhost:8002/api/v1/scan/asset/${asset.id}`,
+          const m3Launch = await fetch(`/api/m3/api/v1/scan/asset/${asset.id}`,
             { method: 'POST', headers: authH(),
               body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto','ffuf','whatweb','testssl'],
                 description: `Ciclo inmediato: ${asset.ip}` }),
@@ -113,7 +113,7 @@ export function DashboardPage() {
             for (let i = 0; i < 30; i++) {
               await new Promise(r => setTimeout(r, 5000));
               try {
-                const rRes = await fetch(`http://localhost:8002/api/v1/scan/results/${asset.id}`,
+                const rRes = await fetch(`/api/m3/api/v1/scan/results/${asset.id}`,
                   { headers: authH(), signal: AbortSignal.timeout(8000) });
                 if (rRes.ok) {
                   const rData = await rRes.json();
@@ -137,7 +137,7 @@ export function DashboardPage() {
         let m8Result: any = null;
         try {
           const m8Launch = await fetch(
-            `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector`,
+            `/api/m3/api/v1/scan/assets/${asset.id}/attack-vector`,
             { method: 'POST', headers: authH(), signal: AbortSignal.timeout(15000) });
           if (m8Launch.ok) {
             const { task_id } = await m8Launch.json();
@@ -146,7 +146,7 @@ export function DashboardPage() {
               await new Promise(r => setTimeout(r, 4000));
               try {
                 const rRes = await fetch(
-                  `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector/result/${task_id}`,
+                  `/api/m3/api/v1/scan/assets/${asset.id}/attack-vector/result/${task_id}`,
                   { headers: authH(), signal: AbortSignal.timeout(8000) });
                 if (rRes.ok) {
                   const rData = await rRes.json();
@@ -170,7 +170,7 @@ export function DashboardPage() {
       const assetIps = assets.map((a: any) => a.ip).join(', ');
       ilog(`[M4] Creando aprobación maestra para ${assets.length} activos...`);
       try {
-        const m4Res = await fetch('http://localhost:8004/api/m4/request-approval', {
+        const m4Res = await fetch('/api/m4/api/m4/request-approval', {
           method: 'POST',
           headers: authH(),
           body: JSON.stringify({
@@ -675,7 +675,7 @@ export function DashboardPage() {
                         try {
                           const token = getToken();
                           const execRes = await fetch(
-                            `http://localhost:8004/api/m4/execute/${immApprovals[0].approval_id}`,
+                            `/api/m4/api/m4/execute/${immApprovals[0].approval_id}`,
                             { method: 'POST',
                               headers: token ? { Authorization: `Bearer ${token}` } : {},
                               signal: AbortSignal.timeout(30000) }

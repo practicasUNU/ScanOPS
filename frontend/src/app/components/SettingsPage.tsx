@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -40,7 +40,7 @@ type ScheduleState = {
   m7: PhaseSchedule;
 };
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
+const ORCHESTRATOR_BASE = '/api/orchestrator';
 
 function getToken(): string | null {
   try {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -20,8 +20,8 @@ import {
   Database
 } from 'lucide-react';
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
-const M5_BASE = 'http://localhost:8006';
+const ORCHESTRATOR_BASE = '/api/orchestrator';
+const M5_BASE = '/api/m5';
 
 function getToken(): string | null {
   try {

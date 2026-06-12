@@ -1,4 +1,4 @@
-import { Sidebar } from './Sidebar';
+﻿import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { Search, Plus, Play, Activity, AlertCircle, CheckCircle2, RefreshCw, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
@@ -125,7 +125,7 @@ export function ScannerPage() {
     if (!reconData[asset.id]) {
       try {
         const res = await fetch(
-          `http://localhost:8003/api/v1/snapshots/latest?target=${encodeURIComponent(asset.ip)}`,
+          `/api/m2/api/v1/snapshots/latest?target=${encodeURIComponent(asset.ip)}`,
           { headers: { Authorization: 'Bearer scanops_secret' } },
         );
         if (res.ok) {

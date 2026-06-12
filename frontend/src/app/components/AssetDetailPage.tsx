@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -12,7 +12,7 @@ import {
 import { useAssets, type VulnResult } from '../../hooks/useAssets';
 import { getStoredToken } from '../../hooks/useAuth';
 
-const M1_BASE = 'http://localhost:8001/api/v1';
+const M1_BASE = '/api/m1/api/v1';
 const SCAN_TOOLS = ['nikto', 'nuclei', 'nmap'] as const;
 
 function authHeader(): HeadersInit {
@@ -293,7 +293,7 @@ export function AssetDetailPage() {
       const token = getStoredToken();
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await fetch(
-        'http://localhost:8006/siem/auth-events?limit=500',
+        '/api/m5/siem/auth-events?limit=500',
         { headers, signal: AbortSignal.timeout(15000) }
       );
       if (!res.ok) throw new Error();
@@ -511,7 +511,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m2');
       plog(`[M2] Iniciando reconocimiento sobre ${asset.ip}...`);
       const m2Res = await fetch(
-        `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(asset.ip)}`,
+        `/api/m2/api/v1/scan?target=${encodeURIComponent(asset.ip)}`,
         { method: 'POST', headers: authHeader(), signal: AbortSignal.timeout(120000) }
       );
       if (!m2Res.ok) throw new Error(`M2 falló: HTTP ${m2Res.status}`);
@@ -526,7 +526,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m3');
       plog(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${asset.ip}...`);
       const m3Launch = await fetch(
-        `http://localhost:8002/api/v1/scan/asset/${asset.id}`,
+        `/api/m3/api/v1/scan/asset/${asset.id}`,
         { method: 'POST', headers: authHeader(),
           body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto','ffuf','whatweb','testssl'],
             description: `Pipeline completo: ${asset.ip}` }),
@@ -540,7 +540,7 @@ export function AssetDetailPage() {
       for (let i = 0; i < 40; i++) {
         await new Promise(r => setTimeout(r, 5000));
         try {
-          const rRes = await fetch(`http://localhost:8002/api/v1/scan/results/${asset.id}`,
+          const rRes = await fetch(`/api/m3/api/v1/scan/results/${asset.id}`,
             { headers: authHeader(), signal: AbortSignal.timeout(8000) });
           if (rRes.ok) {
             const rData = await rRes.json();
@@ -563,7 +563,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m8');
       plog(`[M8] Invocando Ollama/Mistral para análisis de vectores...`);
       const m8Launch = await fetch(
-        `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector`,
+        `/api/m3/api/v1/scan/assets/${asset.id}/attack-vector`,
         { method: 'POST', headers: authHeader(), signal: AbortSignal.timeout(15000) }
       );
       if (!m8Launch.ok) throw new Error(`M8 falló: HTTP ${m8Launch.status}`);
@@ -575,7 +575,7 @@ export function AssetDetailPage() {
         await new Promise(r => setTimeout(r, 4000));
         try {
           const rRes = await fetch(
-            `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector/result/${m8TaskId}`,
+            `/api/m3/api/v1/scan/assets/${asset.id}/attack-vector/result/${m8TaskId}`,
             { headers: authHeader(), signal: AbortSignal.timeout(8000) }
           );
           if (rRes.ok) {
@@ -606,7 +606,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m4');
       plog(`[M4] Creando solicitud de aprobación en la cola...`);
       const cveId = m8Result.msf_module?.split('/').pop()?.toUpperCase() ?? `VECTOR-${asset.ip}`;
-      const m4Res = await fetch('http://localhost:8004/api/m4/request-approval', {
+      const m4Res = await fetch('/api/m4/api/m4/request-approval', {
         method: 'POST',
         headers: authHeader(),
         body: JSON.stringify({ cve: cveId, ip: asset.ip, user_email: 'admin@scanops.local', pin: '1234' }),
@@ -1736,7 +1736,7 @@ export function AssetDetailPage() {
                         plog(`[EXEC] Lanzando ataque de fuerza bruta SSH sobre ${asset?.ip}...`, 'warn');
                         try {
                           const execRes = await fetch(
-                            `http://localhost:8004/api/m4/execute/${pipelineApprovalId}`,
+                            `/api/m4/api/m4/execute/${pipelineApprovalId}`,
                             {
                               method: 'POST',
                               headers: authHeader(),
@@ -1758,7 +1758,7 @@ export function AssetDetailPage() {
                                 plog(`[EXEC] Comprobando estado... (${(i + 1) * 5}s)`, 'info');
                                 try {
                                   const statusRes = await fetch(
-                                    `http://localhost:8004/api/m4/approval-status/${pipelineApprovalId}`,
+                                    `/api/m4/api/m4/approval-status/${pipelineApprovalId}`,
                                     { headers: authHeader() }
                                   );
                                   if (statusRes.ok) {

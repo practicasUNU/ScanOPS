@@ -1,4 +1,4 @@
-// frontend/src/app/components/AuditLogsPage.tsx
+﻿// frontend/src/app/components/AuditLogsPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -8,9 +8,9 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
-const M1_BASE           = 'http://localhost:8001';
-const AUTH_BASE         = 'http://localhost:8009';
+const ORCHESTRATOR_BASE = '/api/orchestrator';
+const M1_BASE           = '/api/m1';
+const AUTH_BASE         = '/api/orchestrator';
 
 function getToken(): string | null {
   try {
@@ -134,7 +134,7 @@ function LoginSessionsTab() {
     setSrvLoading(true); setSrvError(false);
     try {
       const res = await fetch(
-        'http://localhost:8006/siem/auth-events?limit=500',
+        '/api/m5/siem/auth-events?limit=500',
         { headers: authH(), signal: AbortSignal.timeout(15000) }
       );
       if (!res.ok) throw new Error();

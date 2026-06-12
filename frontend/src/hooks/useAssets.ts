@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { getStoredToken } from './useAuth';
 
-const M1_BASE = 'http://localhost:8001/api/v1';
-const M3_BASE = 'http://localhost:8002';
+const M1_BASE = '/api/m1/api/v1';
+const M3_BASE = '/api/m3';
 
 export interface Asset {
   id: number;

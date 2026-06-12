@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+﻿import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
@@ -18,8 +18,8 @@ import { getStoredToken } from '../../hooks/useAuth';
 type RowStatus = 'idle' | 'scanning' | 'done' | 'error';
 interface RowState { status: RowStatus; msg?: string }
 
-const M1_BASE = 'http://localhost:8001/api/v1';
-const M2_BASE = 'http://localhost:8003/api/v1';
+const M1_BASE = '/api/m1/api/v1';
+const M2_BASE = '/api/m2/api/v1';
 
 const fmt = new Intl.DateTimeFormat('es-ES', {
   day: '2-digit', month: 'short', year: 'numeric',

@@ -1,4 +1,4 @@
-import { Sidebar } from './Sidebar';
+﻿import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
   CheckCircle2, AlertTriangle, XCircle, Download, FileText,
@@ -7,7 +7,7 @@ import {
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 
-const M7_BASE = 'http://localhost:8007';
+const M7_BASE = '/api/m7';
 
 function getToken(): string | null {
   try {
@@ -298,9 +298,9 @@ export function CompliancePage() {
         const h = authH();
 
         const [assetsRes, , siemRes] = await Promise.allSettled([
-          fetch('http://localhost:8001/api/v1/assets?page=1&page_size=1', { headers: h }),
-          fetch('http://localhost:8004/api/m4/pending-approvals?limit=1', { headers: h }),
-          fetch('http://localhost:8006/siem/pipeline-events?limit=1', { headers: h }),
+          fetch('/api/m1/api/v1/assets?page=1&page_size=1', { headers: h }),
+          fetch('/api/m4/api/m4/pending-approvals?limit=1', { headers: h }),
+          fetch('/api/m5/siem/pipeline-events?limit=1', { headers: h }),
         ]);
 
         let total_assets = 0, approved_exploits = 0, siem_events = 0;
@@ -315,7 +315,7 @@ export function CompliancePage() {
         }
 
         try {
-          const metricsRes = await fetch('http://localhost:8009/orchestrator/dashboard/metrics', { headers: h });
+          const metricsRes = await fetch('/api/orchestrator/orchestrator/dashboard/metrics', { headers: h });
           if (metricsRes.ok) {
             const m = await metricsRes.json();
             total_assets = m.total_assets ?? total_assets;
@@ -323,7 +323,7 @@ export function CompliancePage() {
         } catch {}
 
         try {
-          const m4Res = await fetch('http://localhost:8004/api/m4/pending-approvals?limit=200', { headers: h });
+          const m4Res = await fetch('/api/m4/api/m4/pending-approvals?limit=200', { headers: h });
           if (m4Res.ok) {
             const m4Data = await m4Res.json();
             approved_exploits = (m4Data.approvals ?? []).filter((a: { status: string }) =>

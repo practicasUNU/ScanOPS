@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -59,8 +59,8 @@ const STEPS: Step[] = [
   },
 ];
 
-const M1_ASSETS_URL = 'http://localhost:8001/api/v1/assets?page_size=100';
-const M3_BASE = 'http://localhost:8002';
+const M1_ASSETS_URL = '/api/m1/api/v1/assets?page_size=100';
+const M3_BASE = '/api/m3';
 
 function OllamaWidget() {
   const [status, setStatus] = useState<'online' | 'offline' | 'checking'>('checking');
@@ -306,7 +306,7 @@ export function AIReasoningPage() {
       const token = getToken();
       const cveId = displayResult?.attack_module?.split('/').pop()?.toUpperCase()
         ?? `VECTOR-${currentAsset?.ip}`;
-      const res = await fetch('http://localhost:8004/api/m4/request-approval', {
+      const res = await fetch('/api/m4/api/m4/request-approval', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -347,7 +347,7 @@ export function AIReasoningPage() {
     setAuthTotpError('');
     try {
       const token = getToken();
-      const res = await fetch('http://localhost:8004/api/m4/approve', {
+      const res = await fetch('/api/m4/api/m4/approve', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

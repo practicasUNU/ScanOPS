@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { getStoredToken } from './useAuth';
 
-const M2_BASE = 'http://localhost:8003/api/v1';
+const M2_BASE = '/api/m2/api/v1';
 
 export interface M2Port {
   port: number;
