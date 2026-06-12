@@ -499,44 +499,20 @@ services:
       - scanops
     restart: unless-stopped
 
-  # Frontend (React + Vite)
+  # Frontend (React + Vite served with Nginx)
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: scanops-frontend
-    networks:
-      - scanops
-    restart: unless-stopped
-
-  # Nginx reverse proxy
-  nginx:
-    image: nginx:alpine
-    container_name: scanops-nginx
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./certs:/etc/nginx/certs:ro
-    depends_on:
-      - frontend
-      - m1
-      - m2
-      - scanner-engine
-      - m4
-      - m5
-      - m7
-      - m8
-      - orchestrator
     networks:
       - scanops
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 volumes:
   pgdata:
