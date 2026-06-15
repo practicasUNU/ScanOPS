@@ -122,6 +122,7 @@ const getSourceIcon = (source: string | undefined) => {
     case 'Suricata (NIDS)':   return <Activity className="w-4 h-4 text-[#00d4ff]" />;
     case 'Wazuh (HIDS)':      return <Lock className="w-4 h-4 text-[#22c55e]" />;
     case 'Cowrie (Honeypot)': return <Flame className="w-4 h-4 text-[#ff3b3b]" />;
+    case 'M4-Pipeline':       return <ShieldAlert className="w-4 h-4 text-[#a78bfa]" />;
     default:                  return <Server className="w-4 h-4 text-[#9ca3af]" />;
   }
 };
@@ -134,9 +135,13 @@ export function AlertsPage() {
   const [kpisLoading, setKpisLoading] = useState(true);
   const [liveAlerts, setLiveAlerts] = useState<M5Alert[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(true);
+  // m5Reachable: null=loading, true=up, false=down
+  // Controlled ONLY by pipeline-events (authoritative M5 health check)
   const [m5Reachable, setM5Reachable] = useState<boolean | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [pipelineEvents, setPipelineEvents] = useState<any[]>([]);
+  const [wazuhAlerts, setWazuhAlerts] = useState<M5Alert[]>([]);
+  const [wazuhCount, setWazuhCount] = useState(0);
   const [refetchTick, setRefetchTick] = useState(0);
   const refetch = () => setRefetchTick(t => t + 1);
   const [honeypotStatus, setHoneypotStatus] = useState<HoneypotStatus | null>(null);
@@ -197,25 +202,31 @@ export function AlertsPage() {
     return () => clearInterval(id);
   }, []);
 
-  // Pipeline events polling (5s)
+  // Pipeline events polling (5s) — authoritative M5 health check
   useEffect(() => {
     const fetchPipelineEvents = async () => {
       try {
-        const res = await fetch(`${M5_BASE}/siem/pipeline-events?limit=20`,
-          { headers: authH(), signal: AbortSignal.timeout(5000) });
+        const res = await fetch(`${M5_BASE}/siem/pipeline-events?limit=50`,
+          { headers: authH(), signal: AbortSignal.timeout(6000) });
         if (res.ok) {
           const data = await res.json();
           setPipelineEvents(data.events ?? []);
           setM5Reachable(true);
+          setLastUpdated(new Date().toLocaleTimeString('es-ES'));
+        } else {
+          setM5Reachable(false);
         }
-      } catch { /* silencioso */ }
+      } catch {
+        setM5Reachable(false);
+      }
     };
     fetchPipelineEvents();
     const id = setInterval(fetchPipelineEvents, 5000);
     return () => clearInterval(id);
   }, []);
 
-  // Live alerts polling (15s) — stops when isLive is false
+  // Live sensor alerts polling (15s) — Suricata + Cowrie
+  // Does NOT touch m5Reachable (controlled by pipeline-events)
   useEffect(() => {
     if (!isLive) return;
 
@@ -230,11 +241,11 @@ export function AlertsPage() {
           }),
         ]);
 
-        const combined: M5Alert[] = [];
+        const sensorAlerts: M5Alert[] = [];
 
         if (suricataRes.status === 'fulfilled' && suricataRes.value.ok) {
           const data = await suricataRes.value.json() as Record<string, unknown>;
-          const rawAlerts = ((data.alerts as unknown[]) ?? []).slice(0, 20);
+          const rawAlerts = ((data.alerts as unknown[]) ?? []).slice(0, 30);
           const mapped = rawAlerts.map((a: unknown, i: number) => {
             const al = a as Record<string, unknown>;
             const nested = al.alert as Record<string, unknown> | undefined;
@@ -242,23 +253,24 @@ export function AlertsPage() {
               id: (al.id as string | undefined) ?? `suricata-${i}`,
               timestamp: (al.timestamp as string | undefined) ?? '',
               source: 'Suricata (NIDS)',
-              severity: ((al.severity as string | undefined)?.toUpperCase()) ?? 'MEDIUM',
-              message: (al.signature as string | undefined)
+              severity: ((nested?.severity as number | undefined) === 1 ? 'CRITICAL'
+                : (nested?.severity as number | undefined) === 2 ? 'HIGH'
+                : 'MEDIUM'),
+              message: (nested?.signature as string | undefined)
                 ?? (al.message as string | undefined)
-                ?? (nested?.signature as string | undefined)
                 ?? 'Suricata alert',
               src_ip: al.src_ip as string | undefined,
               target_ip: (al.dest_ip as string | undefined) ?? (al.target_ip as string | undefined),
               attacker_ip: al.src_ip as string | undefined,
-              mitigated: al.action === 'blocked' || al.mitigated === true,
+              mitigated: al.action === 'blocked',
             } satisfies M5Alert;
           });
-          combined.push(...mapped);
+          sensorAlerts.push(...mapped);
         }
 
         if (cowrieRes.status === 'fulfilled' && cowrieRes.value.ok) {
           const data = await cowrieRes.value.json() as Record<string, unknown>;
-          const rawEvents = ((data.events as unknown[]) ?? []).slice(0, 10);
+          const rawEvents = ((data.events as unknown[]) ?? []).slice(0, 15);
           const mapped = rawEvents.map((e: unknown, i: number) => {
             const ev = e as Record<string, unknown>;
             return {
@@ -272,20 +284,16 @@ export function AlertsPage() {
               mitigated: false,
             } satisfies M5Alert;
           });
-          combined.push(...mapped);
+          sensorAlerts.push(...mapped);
         }
 
-        const anyOk = suricataRes.status === 'fulfilled' && suricataRes.value.ok
-          || cowrieRes.status === 'fulfilled' && cowrieRes.value.ok;
-        setM5Reachable(anyOk);
-
-        if (combined.length > 0) {
-          combined.sort((a, b) =>
+        if (sensorAlerts.length > 0) {
+          sensorAlerts.sort((a, b) =>
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
           );
-          setLiveAlerts(combined.slice(0, 50));
+          setLiveAlerts(sensorAlerts.slice(0, 50));
         }
-      } catch { setM5Reachable(false); }
+      } catch { /* silent — m5Reachable controlled by pipeline-events */ }
       finally { setAlertsLoading(false); }
     };
 
@@ -294,10 +302,38 @@ export function AlertsPage() {
     return () => clearInterval(id);
   }, [isLive, refetchTick]);
 
-  const pipelineAsAlerts = pipelineEvents.map((e: any) => ({
+  // Wazuh HIDS alerts polling (60s)
+  useEffect(() => {
+    const fetchWazuh = async () => {
+      try {
+        const res = await fetch(`${M5_BASE}/siem/wazuh/alerts?limit=80&min_level=3`,
+          { headers: authH(), signal: AbortSignal.timeout(15000) });
+        if (!res.ok) return;
+        const data = await res.json() as { alerts: Record<string, unknown>[]; count: number };
+        setWazuhCount(data.count);
+        const mapped: M5Alert[] = (data.alerts ?? []).map((a, i) => ({
+          id: `wazuh-${i}`,
+          timestamp: (a.timestamp as string | undefined) ?? '',
+          source: 'Wazuh (HIDS)',
+          severity: (a.severity as string | undefined) ?? 'LOW',
+          message: (a.description as string | undefined) ?? 'Wazuh alert',
+          src_ip: a.src_ip as string | undefined,
+          attacker_ip: a.src_ip as string | undefined,
+          target_ip: (a.agent as string | undefined),
+          mitigated: false,
+        }));
+        setWazuhAlerts(mapped);
+      } catch { /* silent */ }
+    };
+    fetchWazuh();
+    const id = setInterval(fetchWazuh, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const pipelineAsAlerts: M5Alert[] = pipelineEvents.map((e: any) => ({
     id: `pipeline-${e.id}`,
     timestamp: e.timestamp,
-    source: e.source ?? 'M4-Pipeline',
+    source: 'M4-Pipeline',
     severity: e.severity,
     message: e.description,
     src_ip: e.attacker_ip,
@@ -306,9 +342,24 @@ export function AlertsPage() {
     mitigated: e.mitigated,
   }));
 
-  const combined = [...pipelineAsAlerts, ...liveAlerts];
+  // Merge all sources, deduplicate by id, sort by timestamp
+  const allReal: M5Alert[] = [...pipelineAsAlerts, ...wazuhAlerts, ...liveAlerts];
+  const seen = new Set<string>();
+  const combined: M5Alert[] = allReal.filter(a => {
+    const key = a.id ?? '';
+    if (key && seen.has(key)) return false;
+    if (key) seen.add(key);
+    return true;
+  });
+  combined.sort((a, b) =>
+    new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+  );
+
+  // Only show mock when M5 is truly unreachable (pipeline failed) AND absolutely no data
   const isMock = m5Reachable === false && combined.length === 0;
-  const alerts: (M5Alert | SiemAlert)[] = isMock ? MOCK_ALERTS : combined;
+  // Show "no sensor data" notice when M5 is up but sensors have no activity
+  const sensorsEmpty = m5Reachable === true && liveAlerts.length === 0 && wazuhAlerts.length === 0;
+  const alerts: M5Alert[] = isMock ? (MOCK_ALERTS as unknown as M5Alert[]) : combined;
   const filteredAlerts = alerts.filter(alert => {
     const a = alert as M5Alert;
     const msg = (a.message ?? '').toLowerCase();
@@ -399,17 +450,15 @@ export function AlertsPage() {
               <div className="p-3 bg-[#00d4ff]/10 rounded-lg"><Activity className="w-5 h-5 text-[#00d4ff]" /></div>
             </div>
 
-            {/* Card 2 — Autenticación HIDS */}
+            {/* Card 2 — Alertas Wazuh HIDS */}
             <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 flex items-center justify-between">
               <div>
-                <p className="text-xs text-[#6b7280] uppercase tracking-wider font-semibold mb-1">Alertas de Autenticación HIDS</p>
+                <p className="text-xs text-[#6b7280] uppercase tracking-wider font-semibold mb-1">Alertas Wazuh HIDS (hoy)</p>
                 <h3 className="text-2xl font-bold text-white">
-                  {kpisLoading ? '...' : (kpis?.wazuh_auth_failures ?? 28)}
+                  {wazuhCount > 0 ? wazuhCount : (kpisLoading ? '...' : (kpis?.wazuh_auth_failures ?? 0))}
                 </h3>
                 <p className="text-xs text-[#f59e0b] mt-1">
-                  {kpis
-                    ? (kpis.wazuh_auth_failures > 0 ? 'Requiere revisión (Wazuh)' : 'Sin alertas activas')
-                    : 'Requiere revisión (Wazuh)'}
+                  {wazuhCount > 0 ? `${wazuhCount} eventos CIS/SCA (Wazuh)` : 'Sin alertas activas'}
                 </p>
               </div>
               <div className="p-3 bg-[#f59e0b]/10 rounded-lg"><Lock className="w-5 h-5 text-[#f59e0b]" /></div>
@@ -461,24 +510,32 @@ export function AlertsPage() {
             </div>
           </div>
 
-          {/* Banner datos mock */}
+          {/* Banner M5 offline — datos ficticios */}
           {isMock && !alertsLoading && (
-            <div className="mx-4 mb-3 flex items-center gap-3 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg px-4 py-3">
-              <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0" />
+            <div className="flex items-center gap-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-[#ff3b3b] shrink-0" />
               <div className="flex-1">
-                <span className="text-sm font-bold text-[#f59e0b]">
-                  Datos de demostración — M5 no disponible
-                </span>
-                <p className="text-xs text-[#f59e0b]/70 mt-0.5">
-                  Los eventos mostrados son ficticios. Conecta M5 para ver alertas reales del pipeline.
+                <span className="text-sm font-bold text-[#ff3b3b]">M5 no disponible — mostrando datos de demostración</span>
+                <p className="text-xs text-[#ff3b3b]/70 mt-0.5">
+                  No se pudo conectar con el motor SIEM. Comprueba que el contenedor scanops-m5 está en ejecución.
                 </p>
               </div>
-              <button
-                onClick={refetch}
-                className="text-xs text-[#f59e0b] underline hover:no-underline shrink-0 cursor-pointer"
-              >
+              <button onClick={refetch} className="text-xs text-[#ff3b3b] underline hover:no-underline shrink-0 cursor-pointer">
                 Reintentar
               </button>
+            </div>
+          )}
+
+          {/* Banner sensores activos pero sin eventos de Suricata/Cowrie */}
+          {sensorsEmpty && !alertsLoading && !isMock && (
+            <div className="flex items-center gap-3 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-[#f59e0b] shrink-0" />
+              <div className="flex-1">
+                <span className="text-sm font-semibold text-[#f59e0b]">Suricata · Cowrie sin actividad</span>
+                <p className="text-xs text-[#f59e0b]/70 mt-0.5">
+                  M5 activo — Wazuh HIDS: {wazuhCount} alertas · Pipeline M4: {pipelineEvents.length} eventos · Suricata/Honeypot: sin eventos recientes (sensores o logs ausentes)
+                </p>
+              </div>
             </div>
           )}
 
@@ -501,7 +558,7 @@ export function AlertsPage() {
 
                 <div className="flex items-center gap-2 bg-[#0f1117] p-1 rounded-lg border border-[#1e2530]">
                   <Filter className="w-4 h-4 text-[#6b7280] ml-2 mr-1" />
-                  {['ALL', 'Suricata (NIDS)', 'Wazuh (HIDS)', 'Cowrie (Honeypot)'].map((src) => (
+                  {['ALL', 'Suricata (NIDS)', 'Wazuh (HIDS)', 'Cowrie (Honeypot)', 'M4-Pipeline'].map((src) => (
                     <button
                       key={src}
                       onClick={() => setFilterSource(src)}
@@ -511,7 +568,7 @@ export function AlertsPage() {
                           : 'text-[#6b7280] hover:text-white hover:bg-[#1a1d27]'
                       }`}
                     >
-                      {src === 'ALL' ? 'Todos' : src.split(' ')[0]}
+                      {src === 'ALL' ? 'Todos' : src === 'M4-Pipeline' ? 'Pipeline' : src.split(' ')[0]}
                     </button>
                   ))}
                 </div>
