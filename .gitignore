@@ -210,6 +210,14 @@ __marimo__/
 # SCANOPS - REGLAS ESPECÍFICAS DE SEGURIDAD
 # ==========================================
 
+# Service account keys and credentials — NEVER version these
+**/service_account.json
+**/credentials.json
+**/gcp-key.json
+
+# Auto-generated code aggregation file — not useful in git
+code.txt
+
 # No subir reportes de vulnerabilidades reales al repositorio
 /reports/
 /results/
