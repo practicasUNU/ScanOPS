@@ -73,7 +73,7 @@ function BehavioralTab() {
         const token = raw ? JSON.parse(raw)?.access_token : null;
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const res = await fetch(
-          `/api/m3/edr/behavioral-findings?page=${page}&limit=${PAGE}`,
+          `/api/m3/api/v1/edr/behavioral-findings?page=${page}&limit=${PAGE}`,
           { headers, signal: AbortSignal.timeout(10000) }
         );
         if (res.ok) {
