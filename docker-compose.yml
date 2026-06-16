@@ -94,6 +94,7 @@ services:
       ZAP_PORT: 8080
       OLLAMA_MODEL: "mistral:7b"
       OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+      OLLAMA_POST_EXPLOIT_MODEL: "qwen2.5:14b"
       JWT_SECRET_KEY: "scanops-secret-ens-alto-2026"
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
@@ -289,6 +290,7 @@ services:
       REDIS_URL: redis://scanops-main-redis:6379/0
       OLLAMA_BASE_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: mistral:7b
+      OLLAMA_POST_EXPLOIT_MODEL: qwen2.5:14b
       M3_URL: http://scanner-engine:8002
       M1_URL: http://m1:8001
     depends_on:

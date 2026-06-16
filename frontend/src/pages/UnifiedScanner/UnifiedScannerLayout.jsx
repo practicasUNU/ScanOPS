@@ -1,9 +1,9 @@
-﻿import { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router';
 // [NUEVO] Importamos los iconos necesarios para identificar cada tipo de activo
-import { 
-  ScanLine, Radio, LayoutGrid, Map, RefreshCw, AlertCircle, 
-  Search, Loader2, ShieldAlert, Server, Globe, Database, Code, Monitor, HelpCircle 
+import {
+  ScanLine, Radio, LayoutGrid, Map, RefreshCw, AlertCircle,
+  Search, Loader2, ShieldAlert, Server, Globe, Database, Code, Monitor, HelpCircle, Activity
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/app/components/ui/tabs';
 import { useScanData } from './hooks/useScanData';
@@ -42,6 +42,135 @@ function StatPill({ label, value, accent }) {
   );
 }
 
+// ── EDR Behavioral Tab (inline, no extra file needed) ─────────────────────────
+
+function sevClass(sev) {
+  switch ((sev || '').toUpperCase()) {
+    case 'CRITICAL': return 'bg-red-500/15 text-red-400 border-red-500/30';
+    case 'HIGH':     return 'bg-orange-500/15 text-orange-400 border-orange-500/30';
+    case 'MEDIUM':   return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+    case 'LOW':      return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+    default:         return 'bg-slate-500/15 text-slate-400 border-slate-500/30';
+  }
+}
+
+const fmtDate = new Intl.DateTimeFormat('es-ES', {
+  day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+});
+
+function BehavioralTab() {
+  const [findings, setFindings] = React.useState([]);
+  const [total, setTotal] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [page, setPage] = React.useState(1);
+  const PAGE = 10;
+
+  React.useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const raw = sessionStorage.getItem('scanops_auth');
+        const token = raw ? JSON.parse(raw)?.access_token : null;
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        const res = await fetch(
+          `/api/m3/edr/behavioral-findings?page=${page}&limit=${PAGE}`,
+          { headers, signal: AbortSignal.timeout(10000) }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setFindings(data.findings ?? data.items ?? []);
+          setTotal(data.total ?? 0);
+        }
+      } catch (_e) { /* non-fatal */ }
+      finally { setLoading(false); }
+    };
+    load();
+  }, [page]);
+
+  // Severity distribution
+  const dist = findings.reduce((acc, f) => {
+    acc[f.severity] = (acc[f.severity] || 0) + 1;
+    return acc;
+  }, {});
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16 text-[#6b7280] gap-2">
+      <RefreshCw className="w-4 h-4 animate-spin" />Cargando datos EDR...
+    </div>
+  );
+
+  if (findings.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-16 text-[#6b7280] gap-3">
+      <ShieldAlert className="w-10 h-10 opacity-20" />
+      <p className="text-sm">No hay behavioral findings en el sistema</p>
+      <p className="text-xs">Ejecuta un escaneo EDR desde la página <span className="text-[#00d4ff]">/edr</span></p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Summary pills */}
+      <div className="flex flex-wrap gap-2">
+        {Object.entries(dist).map(([sev, cnt]) => (
+          <span key={sev} className={`px-3 py-1 rounded-full text-xs font-mono border ${sevClass(sev)}`}>
+            {sev} {cnt}
+          </span>
+        ))}
+        <span className="px-3 py-1 rounded-full text-xs font-mono border border-[#1e2530] text-[#6b7280]">
+          Total {total}
+        </span>
+      </div>
+
+      {/* Table */}
+      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-[#1e2530] text-[#6b7280]">
+              <th className="text-left px-4 py-2 font-medium">Proceso</th>
+              <th className="text-left px-4 py-2 font-medium">Anomalía</th>
+              <th className="text-left px-4 py-2 font-medium">Severidad</th>
+              <th className="text-left px-4 py-2 font-medium">Método</th>
+              <th className="text-left px-4 py-2 font-medium">Detectado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {findings.map((f) => (
+              <tr key={f.id} className="border-b border-[#1e2530]/50 hover:bg-[#1e2530]/40 transition-colors">
+                <td className="px-4 py-2.5 font-mono text-white">{f.process_name || '—'}</td>
+                <td className="px-4 py-2.5 text-[#9ca3af]">{f.anomaly_type}</td>
+                <td className="px-4 py-2.5">
+                  <span className={`px-2 py-0.5 rounded border text-[10px] font-mono ${sevClass(f.severity)}`}>
+                    {f.severity}
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 text-[#6b7280] font-mono">
+                  {f.detection_method?.includes('yara')
+                    ? <span className="text-purple-400">YARA+behavioral</span>
+                    : f.detection_method}
+                </td>
+                <td className="px-4 py-2.5 text-[#6b7280] font-mono">
+                  {fmtDate.format(new Date(f.created_at))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {total > PAGE && (
+          <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530] text-xs text-[#6b7280]">
+            <span>Pág {page}/{Math.ceil(total / PAGE)}</span>
+            <div className="flex gap-2">
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40">‹</button>
+              <button disabled={page >= Math.ceil(total / PAGE)} onClick={() => setPage(p => p + 1)} className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40">›</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Layout ────────────────────────────────────────────────────────────────
+
 export function UnifiedScannerLayout() {
   const { data, loading, error, refetch } = useScanData();
   const findings = data?.findings ?? data?.items ?? [];
@@ -61,6 +190,7 @@ export function UnifiedScannerLayout() {
   const [adhocLog, setAdhocLog] = useState([]);
   const [adhocWebResult, setAdhocWebResult] = useState(null);
   const [adhocScanMode, setAdhocScanMode] = useState('auto');
+  const [adhocScanTypes, setAdhocScanTypes] = useState('nikto,nuclei,nmap,ffuf,whatweb,testssl');
 
   const handleAdhocScan = async () => {
     if (!adhocTarget.trim()) return;
@@ -124,10 +254,11 @@ export function UnifiedScannerLayout() {
         }
 
         setAdhocPhase('M3');
-        log(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${cleanTarget}...`);
+        const scanTypesArray = adhocScanTypes.split(',').map(s => s.trim()).filter(Boolean);
+        log(`[M3] Lanzando escaneo (${scanTypesArray.join('+')}) sobre ${cleanTarget}...`);
         const m3Launch = await fetch(`/api/m3/api/v1/scan/asset/${assetId}`, {
           method: 'POST', headers: authH(),
-          body: JSON.stringify({ scan_types: ['nmap', 'nuclei', 'nikto', 'ffuf', 'whatweb', 'testssl'], description: `Ad-hoc IP: ${cleanTarget}` }),
+          body: JSON.stringify({ scan_types: scanTypesArray, description: `Ad-hoc IP: ${cleanTarget}` }),
           signal: AbortSignal.timeout(15000),
         });
         if (!m3Launch.ok) throw new Error(`M3 HTTP ${m3Launch.status}`);
@@ -212,6 +343,7 @@ export function UnifiedScannerLayout() {
 
         setAdhocPhase('M2');
         log(`[M2] Lanzando reconocimiento Nmap sobre ${cleanTarget}...`);
+        let assetId = null;
         try {
           const m2Res = await fetch(
             `/api/m2/api/v1/scan?target=${encodeURIComponent(cleanTarget)}`,
@@ -224,6 +356,107 @@ export function UnifiedScannerLayout() {
             log(`[M2] ✓ ${p} puertos descubiertos`);
           }
         } catch { log(`[M2] Reconocimiento omitido (timeout)`); }
+
+        // Registrar asset en M1 y lanzar M3 para dominio también
+        setAdhocPhase('M1');
+        log(`[M1] Registrando activo ${cleanTarget} en inventario...`);
+        try {
+          const isIP = isIPAddress(cleanTarget);
+          const m1Body = {
+            hostname: cleanTarget,
+            tipo: 'OTRO',
+            criticidad: 'PENDIENTE_CLASIFICAR',
+            responsable: 'adhoc-scan',
+          };
+          if (isIP) m1Body.ip = cleanTarget;
+
+          const m1Register = await fetch('/api/m1/api/v1/assets', {
+            method: 'POST', headers: authH(),
+            body: JSON.stringify(m1Body),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (m1Register.ok) {
+            const m1Asset = await m1Register.json();
+            assetId = m1Asset.id;
+            log(`[M1] ✓ Activo registrado — asset_id=${assetId}`);
+          } else if (m1Register.status === 409) {
+            log(`[M1] Activo ya existe (409) — buscando...`);
+            const m1Find = await fetch(`/api/m1/api/v1/assets?search=${encodeURIComponent(cleanTarget)}&page_size=50`, { headers: authH(), signal: AbortSignal.timeout(10000) });
+            if (m1Find.ok) {
+              const m1List = await m1Find.json();
+              log(`[M1] Búsqueda devolvió ${(m1List.items ?? []).length} resultados`);
+              const existing = (m1List.items ?? []).find(a => a.ip === cleanTarget || a.hostname === cleanTarget);
+              if (existing) {
+                assetId = existing.id;
+                log(`[M1] ✓ Activo encontrado — asset_id=${assetId} (ip=${existing.ip}, hostname=${existing.hostname})`);
+              } else {
+                log(`[M1] No se encontró activo coincidente — creando nuevo...`);
+                // Intentar crear con ID numérico desde IP
+                const m1Create = await fetch('/api/m1/api/v1/assets', {
+                  method: 'POST', headers: authH(),
+                  body: JSON.stringify({ ip: `ad-hoc-${Date.now()}`, hostname: cleanTarget, tipo: 'OTRO', criticidad: 'PENDIENTE_CLASIFICAR', responsable: 'adhoc-scan' }),
+                  signal: AbortSignal.timeout(15000),
+                });
+                if (m1Create.ok) {
+                  const newAsset = await m1Create.json();
+                  assetId = newAsset.id;
+                  log(`[M1] ✓ Activo creado — asset_id=${assetId}`);
+                }
+              }
+            }
+          } else {
+            log(`[M1] Error HTTP ${m1Register.status}`);
+          }
+        } catch (e) { log(`[M1] Error: ${e.message}`); }
+
+        // Lanzar M3 si se registró el asset
+        if (assetId) {
+          log(`[M3] Proceediendo con M3 — asset_id=${assetId}`);
+          setAdhocPhase('M3');
+          const scanTypesArray = adhocScanTypes.split(',').map(s => s.trim()).filter(Boolean);
+          log(`[M3] Lanzando escaneo (${scanTypesArray.join('+')}) sobre ${cleanTarget}...`);
+          try {
+            const m3Launch = await fetch(`/api/m3/api/v1/scan/asset/${assetId}`, {
+              method: 'POST', headers: authH(),
+              body: JSON.stringify({ scan_types: scanTypesArray, description: `Ad-hoc Domain: ${cleanTarget}` }),
+              signal: AbortSignal.timeout(15000),
+            });
+            if (m3Launch.ok) {
+              const { task_id } = await m3Launch.json();
+              log(`[M3] Tarea creada — task_id=${task_id}`);
+              await new Promise(r => setTimeout(r, 10000));
+              let m3Done = false;
+              for (let i = 0; i < 36; i++) {
+                await new Promise(r => setTimeout(r, 8000));
+                try {
+                  const resultsRes = await fetch(`/api/m3/api/v1/scan/results/${assetId}`, { headers: authH(), signal: AbortSignal.timeout(8000) });
+                  if (resultsRes.ok) {
+                    const results = await resultsRes.json();
+                    const n = results.total_findings ?? 0;
+                    if (n > 0) {
+                      setAdhocM3Result(results);
+                      log(`[M3] ✓ Completado — ${n} vulnerabilidades encontradas`);
+                      m3Done = true;
+                      break;
+                    }
+                  }
+                } catch (_e) {}
+                if (i % 3 === 0) log(`[M3] Escaneando... ${10 + (i + 1) * 8}s`);
+              }
+              if (!m3Done) {
+                try {
+                  const resultsRes = await fetch(`/api/m3/api/v1/scan/results/${assetId}`, { headers: authH(), signal: AbortSignal.timeout(8000) });
+                  if (resultsRes.ok) {
+                    const results = await resultsRes.json();
+                    setAdhocM3Result(results);
+                    const n = results.total_findings ?? 0;
+                    log(n > 0 ? `[M3] ✓ Completado — ${n} vulnerabilidades` : `[M3] ✓ Completado — sin vulnerabilidades detectadas`);
+                  }
+                } catch {}
+              }
+            }
+          } catch (e) { log(`[M3] Error: ${e.message}`); }
+        }
       }
 
       setAdhocPhase('done');
@@ -343,6 +576,7 @@ export function UnifiedScannerLayout() {
                 {findings.length > 0 && <span className="ml-1 px-1.5 py-0.5 bg-[#1e2530] rounded text-[10px] font-mono text-[#6b7280]">{findings.length}</span>}
               </TabsTrigger>
               <TabsTrigger value="surface" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"><Map className="w-3.5 h-3.5" />Mapa de Superficie</TabsTrigger>
+              <TabsTrigger value="behavioral" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-red-500/10 data-[state=active]:text-red-400 data-[state=active]:border-red-500/20 rounded-md px-3 h-8"><Activity className="w-3.5 h-3.5" />EDR Behavioral</TabsTrigger>
               <TabsTrigger value="adhoc" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"><Search className="w-3.5 h-3.5" />Escaneo Ad-hoc</TabsTrigger>
             </TabsList>
 
@@ -351,10 +585,13 @@ export function UnifiedScannerLayout() {
               <FindingsTable findings={findings} initialQuery={targetIp} />
             </TabsContent>
             <TabsContent value="surface" className="mt-4"><SurfaceMap data={data} /></TabsContent>
+            <TabsContent value="behavioral" className="mt-4">
+              <BehavioralTab />
+            </TabsContent>
             <TabsContent value="adhoc" className="mt-4 space-y-4">
               <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4">
                 <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Search className="w-4 h-4 text-[#00d4ff]" />Escaneo Ad-hoc — IP o Dominio externo</h3>
-                <p className="text-xs text-[#6b7280] mb-4">Analiza cualquier IP o dominio sin necesidad de registrarlo en el inventario. Ejecuta M2 (reconocimiento Nmap) + M3 (Nuclei+Nikto) en secuencia.</p>
+                <p className="text-xs text-[#6b7280] mb-4">Analiza cualquier IP o dominio sin necesidad de registrarlo en el inventario. Ejecuta M2 (reconocimiento Nmap) + M3 (escaneo configurable) en secuencia. Incluye JS secrets analyzer, CORS checker y más.</p>
                 <div className="mb-3">
                   <label className="text-xs text-[#6b7280] mb-1 block">IP, Dominio o URL *</label>
                   <input type="text" value={adhocTarget} onChange={e => setAdhocTarget(e.target.value)} placeholder="ej. 10.202.15.15, google.com o https://pruebas.unuware.com" disabled={adhocScanning} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff] disabled:opacity-50" />
@@ -365,8 +602,18 @@ export function UnifiedScannerLayout() {
                   )}
                 </div>
                 <div className="flex items-center gap-3">
+                  <select value={adhocScanTypes} onChange={e => setAdhocScanTypes(e.target.value)} disabled={adhocScanning} className="text-xs bg-[#0f1117] border border-[#2a3040] text-[#d1d5db] rounded-lg px-2 py-2 focus:outline-none focus:border-[#00d4ff] disabled:opacity-50 min-w-[220px]">
+                    <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl,js_analyzer,cors">Full Security (+ JS + CORS)</option>
+                    <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl">Full Web Scan (all)</option>
+                    <option value="js_analyzer,cors">JS Secrets + CORS Check</option>
+                    <option value="ffuf,whatweb,testssl">Web-only (ffuf+whatweb+testssl)</option>
+                    <option value="nikto,nuclei,nmap">Legacy (nikto+nuclei+nmap)</option>
+                    <option value="ffuf">ffuf — Endpoint Fuzzing</option>
+                    <option value="whatweb">whatweb — Tech Fingerprint</option>
+                    <option value="testssl">testssl — TLS/SSL Analysis</option>
+                  </select>
                   <button onClick={handleAdhocScan} disabled={adhocScanning || !adhocTarget.trim()} className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-                    {adhocScanning ? <><Loader2 className="w-4 h-4 animate-spin" />Escaneando...</> : <><Search className="w-4 h-4" />Iniciar Análisis Completo</>}
+                    {adhocScanning ? <><Loader2 className="w-4 h-4 animate-spin" />Escaneando...</> : <><Search className="w-4 h-4" />Iniciar Análisis</>}
                   </button>
                   {adhocPhase === 'WEB' && <span className="text-xs text-[#22c55e] font-mono animate-pulse">Webcheck activo...</span>}
                   {adhocPhase === 'M2' && <span className="text-xs text-[#00d4ff] font-mono animate-pulse">M2 Reconocimiento activo...</span>}

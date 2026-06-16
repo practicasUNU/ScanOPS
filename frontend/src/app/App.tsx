@@ -17,6 +17,8 @@ import { AlertsPage } from './components/AlertsPage';
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
 import BastionadoPage from '../pages/BastionadoPage';
+import { EDRDashboardPage } from './components/EDRDashboardPage';
+import { IncidentResponsePage } from './components/IncidentResponsePage';
 
 function AppInner() {
   const { toastQueue, dismissToast } = useCriticalAlerts();
@@ -76,6 +78,16 @@ function AppInner() {
         <Route path="/bastionado" element={
           <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
             <BastionadoPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/edr" element={
+          <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
+            <EDRDashboardPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/incident-response" element={
+          <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
+            <IncidentResponsePage />
           </ProtectedRoute>
         } />
       </Routes>

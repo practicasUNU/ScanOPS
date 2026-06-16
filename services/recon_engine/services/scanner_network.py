@@ -291,6 +291,23 @@ async def perform_full_recon(snapshot_id: str, target: str, db: Session) -> Reco
         )
         db.add(finding)
 
+    # vhost fuzzing — solo para dominios con puertos web abiertos
+    if is_domain and has_web_service(ports):
+        from services.recon_engine.services.vhost_fuzzer import fuzz_vhosts
+        web_ports_list = [p.port for p in ports if p.port in (80, 443, 8080, 8443)]
+        try:
+            vhost_results = await fuzz_vhosts(target, web_ports_list or [80])
+            for vh in vhost_results:
+                db.add(ReconSubdomain(
+                    snapshot_id=snapshot_db.id,
+                    subdomain=vh,
+                    source="ffuf_vhost",
+                ))
+            if vhost_results:
+                logger.info("VHOST_FUZZ_PERSIST", target=target, count=len(vhost_results))
+        except Exception as e:
+            logger.warning("VHOST_FUZZ_ERROR", target=target, error=str(e))
+
     # ASN para targets IP
     if not is_domain and host_info:
         try:

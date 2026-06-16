@@ -124,8 +124,17 @@ SCHEMA DE RESPUESTA:
             if not clean_json.endswith("}") and "}" in clean_json:
                 clean_json = clean_json[:clean_json.rindex("}")+1]
 
-            return json.loads(clean_json)
-            
+            result = json.loads(clean_json)
+
+            # FASE 6: apply EDR multiplier on top of LLM-calculated priority
+            base = result.get("prioridad_real", 0.0)
+            adjusted, edr_note = self._apply_edr_multiplier(base, asset_context or {})
+            if edr_note:
+                result["prioridad_real"] = adjusted
+                result["justificacion"] = result.get("justificacion", "") + f" | {edr_note}"
+
+            return result
+
         except Exception as e:
             self.logger.error(f"Error en priorización experta: {e}")
             return self._calculate_local_priority(finding, asset_context)
@@ -135,29 +144,76 @@ SCHEMA DE RESPUESTA:
         # Extraer criticidad del contexto o usar MEDIO
         crit_key = (asset_context or {}).get("criticidad", "MEDIO").upper()
         criticidad = self.criticality_scale.get(crit_key, 0.5)
-        
+
         # Extraer exposición o usar INTERNAL
         exp_key = (asset_context or {}).get("exposure", "INTERNAL").upper()
         exposicion = self.exposure_scale.get(exp_key, 1.0)
-        
+
         # CVSS ajustado (usamos el CVSS base para el fallback)
         cvss_ajustado = finding.cvss
-        
+
         prioridad_real = criticidad * cvss_ajustado * exposicion
-        
+
+        # FASE 6: apply EDR multiplier if behavioral evidence present
+        prioridad_real, edr_note = self._apply_edr_multiplier(prioridad_real, asset_context or {})
+
         # Determinar acción
         if prioridad_real >= 8.0: accion = "explotar_inmediato"
         elif prioridad_real >= 5.0: accion = "explotar_ciclo"
         elif prioridad_real >= 2.0: accion = "monitorizar"
         else: accion = "descartar"
-        
+
+        justificacion = f"Cálculo automático (Fall-back): {crit_key} Asset, {exp_key} Network"
+        if edr_note:
+            justificacion += f" | {edr_note}"
+
         return {
             "prioridad_real": round(prioridad_real, 2),
             "cvss_ajustado": cvss_ajustado,
             "factor_exposicion": exposicion,
             "accion_recomendada": accion,
-            "justificacion": f"Cálculo automático (Fall-back): {crit_key} Asset, {exp_key} Network"
+            "justificacion": justificacion,
         }
+
+    def _apply_edr_multiplier(self, prioridad_real: float, asset_context: Dict) -> tuple:
+        """
+        FASE 6: Multiply prioridad_real by EDR evidence factors.
+        Returns (adjusted_prioridad, note_string).
+        Note is empty string if no EDR context present.
+        """
+        behavioral   = asset_context.get("behavioral", {})
+        threat_intel = asset_context.get("threat_intel", {})
+
+        if not behavioral and not threat_intel:
+            return prioridad_real, ""
+
+        mult    = 1.0
+        reasons = []
+
+        if behavioral.get("active_c2_detected") and behavioral.get("severity") in ("HIGH", "CRITICAL"):
+            mult *= 1.5
+            reasons.append("C2 activo (×1.5)")
+
+        if behavioral.get("yara_hits", 0) > 0:
+            mult *= 1.3
+            reasons.append(f"YARA {behavioral['yara_hits']} regla(s) (×1.3)")
+
+        if threat_intel.get("malicious_ips"):
+            mult *= 1.4
+            reasons.append(f"IP maliciosa TI: {threat_intel['malicious_ips'][0]} (×1.4)")
+
+        mult = min(2.0, mult)
+
+        if mult > 1.0:
+            adjusted = round(min(10.0, prioridad_real * mult), 2)
+            note = f"EDR ×{mult:.2f}: {', '.join(reasons)}"
+            self.logger.info(
+                "EDR_MULTIPLIER_APPLIED",
+                extra={"base": prioridad_real, "mult": mult, "adjusted": adjusted},
+            )
+            return adjusted, note
+
+        return prioridad_real, ""
 
     async def rank_findings(self, findings: List[Finding], contexts: Optional[Dict[str, Dict]] = None) -> List[Dict[str, Any]]:
         """

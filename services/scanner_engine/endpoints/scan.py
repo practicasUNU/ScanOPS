@@ -76,6 +76,9 @@ class ScannerTypeEnum(str, Enum):
     ffuf = "ffuf"
     whatweb = "whatweb"
     testssl = "testssl"
+    js_analyzer = "js_analyzer"
+    cors = "cors"
+    behavioral = "behavioral"
 
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""

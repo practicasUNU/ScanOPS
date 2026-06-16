@@ -150,6 +150,62 @@ def run_testssl_task(asset_id: int, ip: str) -> List[Dict]:
         logger.error("TESTSSL_TASK_ERROR", error=str(e))
         return []
 
+# --- TAREA: JS Source Analyzer (secretos hardcoded en HTML/JS) ---
+@app.task(name="tasks.run_js_source_analysis", queue="vulnerabilities",
+          time_limit=120, soft_time_limit=110)
+def run_js_source_analyzer_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
+    from services.scanner_engine.clients.js_source_analyzer_client import run_js_source_analysis
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("JS_ANALYZER_TASK_START", asset_id=asset_id, target=target_url)
+    try:
+        findings = run_js_source_analysis(asset_id, target_url)
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "JS-SourceAnalyzer",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
+    except Exception as e:
+        logger.error("JS_ANALYZER_TASK_ERROR", error=str(e))
+        return []
+
+
+# --- TAREA: CORS Advanced Checker ---
+@app.task(name="tasks.run_cors_check", queue="vulnerabilities",
+          time_limit=60, soft_time_limit=50)
+def run_cors_checker_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
+    from services.scanner_engine.clients.cors_checker_client import run_cors_check
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("CORS_CHECK_TASK_START", asset_id=asset_id, target=target_url)
+    try:
+        findings = run_cors_check(asset_id, target_url)
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "CORS-Checker",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
+    except Exception as e:
+        logger.error("CORS_CHECK_TASK_ERROR", error=str(e))
+        return []
+
+
 # --- CALLBACK: MERGE & PERSIST con deduplicación (US-3.4) ---
 @app.task(name="tasks.merge_and_persist_results")
 def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
@@ -261,11 +317,32 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
                 por cada puerto HTTP descubierto por Nmap.
     """
     if not scan_types:
-        scan_types = ["nuclei", "nmap", "nikto"]
+        scan_types = ["nuclei", "nmap", "nikto", "js_analyzer", "cors"]
+
+    # --- Behavioral scan (fire-and-forget, writes to behavioral_findings independently) ---
+    if "behavioral" in scan_types:
+        try:
+            from services.scanner_engine.tasks.behavioral_tasks import run_behavioral_scan
+            run_behavioral_scan.delay(asset_id=asset_id, ssh_host=asset_ip)
+            logger.info("BEHAVIORAL_SCAN_QUEUED", asset_id=asset_id, host=asset_ip)
+        except Exception as _e:
+            logger.warning("BEHAVIORAL_SCAN_QUEUE_FAILED", error=str(_e))
 
     # --- Fase 1: Nmap ---
     nmap_findings = []
-    if "openvas" in scan_types or "nmap" in scan_types:
+    # Ejecutar Nmap si está explícito O si hay tareas que dependen de puertos (nikto, ffuf, js_analyzer, cors, whatweb, testssl)
+    should_run_nmap = (
+        "openvas" in scan_types or
+        "nmap" in scan_types or
+        "nikto" in scan_types or
+        "ffuf" in scan_types or
+        "js_analyzer" in scan_types or
+        "cors" in scan_types or
+        "whatweb" in scan_types or
+        "testssl" in scan_types
+    )
+
+    if should_run_nmap:
         logger.info("NMAP_PHASE_START", asset_id=asset_id, target=asset_ip)
         try:
             nmap_findings = run_nmap_scan(asset_id, asset_ip)
@@ -273,6 +350,10 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
             logger.error("NMAP_PHASE_ERROR", error=str(e))
 
     http_ports = extract_http_ports(nmap_findings)
+    # Si no hay puertos abiertos pero se pidió js_analyzer o cors, usar puertos estándar
+    if not http_ports and ("js_analyzer" in scan_types or "cors" in scan_types):
+        http_ports = [80, 443]
+        logger.info("NO_OPEN_PORTS_USING_STANDARD_PORTS", asset_id=asset_id, ports=http_ports)
     logger.info("HTTP_PORTS_DISCOVERED", asset_id=asset_id, ports=http_ports)
 
     # --- Fase 2: resto de scanners ---
@@ -289,12 +370,16 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     if "openvas" in scan_types:
         tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
 
-    # Nikto y ffuf: una tarea por puerto HTTP descubierto
+    # Nikto, ffuf, JS analyzer y CORS checker: una tarea por puerto HTTP descubierto
     for port in http_ports:
         if "nikto" in scan_types:
             tasks.append(run_nikto_task.s(asset_id, asset_ip, port))
         if "ffuf" in scan_types:
             tasks.append(run_ffuf_task.s(asset_id, asset_ip, port))
+        if "js_analyzer" in scan_types:
+            tasks.append(run_js_source_analyzer_task.s(asset_id, asset_ip, port))
+        if "cors" in scan_types:
+            tasks.append(run_cors_checker_task.s(asset_id, asset_ip, port))
 
     # whatweb y testssl solo tienen sentido si hay puertos HTTP/HTTPS abiertos
     if http_ports:

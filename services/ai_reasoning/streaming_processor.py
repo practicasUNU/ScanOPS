@@ -128,6 +128,17 @@ class StreamingProcessor:
             validated_finding = await self._validate_finding(finding)
             asset_context = finding.get("asset_context") or {}
 
+            # FASE 6: inject EDR behavioral context if asset_id is known
+            asset_id = asset_context.get("asset_id") or finding.get("asset_id")
+            if asset_id:
+                try:
+                    from services.ai_reasoning.edr_context_builder import build_edr_context_for_asset
+                    edr_ctx = await asyncio.to_thread(build_edr_context_for_asset, int(asset_id))
+                    if edr_ctx:
+                        asset_context = {**asset_context, **edr_ctx}
+                except Exception as _e:
+                    logger.warning(f"EDR context unavailable for asset {asset_id}: {_e}")
+
             # PASO 2: Filtro de falso positivo (FalsePositiveFilter)
             fp_filter = FalsePositiveFilter(ollama_client=self.ollama_client)
             filter_result = await fp_filter.filter(validated_finding, asset_context=asset_context)

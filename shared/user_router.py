@@ -116,6 +116,36 @@ def delete_department(dept_id: int, _: dict = Depends(require_role("system_manag
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 
+@router.get("/active-sessions")
+def active_sessions(_: dict = Depends(require_role("system_manager"))):
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    seen: dict[str, dict] = {}
+
+    for event in _LOGIN_BUFFER:
+        if not event.get("success"):
+            continue
+        try:
+            ts = datetime.fromisoformat(event["timestamp"])
+        except (KeyError, ValueError):
+            continue
+        if ts < cutoff:
+            continue
+        username = event.get("username", "")
+        if not username:
+            continue
+        if username not in seen or ts > datetime.fromisoformat(seen[username]["last_seen"]):
+            seen[username] = {
+                "username": username,
+                "role": event.get("role") or (_USERS_DB[username].role if username in _USERS_DB else "—"),
+                "last_seen": event["timestamp"],
+                "ip": event.get("ip_origin") or "—",
+                "user_agent": event.get("user_agent") or "—",
+            }
+
+    sessions = sorted(seen.values(), key=lambda x: x["last_seen"], reverse=True)
+    return {"active_sessions": sessions, "count": len(sessions)}
+
+
 @router.get("/")
 def list_users(_: dict = Depends(require_role("system_manager"))):
     conn = _db()
@@ -263,41 +293,3 @@ def delete_user(username: str, _: dict = Depends(require_role("system_manager"))
         _USERS_DB.pop(username, None)
     finally:
         conn.close()
-
-
-# ── Active sessions ───────────────────────────────────────────────────────────
-
-@router.get("/active-sessions")
-def active_sessions(_: dict = Depends(require_role("system_manager"))):
-    """
-    Returns one entry per user with a valid (non-expired) session.
-    A session is considered valid if its login happened within the last
-    ACCESS_TOKEN_EXPIRE_MINUTES minutes (same window as the JWT lifetime).
-    """
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    seen: dict[str, dict] = {}
-
-    for event in _LOGIN_BUFFER:
-        if not event.get("success"):
-            continue
-        try:
-            ts = datetime.fromisoformat(event["timestamp"])
-        except (KeyError, ValueError):
-            continue
-        if ts < cutoff:
-            continue
-        username = event.get("username", "")
-        if not username:
-            continue
-        # Keep only the most recent login per user
-        if username not in seen or ts > datetime.fromisoformat(seen[username]["last_seen"]):
-            seen[username] = {
-                "username": username,
-                "role": event.get("role") or (_USERS_DB[username].role if username in _USERS_DB else "—"),
-                "last_seen": event["timestamp"],
-                "ip": event.get("ip_origin") or "—",
-                "user_agent": event.get("user_agent") or "—",
-            }
-
-    sessions = sorted(seen.values(), key=lambda x: x["last_seen"], reverse=True)
-    return {"active_sessions": sessions, "count": len(sessions)}

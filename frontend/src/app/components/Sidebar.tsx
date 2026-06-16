@@ -12,6 +12,8 @@
   Brain,
   FileText,
   Settings,
+  ShieldAlert,
+  Zap,
 } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
 import { useState, useEffect } from 'react';
@@ -45,6 +47,8 @@ function useModuleHealth() {
 const MODULE_MAP: Record<string, string | string[]> = {
   '/assets': 'M1',
   '/surface': ['M2', 'M3'],
+  '/edr': 'M3',
+  '/incident-response': 'M3',
   '/ai-reasoning': 'M8',
   '/exploitation': 'M4',
   '/alerts': 'M5',
@@ -76,6 +80,8 @@ export function Sidebar() {
       items: [
         { icon: Boxes, label: 'M1 - Asset Manager', path: '/assets' },
         { icon: Search, label: 'M2+M3 - Scanner', path: '/surface' },
+        { icon: ShieldAlert, label: 'M3.1 - EDR', path: '/edr' },
+        { icon: Zap, label: 'Incident Response', path: '/incident-response' },
         { icon: Brain, label: 'M8 - IA Reasoning', path: '/ai-reasoning' },
         { icon: ClipboardList, label: 'M4 - Explotación', path: '/exploitation' },
         { icon: Bell, label: 'M5 - Alertas SIEM', path: '/alerts' },

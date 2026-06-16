@@ -213,9 +213,11 @@ export function ScannerPage() {
                 value={adhocScanTypes}
                 onChange={e => setAdhocScanTypes(e.target.value)}
                 disabled={adhocScanning}
-                className="text-xs bg-[#0f1117] border border-[#1e2530] text-[#9ca3af] rounded-lg px-2 py-2 focus:outline-none focus:border-[#00d4ff] disabled:opacity-50"
+                className="text-xs bg-[#0f1117] border border-[#2a3040] text-[#d1d5db] rounded-lg px-2 py-2 focus:outline-none focus:border-[#00d4ff] disabled:opacity-50 min-w-[200px]"
               >
+                <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl,js_analyzer,cors">Full Security Scan (+ JS + CORS)</option>
                 <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl">Full Web Scan (all)</option>
+                <option value="js_analyzer,cors">JS Secrets + CORS Check</option>
                 <option value="ffuf,whatweb,testssl">Web-only (ffuf+whatweb+testssl)</option>
                 <option value="nikto,nuclei,nmap">Legacy (nikto+nuclei+nmap)</option>
                 <option value="ffuf">ffuf — Endpoint Fuzzing</option>
