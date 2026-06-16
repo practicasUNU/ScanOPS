@@ -26,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(recon_router)
+app.include_router(recon_router, prefix="/api/v1")
 
 @app.get("/health")
 async def healthcheck():
