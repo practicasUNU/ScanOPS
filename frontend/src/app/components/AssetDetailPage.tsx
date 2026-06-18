@@ -294,7 +294,7 @@ export function AssetDetailPage() {
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await fetch(
         '/api/m5/siem/auth-events?limit=500',
-        { headers, signal: AbortSignal.timeout(15000) }
+        { headers, signal: AbortSignal.timeout(45000) }
       );
       if (!res.ok) throw new Error();
       const data = await res.json() as {

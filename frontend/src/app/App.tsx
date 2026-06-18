@@ -13,6 +13,7 @@ import { AIReasoningPage } from './components/AIReasoningPage';
 import { ReportingPage } from './components/ReportingPage';
 import { SettingsPage } from './components/SettingsPage';
 import { AlertsPage } from './components/AlertsPage';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore – JSX module without type declarations
 import { UnifiedScannerLayout } from '../pages/UnifiedScanner/UnifiedScannerLayout';
@@ -72,7 +73,9 @@ function AppInner() {
         } />
         <Route path="/alerts" element={
           <ProtectedRoute requiredRole={['system_manager', 'security_officer']}>
-            <AlertsPage />
+            <RouteErrorBoundary label="M5 SIEM">
+              <AlertsPage />
+            </RouteErrorBoundary>
           </ProtectedRoute>
         } />
         <Route path="/bastionado" element={

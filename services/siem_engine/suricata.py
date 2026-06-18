@@ -82,7 +82,7 @@ async def suricata_status() -> dict[str, Any]:
 
     return {
         "status": "running" if running else "stopped",
-        "interface": "lo",
+        "interface": "eth0",
         "uptime_seconds": uptime_seconds,
         "ens_compliance": {
             "op_exp_4": True,

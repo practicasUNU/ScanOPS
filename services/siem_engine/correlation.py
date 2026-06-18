@@ -443,7 +443,6 @@ def _parse_auth_log_line(line: str, year: int) -> dict | None:
 def _ssh_read_auth_log(ip: str, user: str, password: str, lines: int = 500) -> list[dict]:
     try:
         import subprocess
-        import shlex
         ssh_cmd = [
             'sshpass', '-p', password,
             'ssh',
@@ -451,7 +450,7 @@ def _ssh_read_auth_log(ip: str, user: str, password: str, lines: int = 500) -> l
             '-o', 'UserKnownHostsFile=/dev/null',
             '-o', 'HostKeyAlgorithms=+ssh-rsa',
             '-o', 'KexAlgorithms=+diffie-hellman-group1-sha1',
-            '-o', 'ConnectTimeout=10',
+            '-o', 'ConnectTimeout=3',
             f'{user}@{ip}',
             f'tail -n {lines} /var/log/auth.log 2>/dev/null'
         ]
@@ -459,14 +458,14 @@ def _ssh_read_auth_log(ip: str, user: str, password: str, lines: int = 500) -> l
         ssh_cmd_sudo = ssh_cmd[:-1] + [
             f'echo {password} | sudo -S tail -n {lines} /var/log/auth.log 2>/dev/null'
         ]
-        result = subprocess.run(ssh_cmd_sudo, capture_output=True, text=True, timeout=20)
+        result = subprocess.run(ssh_cmd_sudo, capture_output=True, text=True, timeout=5)
         raw = result.stdout.strip()
         # Filtrar línea "[sudo] password for ..." que va a stdout en algunos sistemas
         raw = '\n'.join(l for l in raw.splitlines() if not l.startswith('[sudo]'))
 
         # Intento 2: sin sudo (para root u otros con acceso directo)
         if not raw:
-            result2 = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=20)
+            result2 = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=5)
             raw = result2.stdout.strip()
 
         if not raw:
@@ -484,9 +483,11 @@ async def list_auth_events(limit: int = 100):
     Devuelve eventos de autenticación SSH/PAM estructurados.
     ENS: op.exp.5
     """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
     assets = []
     try:
-        import os as _os
         from shared.auth import create_access_token
         _svc_token = create_access_token("scanops_service", "service")
         async with httpx.AsyncClient(verify=False, timeout=8) as client:
@@ -500,16 +501,19 @@ async def list_auth_events(limit: int = 100):
         logger.warning(f"M1 assets fetch failed: {e}")
 
     if not assets:
-        assets = [{'id': 1, 'ip': '10.202.15.100', 'name': 'srv-target'}]
+        return {
+            'total': 0, 'events': [], 'server_stats': [], 'brute_force_ips': [],
+            'info': 'No hay activos registrados con credenciales SSH en M1',
+        }
 
-    results = []
-    for asset in assets:
+    def _fetch_asset(asset: dict) -> list[dict]:
         ip = asset.get('ip')
         if not ip:
-            continue
+            return []
         ssh_user = asset.get('ssh_user') or 'admin'
         ssh_pass = asset.get('ssh_password') or 'test123'
         events = _ssh_read_auth_log(ip, ssh_user, ssh_pass, lines=limit)
+        enriched = []
         for ev in events:
             if 'error' in ev:
                 continue
@@ -521,7 +525,15 @@ async def list_auth_events(limit: int = 100):
             ev['rule_desc']       = ev.get('message', '')
             ev['mitre_tactic']    = 'TA0006' if not ev.get('success') else ''
             ev['mitre_technique'] = 'T1110' if 'Failed password' in ev.get('message', '') else ''
-            results.append(ev)
+            enriched.append(ev)
+        return enriched
+
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor(max_workers=min(len(assets), 10)) as pool:
+        futures = [loop.run_in_executor(pool, _fetch_asset, a) for a in assets]
+        asset_results = await asyncio.gather(*futures)
+
+    results = [ev for evs in asset_results for ev in evs]
 
     results.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
     results = results[:limit]
@@ -588,4 +600,542 @@ async def list_auth_events(limit: int = 100):
         'events':          results,
         'server_stats':    srv_stats,
         'brute_force_ips': brute_force_ips,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TELEMETRÍA AGENTLESS — recolección multi-fuente vía SSH (sin instalar agentes)
+# Cada activo registrado en M1 con SSH credentials es monitorizado
+# automáticamente. ENS: op.exp.4 | op.exp.5 | op.mon.1
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ssh_run(ip: str, user: str, password: str, cmd: str, timeout: int = 5) -> str:
+    """Ejecuta un comando remoto via SSH con sshpass. Retorna stdout o vacío."""
+    import subprocess
+    base = [
+        'sshpass', '-p', password,
+        'ssh',
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        '-o', 'HostKeyAlgorithms=+ssh-rsa',
+        '-o', 'KexAlgorithms=+diffie-hellman-group1-sha1',
+        '-o', 'ConnectTimeout=3',
+        f'{user}@{ip}',
+    ]
+    # Intentar con sudo primero, luego sin sudo
+    for cmd_variant in [
+        f'echo {password} | sudo -S bash -c "{cmd}" 2>/dev/null',
+        cmd,
+    ]:
+        try:
+            r = subprocess.run(base + [cmd_variant], capture_output=True, text=True, timeout=timeout)
+            out = r.stdout.strip()
+            out = '\n'.join(l for l in out.splitlines() if not l.startswith('[sudo]'))
+            if out:
+                return out
+        except Exception:
+            pass
+    return ''
+
+
+# ─── Patrones de detección web (Apache/Nginx access.log) ───
+
+_WEB_ATTACK_PATTERNS = [
+    # DVWA / bWAPP — endpoints de vulnerabilidades conocidas (acceso = explotación activa)
+    (re.compile(r"POST .*/vulnerabilities/(exec|sqli|sqli_blind|upload|fi|csrf|xss)", re.IGNORECASE),
+                'DVWA_EXPLOIT', 'CRITICAL', 'TA0002', 'T1190'),
+    (re.compile(r"GET .*/vulnerabilities/(exec|sqli|sqli_blind|fi)", re.IGNORECASE),
+                'DVWA_EXPLOIT', 'CRITICAL', 'TA0002', 'T1190'),
+    (re.compile(r"/(phpmyadmin|pma|myadmin|mysqladmin)/", re.IGNORECASE),
+                'PHPMYADMIN_ACCESS', 'HIGH', 'TA0001', 'T1190'),
+    # Juice Shop endpoints de explotación
+    (re.compile(r"(api/users|rest/user/login|api/basket|api/products.*q=)", re.IGNORECASE),
+                'JUICESHOP_ENUM', 'MEDIUM', 'TA0001', 'T1595'),
+    # SQL Injection
+    (re.compile(r"(%27|'|%22|\"|--|%23|#|%3B|;)\s*(OR|AND|UNION|SELECT|INSERT|UPDATE|DELETE|DROP|EXEC|EXECUTE|CAST|CONVERT|CHAR|DECLARE|WAITFOR)",
+                re.IGNORECASE), 'SQL_INJECTION', 'CRITICAL', 'TA0001', 'T1190'),
+    (re.compile(r"UNION\s+(ALL\s+)?SELECT", re.IGNORECASE), 'SQL_INJECTION_UNION', 'CRITICAL', 'TA0001', 'T1190'),
+    # Command/RCE
+    (re.compile(r"(%3B|;|%7C|\|)\s*(ls|id|whoami|cat|wget|curl|bash|sh|python|perl|ruby|nc|netcat|ncat)",
+                re.IGNORECASE), 'COMMAND_INJECTION', 'CRITICAL', 'TA0002', 'T1059'),
+    (re.compile(r"(eval|system|exec|shell_exec|passthru|popen|proc_open)\s*\(", re.IGNORECASE),
+                'RCE_ATTEMPT', 'CRITICAL', 'TA0002', 'T1059'),
+    # Path traversal
+    (re.compile(r"(\.\./|\.\.\\|%2e%2e%2f|%2e%2e/|\.\.%2f){2,}", re.IGNORECASE),
+                'PATH_TRAVERSAL', 'HIGH', 'TA0005', 'T1083'),
+    # Web shells
+    (re.compile(r"\.(php|asp|aspx|jsp|cgi)\?.*=(ls|id|whoami|cat\s|wget|curl|bash)", re.IGNORECASE),
+                'WEBSHELL_EXEC', 'CRITICAL', 'TA0002', 'T1505'),
+    # Scanners y enumeración — User-Agent y rutas típicas
+    (re.compile(r"(gobuster|nikto|sqlmap|nmap|masscan|dirb|dirbuster|wfuzz|ffuf|hydra|medusa|DirBuster|w3af|burpsuite|ZAP|python-requests|Go-http-client)",
+                re.IGNORECASE), 'SCANNER_DETECTED', 'HIGH', 'TA0043', 'T1595'),
+    # Enumeración de directorios (rutas típicas de wordlists)
+    (re.compile(r'" 404 .*(admin|backup|config|\.git|\.env|wp-admin|shell|cmd|upload|include)', re.IGNORECASE),
+                'DIR_ENUM_404', 'MEDIUM', 'TA0043', 'T1595'),
+    # XSS
+    (re.compile(r"<script[\s>]|javascript:|onerror\s*=|onload\s*=|alert\s*\(", re.IGNORECASE),
+                'XSS_ATTEMPT', 'MEDIUM', 'TA0001', 'T1189'),
+    # Fuerza bruta web
+    (re.compile(r"(wp-login\.php|phpmyadmin|admin/login|/login\.php).*POST.*4[0-9]{2}",
+                re.IGNORECASE), 'BRUTE_FORCE_WEB', 'HIGH', 'TA0006', 'T1110'),
+    # File upload
+    (re.compile(r"(upload|file_upload|fileupload).*\.(php|asp|aspx|jsp|phtml|php5|phar)",
+                re.IGNORECASE), 'MALICIOUS_UPLOAD', 'CRITICAL', 'TA0002', 'T1505'),
+    # LFI/RFI
+    (re.compile(r"(include|require|include_once|require_once)\s*[=(].*?(http://|https://|//|php://|data://|file://)",
+                re.IGNORECASE), 'FILE_INCLUSION', 'CRITICAL', 'TA0005', 'T1083'),
+    # HTTP 500 masivo (puede indicar ataque activo)
+    (re.compile(r'" 500 '), 'HTTP_500_ERROR', 'LOW', '', ''),
+]
+
+_WEB_LOG_RE = re.compile(
+    r'(?P<ip>\S+)\s+\S+\s+\S+\s+\[(?P<ts>[^\]]+)\]\s+"(?P<req>[^"]+)"\s+(?P<status>\d+)\s+(?P<size>\S+)'
+    r'(?:\s+"(?P<ref>[^"]*)"\s+"(?P<ua>[^"]*)")?'
+)
+
+
+def _parse_web_log_line(line: str, asset: dict) -> dict | None:
+    """Parsea una línea de access.log (Apache/Nginx) y detecta ataques."""
+    if not line.strip():
+        return None
+
+    for pattern, attack_type, severity, tactic, technique in _WEB_ATTACK_PATTERNS:
+        if pattern.search(line):
+            m = _WEB_LOG_RE.match(line)
+            src_ip = m.group('ip') if m else None
+            req    = m.group('req') if m else line[:200]
+            status = m.group('status') if m else ''
+            ua     = m.group('ua') if m else ''
+            raw_ts = m.group('ts') if m else ''
+            # Parsear timestamp Apache: "17/Jun/2026:09:15:33 +0200"
+            ts_iso = datetime.now(_tz.utc).isoformat()
+            try:
+                ts_iso = datetime.strptime(raw_ts[:20], '%d/%b/%Y:%H:%M:%S').replace(tzinfo=_tz.utc).isoformat()
+            except Exception:
+                pass
+            return {
+                'timestamp':      ts_iso,
+                'source':         'web_log',
+                'log_source':     'apache/nginx access.log',
+                'action_type':    attack_type,
+                'severity':       severity,
+                'success':        False,
+                'src_ip':         src_ip,
+                'src_user':       None,
+                'message':        f'{attack_type}: {req[:150]}',
+                'raw_log':        line[:300],
+                'http_status':    status,
+                'user_agent':     ua[:100] if ua else '',
+                'agent_name':     asset.get('name') or asset.get('hostname') or asset.get('ip'),
+                'agent_ip':       asset.get('ip'),
+                'agent_id':       str(asset.get('id', '')),
+                'alert_id':       f"web-{asset.get('ip')}-{ts_iso}-{attack_type}",
+                'rule_id':        attack_type,
+                'rule_desc':      f'Web attack detected: {attack_type}',
+                'mitre_tactic':   tactic,
+                'mitre_technique': technique,
+            }
+    return None
+
+
+# ─── Patrones de detección syslog ───
+
+_SYSLOG_ATTACK_PATTERNS = [
+    (re.compile(r'(kernel|audit).*?(oom|Out of memory|Killed process)', re.IGNORECASE),
+                'OOM_KILL', 'HIGH', '', ''),
+    (re.compile(r'segfault|segmentation fault', re.IGNORECASE),
+                'SEGFAULT', 'MEDIUM', '', ''),
+    (re.compile(r'cron.*(/tmp/|/dev/shm/|wget|curl|bash\s+-[ci])', re.IGNORECASE),
+                'SUSPICIOUS_CRON', 'CRITICAL', 'TA0003', 'T1053'),
+    (re.compile(r'(useradd|adduser|usermod|groupadd).*root', re.IGNORECASE),
+                'PRIVILEGE_ESCALATION', 'CRITICAL', 'TA0004', 'T1136'),
+    (re.compile(r'iptables.*DROP|ufw.*BLOCK', re.IGNORECASE),
+                'FIREWALL_BLOCK', 'LOW', '', ''),
+    (re.compile(r'(nmap|masscan|gobuster|nikto|sqlmap|hydra)\[', re.IGNORECASE),
+                'ATTACK_TOOL_EXEC', 'CRITICAL', 'TA0043', 'T1595'),
+    (re.compile(r'(nc|netcat|ncat)\s+(-e|-c|--exec)', re.IGNORECASE),
+                'REVERSE_SHELL', 'CRITICAL', 'TA0002', 'T1059'),
+    (re.compile(r'ptrace|strace.*passwd|ltrace.*crypt', re.IGNORECASE),
+                'PROCESS_TRACE', 'HIGH', 'TA0006', 'T1003'),
+]
+
+_SYSLOG_TS_RE_ISO     = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]*)')
+_SYSLOG_TS_RE_CLASSIC = re.compile(r'^(\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})')
+
+
+def _parse_syslog_line(line: str, asset: dict) -> dict | None:
+    if not line.strip():
+        return None
+    for pattern, attack_type, severity, tactic, technique in _SYSLOG_ATTACK_PATTERNS:
+        if pattern.search(line):
+            ts_iso = datetime.now(_tz.utc).isoformat()
+            m = _SYSLOG_TS_RE_ISO.match(line)
+            if m:
+                try:
+                    ts_iso = datetime.fromisoformat(m.group(1)).isoformat()
+                except Exception:
+                    pass
+            return {
+                'timestamp':      ts_iso,
+                'source':         'syslog',
+                'log_source':     'syslog/messages',
+                'action_type':    attack_type,
+                'severity':       severity,
+                'success':        False,
+                'src_ip':         None,
+                'src_user':       None,
+                'message':        f'{attack_type}: {line[:200]}',
+                'raw_log':        line[:300],
+                'http_status':    '',
+                'user_agent':     '',
+                'agent_name':     asset.get('name') or asset.get('hostname') or asset.get('ip'),
+                'agent_ip':       asset.get('ip'),
+                'agent_id':       str(asset.get('id', '')),
+                'alert_id':       f"sys-{asset.get('ip')}-{ts_iso}-{attack_type}",
+                'rule_id':        attack_type,
+                'rule_desc':      f'Syslog anomaly: {attack_type}',
+                'mitre_tactic':   tactic,
+                'mitre_technique': technique,
+            }
+    return None
+
+
+# ─── Recolección de procesos sospechosos ───
+
+_SUSPICIOUS_PROCESSES = [
+    'nmap', 'masscan', 'gobuster', 'nikto', 'sqlmap', 'hydra', 'medusa',
+    'john', 'hashcat', 'aircrack', 'metasploit', 'msfconsole', 'meterpreter',
+    'nc', 'netcat', 'ncat', 'socat', 'cryptominer', 'xmrig', 'minerd',
+    'tcpdump', 'wireshark', 'tshark', 'ettercap', 'arpspoof',
+    'python3 -c', 'python -c', 'perl -e', 'bash -i', 'sh -i',
+    'wget http', 'curl http', '/tmp/', '/dev/shm',
+]
+
+
+def _collect_host_telemetry(asset: dict) -> dict:
+    """
+    Recolecta telemetría completa de un activo vía SSH.
+    No requiere instalar ningún agente en el destino.
+    """
+    ip       = asset.get('ip', '')
+    user     = asset.get('ssh_user') or 'admin'
+    password = asset.get('ssh_password') or 'test123'
+    name     = asset.get('name') or asset.get('hostname') or ip
+
+    events: list[dict] = []
+    telemetry: dict = {
+        'asset_ip':   ip,
+        'asset_id':   str(asset.get('id', '')),
+        'asset_name': name,
+        'reachable':  False,
+        'collected_at': datetime.now(_tz.utc).isoformat(),
+        'events':       [],
+        'processes':    [],
+        'connections':  [],
+        'open_ports':   [],
+        'disk_usage':   [],
+        'last_logins':  [],
+        'errors':       [],
+    }
+
+    # ── 1. Comprobación de conectividad ──
+    probe = _ssh_run(ip, user, password, 'echo OK', timeout=4)
+    if probe.strip() != 'OK':
+        telemetry['errors'].append('SSH unreachable or auth failed')
+        return telemetry
+    telemetry['reachable'] = True
+
+    # ── 2. Logs web (Apache + Nginx) — host ──
+    web_log_paths = [
+        '/var/log/apache2/access.log',
+        '/var/log/apache2/other_vhosts_access.log',
+        '/var/log/nginx/access.log',
+        '/var/log/httpd/access_log',
+    ]
+    for log_path in web_log_paths:
+        raw = _ssh_run(ip, user, password, f'tail -n 300 {log_path} 2>/dev/null')
+        for line in raw.splitlines():
+            ev = _parse_web_log_line(line, asset)
+            if ev:
+                events.append(ev)
+
+    # ── 2b. Logs web dentro de contenedores Docker en el activo ──
+    # Apps web (DVWA, Juice Shop, bWAPP) corren como contenedores Docker.
+    # Sus logs Apache/Nginx están dentro de los contenedores, no en el host.
+    # Usamos "docker logs" que lee stdout/stderr del contenedor sin TTY.
+    docker_containers_raw = _ssh_run(
+        ip, user, password,
+        "docker ps --format '{{.Names}}' 2>/dev/null",
+        timeout=5,
+    )
+    container_names = [c.strip() for c in docker_containers_raw.splitlines() if c.strip()]
+
+    for container in container_names:
+        raw = _ssh_run(
+            ip, user, password,
+            f'docker logs --tail 300 {container} 2>&1',
+            timeout=6,
+        )
+        for line in raw.splitlines():
+            ev = _parse_web_log_line(line, asset)
+            if ev:
+                ev['log_source'] = f'docker:{container}'
+                events.append(ev)
+
+    # ── 3. Syslog / messages ──
+    for log_path in ['/var/log/syslog', '/var/log/messages']:
+        raw = _ssh_run(ip, user, password, f'tail -n 200 {log_path} 2>/dev/null')
+        for line in raw.splitlines():
+            ev = _parse_syslog_line(line, asset)
+            if ev:
+                events.append(ev)
+
+    # ── 4. Auth log ──
+    raw = _ssh_run(ip, user, password, 'tail -n 300 /var/log/auth.log 2>/dev/null')
+    year = datetime.now().year
+    for line in raw.splitlines():
+        ev = _parse_auth_log_line(line, year)
+        if ev:
+            ev.update({
+                'source':     'auth_log',
+                'log_source': 'auth.log',
+                'agent_name': name,
+                'agent_ip':   ip,
+                'agent_id':   str(asset.get('id', '')),
+                'alert_id':   f"auth-{ip}-{ev.get('timestamp','')}",
+                'rule_id':    'auth.log',
+                'rule_desc':  ev.get('message', ''),
+                'mitre_tactic':    'TA0006' if not ev.get('success') else '',
+                'mitre_technique': 'T1110' if 'Failed password' in ev.get('message','') else '',
+            })
+            events.append(ev)
+
+    # ── 5. Audit log (/var/log/audit/audit.log) ──
+    raw = _ssh_run(ip, user, password, 'tail -n 200 /var/log/audit/audit.log 2>/dev/null')
+    for line in raw.splitlines():
+        if 'execve' in line and ('SYSCALL' in line or 'EXECVE' in line):
+            # Extraer comando ejecutado
+            cmd_match = re.search(r'a0="([^"]+)"', line)
+            cmd = cmd_match.group(1) if cmd_match else ''
+            ts_iso = datetime.now(_tz.utc).isoformat()
+            m = re.search(r'msg=audit\((\d+)', line)
+            if m:
+                try:
+                    ts_iso = datetime.fromtimestamp(float(m.group(1)), tz=_tz.utc).isoformat()
+                except Exception:
+                    pass
+            # Detectar comandos sospechosos
+            suspicious = any(s in line.lower() for s in [
+                'nmap', 'nc ', 'netcat', 'wget', 'curl', '/tmp/', 'python', 'perl',
+                'bash -i', 'sh -i', '/dev/shm', 'chmod +x',
+            ])
+            if suspicious:
+                events.append({
+                    'timestamp':      ts_iso,
+                    'source':         'audit_log',
+                    'log_source':     'audit.log',
+                    'action_type':    'SUSPICIOUS_EXEC',
+                    'severity':       'HIGH',
+                    'success':        True,
+                    'src_ip':         None,
+                    'src_user':       None,
+                    'message':        f'Suspicious command: {cmd or line[:150]}',
+                    'raw_log':        line[:300],
+                    'http_status':    '',
+                    'user_agent':     '',
+                    'agent_name':     name,
+                    'agent_ip':       ip,
+                    'agent_id':       str(asset.get('id', '')),
+                    'alert_id':       f"audit-{ip}-{ts_iso}",
+                    'rule_id':        'SUSPICIOUS_EXEC',
+                    'rule_desc':      'Suspicious process execution detected via auditd',
+                    'mitre_tactic':   'TA0002',
+                    'mitre_technique': 'T1059',
+                })
+
+    # ── 6. Lista de procesos activos ──
+    raw = _ssh_run(ip, user, password, 'ps aux --no-headers 2>/dev/null | head -50')
+    processes = []
+    for line in raw.splitlines():
+        parts = line.split(None, 10)
+        if len(parts) >= 11:
+            cmd_full = parts[10]
+            is_suspicious = any(s in cmd_full.lower() for s in _SUSPICIOUS_PROCESSES)
+            proc = {
+                'user':    parts[0],
+                'pid':     parts[1],
+                'cpu':     parts[2],
+                'mem':     parts[3],
+                'command': cmd_full[:150],
+                'suspicious': is_suspicious,
+            }
+            processes.append(proc)
+            if is_suspicious:
+                events.append({
+                    'timestamp':      datetime.now(_tz.utc).isoformat(),
+                    'source':         'process_list',
+                    'log_source':     'ps aux',
+                    'action_type':    'SUSPICIOUS_PROCESS',
+                    'severity':       'HIGH',
+                    'success':        True,
+                    'src_ip':         None,
+                    'src_user':       parts[0],
+                    'message':        f'Suspicious process running: {cmd_full[:120]}',
+                    'raw_log':        line[:300],
+                    'http_status':    '',
+                    'user_agent':     '',
+                    'agent_name':     name,
+                    'agent_ip':       ip,
+                    'agent_id':       str(asset.get('id', '')),
+                    'alert_id':       f"proc-{ip}-{parts[1]}",
+                    'rule_id':        'SUSPICIOUS_PROCESS',
+                    'rule_desc':      'Suspicious process found via ps aux',
+                    'mitre_tactic':   'TA0002',
+                    'mitre_technique': 'T1059',
+                })
+    telemetry['processes'] = processes
+
+    # ── 7. Conexiones de red ──
+    raw = _ssh_run(ip, user, password,
+        'ss -antup 2>/dev/null || netstat -antup 2>/dev/null | head -60')
+    connections = []
+    for line in raw.splitlines()[1:]:  # skip header
+        if 'ESTABLISHED' in line or 'LISTEN' in line:
+            parts = line.split()
+            if len(parts) >= 5:
+                connections.append({
+                    'state':   parts[0] if len(parts) > 0 else '',
+                    'local':   parts[3] if len(parts) > 3 else '',
+                    'remote':  parts[4] if len(parts) > 4 else '',
+                    'process': parts[-1] if len(parts) > 5 else '',
+                })
+    telemetry['connections'] = connections[:30]
+
+    # ── 8. Últimos logins ──
+    raw = _ssh_run(ip, user, password, 'last -n 10 2>/dev/null')
+    telemetry['last_logins'] = [l for l in raw.splitlines() if l.strip()][:10]
+
+    # ── 9. Uso de disco (alerta si >90%) ──
+    raw = _ssh_run(ip, user, password, 'df -h --output=pcent,target 2>/dev/null | tail -n +2')
+    disk_usage = []
+    for line in raw.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            try:
+                pct = int(parts[0].rstrip('%'))
+                disk_usage.append({'mount': parts[1], 'used_pct': pct})
+                if pct >= 90:
+                    events.append({
+                        'timestamp':      datetime.now(_tz.utc).isoformat(),
+                        'source':         'system',
+                        'log_source':     'df',
+                        'action_type':    'DISK_CRITICAL',
+                        'severity':       'HIGH',
+                        'success':        False,
+                        'src_ip':         None,
+                        'src_user':       None,
+                        'message':        f'Disk usage {pct}% on {parts[1]}',
+                        'raw_log':        line,
+                        'http_status':    '',
+                        'user_agent':     '',
+                        'agent_name':     name,
+                        'agent_ip':       ip,
+                        'agent_id':       str(asset.get('id', '')),
+                        'alert_id':       f"disk-{ip}-{parts[1]}",
+                        'rule_id':        'DISK_CRITICAL',
+                        'rule_desc':      'Disk usage above 90%',
+                        'mitre_tactic':   '',
+                        'mitre_technique': '',
+                    })
+            except ValueError:
+                pass
+    telemetry['disk_usage'] = disk_usage
+
+    telemetry['events'] = events
+    return telemetry
+
+
+@router.get("/siem/host-telemetry")
+async def get_host_telemetry(limit: int = 200):
+    """
+    Telemetría agentless multi-fuente para todos los activos registrados en M1.
+    Recolecta vía SSH: logs web, syslog, auth.log, audit.log, procesos, conexiones.
+    No requiere instalar ningún agente en los activos.
+    ENS: op.exp.4 | op.exp.5 | op.mon.1
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    assets = []
+    try:
+        from shared.auth import create_access_token
+        token = create_access_token("scanops_service", "service")
+        async with httpx.AsyncClient(verify=False, timeout=8) as client:
+            r = await client.get(
+                "http://scanops-m1:8001/api/v1/assets?page=1&page_size=100",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            if r.status_code == 200:
+                assets = r.json().get('items', [])
+    except Exception as e:
+        logger.warning(f"M1 assets fetch failed: {e}")
+
+    if not assets:
+        return {
+            'total_events': 0,
+            'assets_scanned': 0,
+            'assets_reachable': 0,
+            'events': [],
+            'host_summaries': [],
+            'info': 'No hay activos registrados con credenciales SSH en M1',
+        }
+
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor(max_workers=min(len(assets), 10)) as pool:
+        futures = [loop.run_in_executor(pool, _collect_host_telemetry, a) for a in assets]
+        results = await asyncio.gather(*futures)
+
+    all_events: list[dict] = []
+    host_summaries: list[dict] = []
+    reachable = 0
+
+    for tel in results:
+        if tel['reachable']:
+            reachable += 1
+
+        events = tel.get('events', [])
+        all_events.extend(events)
+
+        severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'INFO': 0}
+        sources_seen: set[str] = set()
+        for ev in events:
+            sev = ev.get('severity', 'INFO')
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+            sources_seen.add(ev.get('log_source', 'unknown'))
+
+        host_summaries.append({
+            'asset_ip':       tel['asset_ip'],
+            'asset_id':       tel['asset_id'],
+            'asset_name':     tel['asset_name'],
+            'reachable':      tel['reachable'],
+            'collected_at':   tel['collected_at'],
+            'total_events':   len(events),
+            'severity_counts': severity_counts,
+            'log_sources':    list(sources_seen),
+            'processes':      tel.get('processes', []),
+            'connections':    tel.get('connections', []),
+            'last_logins':    tel.get('last_logins', []),
+            'disk_usage':     tel.get('disk_usage', []),
+            'errors':         tel.get('errors', []),
+        })
+
+    all_events.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    all_events = all_events[:limit]
+
+    return {
+        'total_events':    len(all_events),
+        'assets_scanned':  len(assets),
+        'assets_reachable': reachable,
+        'events':          all_events,
+        'host_summaries':  host_summaries,
     }

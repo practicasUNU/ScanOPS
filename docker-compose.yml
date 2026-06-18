@@ -1,6 +1,9 @@
 networks:
   scanops:
     driver: bridge
+  scanops_honeypot_net:
+    driver: bridge
+    internal: false
 
 services:
   postgres:
@@ -500,6 +503,20 @@ services:
     networks:
       - scanops
     restart: unless-stopped
+
+  # US-6.4 — Honeypot SSH/Telnet (Cowrie)
+  cowrie:
+    image: cowrie/cowrie:latest
+    container_name: scanops-cowrie
+    ports:
+      - "2222:2222"
+      - "2223:2223"
+    volumes:
+      - scanops_cowrie_logs:/cowrie/cowrie-git/var/log/cowrie
+    networks:
+      - scanops_honeypot_net
+    restart: unless-stopped
+
 
   # Frontend (React + Vite served with Nginx)
   frontend:

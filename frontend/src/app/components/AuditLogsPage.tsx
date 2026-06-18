@@ -78,6 +78,21 @@ function fmtDatetime(ts: string): string {
   try { return new Date(ts).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
   catch { return ts; }
 }
+function DateTimeCell({ ts }: { ts: string }) {
+  try {
+    const d = new Date(ts);
+    const date = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const time = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return (
+      <div className="whitespace-nowrap">
+        <div className="font-mono text-sm text-white font-semibold">{time}</div>
+        <div className="font-mono text-[11px] text-[#6b7280]">{date}</div>
+      </div>
+    );
+  } catch {
+    return <span className="font-mono text-[#9ca3af] text-xs">{ts}</span>;
+  }
+}
 function levelColor(level: string): string {
   switch (level?.toUpperCase()) {
     case 'ERROR': return 'text-[#ff3b3b]';
@@ -135,7 +150,7 @@ function LoginSessionsTab() {
     try {
       const res = await fetch(
         '/api/m5/siem/auth-events?limit=500',
-        { headers: authH(), signal: AbortSignal.timeout(15000) }
+        { headers: authH(), signal: AbortSignal.timeout(45000) }
       );
       if (!res.ok) throw new Error();
       const data = await res.json() as {
@@ -377,7 +392,7 @@ function LoginSessionsTab() {
                 {filtered.map((ev, idx) => (
                   <>
                     <tr key={idx} className={`hover:bg-[#1e2530]/40 transition-colors ${!ev.success ? 'border-l-2 border-[#ff3b3b]/40' : ''}`}>
-                      <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
+                      <td className="px-3 py-2"><DateTimeCell ts={ev.timestamp} /></td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5">
                           <User className="w-3 h-3 text-[#4b5563] shrink-0" />
@@ -665,7 +680,7 @@ function LoginSessionsTab() {
                             ev.severity === 'HIGH'     ? 'border-l-2 border-[#f59e0b]' : ''
                           }`}
                         >
-                          <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
+                          <td className="px-3 py-2"><DateTimeCell ts={ev.timestamp} /></td>
                           <td className="px-3 py-2">
                             <div className="flex flex-col">
                               <span className="text-[#a78bfa] font-mono font-medium">{ev.agent_name}</span>
@@ -972,7 +987,7 @@ export function AuditLogsPage() {
                       {filteredAsset.map(log => (
                         <>
                           <tr key={log.id} className="hover:bg-[#1e2530]/40 transition-colors">
-                            <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(log.timestamp)}</td>
+                            <td className="px-3 py-2"><DateTimeCell ts={log.timestamp} /></td>
                             <td className="px-3 py-2 font-mono text-[#00d4ff]">{log._asset_ip ?? String(log.asset_id)}</td>
                             <td className="px-3 py-2">{actionBadge(log.action)}</td>
                             <td className="px-3 py-2 text-white">{log.user_id}</td>
