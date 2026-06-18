@@ -120,15 +120,47 @@ const MOCK_ALERTS: SiemAlert[] = [
 ];
 
 // ─── COMPONENTES AUXILIARES ───
-const getSeverityBadge = (severity: unknown) => {
-  switch (String(severity ?? '').toUpperCase()) {
-    case 'CRITICAL': return 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30';
-    case 'HIGH':     return 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30';
-    case 'MEDIUM':   return 'bg-[#8B5CF6]/10 text-[#8B5CF6] border-[#8B5CF6]/30';
-    case 'LOW':      return 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30';
-    default:         return 'bg-[#475569]/10 text-[#475569] border-[#475569]/30';
-  }
+const SEVERITY_CFG: Record<string, { color: string; bg: string; border: string }> = {
+  CRITICAL: { color: '#EF4444', bg: 'rgba(239,68,68,0.10)',   border: 'rgba(239,68,68,0.28)'   },
+  HIGH:     { color: '#F97316', bg: 'rgba(249,115,22,0.10)',  border: 'rgba(249,115,22,0.28)'  },
+  MEDIUM:   { color: '#A78BFA', bg: 'rgba(167,139,250,0.10)', border: 'rgba(167,139,250,0.28)' },
+  LOW:      { color: '#22C55E', bg: 'rgba(34,197,94,0.10)',   border: 'rgba(34,197,94,0.28)'   },
+  INFO:     { color: '#64748B', bg: 'rgba(100,116,139,0.10)', border: 'rgba(100,116,139,0.28)' },
 };
+
+function SeverityBadge({ severity }: { severity: unknown }) {
+  const key = String(severity ?? 'INFO').toUpperCase();
+  const cfg = SEVERITY_CFG[key] ?? SEVERITY_CFG.INFO;
+  const label = key.charAt(0) + key.slice(1).toLowerCase();
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 font-semibold rounded-full whitespace-nowrap"
+      style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color, fontSize: 10, padding: '2px 8px', lineHeight: 1 }}
+    >
+      <span className="rounded-full shrink-0" style={{ width: 6, height: 6, background: cfg.color }} />
+      {label}
+    </span>
+  );
+}
+
+function AlertSkeleton() {
+  return (
+    <div className="flex gap-3 px-3 py-3 rounded-lg bg-[#0d1117]/40 animate-pulse">
+      <div className="w-10 shrink-0">
+        <div className="h-4 w-10 bg-[#1C2030] rounded" />
+        <div className="h-3 w-8 bg-[#1C2030] rounded mt-1" />
+      </div>
+      <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex gap-2">
+          <div className="h-4 w-16 bg-[#1C2030] rounded-full" />
+          <div className="h-4 w-20 bg-[#1C2030] rounded" />
+        </div>
+        <div className="h-4 w-3/4 bg-[#1C2030] rounded" />
+        <div className="h-3 w-1/2 bg-[#1C2030] rounded" />
+      </div>
+    </div>
+  );
+}
 
 const getSourceIcon = (source: string | undefined) => {
   switch (source) {
@@ -760,7 +792,11 @@ export function AlertsPage() {
               )}
               {/* Lista de Eventos */}
               <div className="flex-1 overflow-auto custom-scrollbar p-2">
-                {filteredAlerts.length === 0 ? (
+                {alertsLoading && filteredAlerts.length === 0 ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 6 }).map((_, i) => <AlertSkeleton key={i} />)}
+                  </div>
+                ) : filteredAlerts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-[#475569]">
                     <Search className="w-12 h-12 mb-3 opacity-20" />
                     <p className="text-sm">No se encontraron eventos con esos filtros.</p>
@@ -787,9 +823,7 @@ export function AlertsPage() {
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getSeverityBadge(a.severity)}`}>
-                                {a.severity ?? 'UNKNOWN'}
-                              </span>
+                              <SeverityBadge severity={a.severity} />
                               <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#1C2030] text-[#64748B] text-[10px] font-semibold">
                                 {getSourceIcon(a.source)}
                                 <span>{a.source?.split(' ')?.[0]}</span>

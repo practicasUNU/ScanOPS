@@ -5,9 +5,9 @@ import { TopBar } from './TopBar';
 import { Badge } from './ui/badge';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap,
+  ChevronLeft, ChevronRight, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap,
   CheckCircle2, ShieldAlert, Shield, Monitor, Search, Download,
-  RefreshCw, XCircle,
+  RefreshCw, XCircle, Boxes,
 } from 'lucide-react';
 import { useAssets, type VulnResult } from '../../hooks/useAssets';
 import { getStoredToken } from '../../hooks/useAuth';
@@ -762,20 +762,27 @@ export function AssetDetailPage() {
             </div>
           )}
 
-          {/* Header row 1: back + breadcrumb + badges */}
+          {/* Header row 1: breadcrumb + badges */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <nav className="flex items-center gap-1">
               <button
                 onClick={() => navigate('/assets')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#111318] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white hover:bg-[#1C2030] transition-colors"
+                className="flex items-center gap-1.5 text-[#64748B] hover:text-[#8B5CF6] transition-colors cursor-pointer px-1 py-0.5 rounded"
+                title="Volver al inventario"
               >
-                <ChevronLeft className="w-4 h-4" />
-                Inventario
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <Boxes className="w-3.5 h-3.5" />
+                <span className="text-xs font-medium">Asset Manager</span>
               </button>
-              <span className="text-[#475569] text-sm">
-                M1 · Asset Manager / <span className="text-white font-mono">{asset.ip}</span>
-              </span>
-            </div>
+              <ChevronRight className="w-3.5 h-3.5 text-[#334155] shrink-0" />
+              <span className="text-xs font-mono text-[#94A3B8] max-w-[160px] truncate">{asset.ip}</span>
+              {asset.hostname && asset.hostname !== asset.ip && (
+                <>
+                  <ChevronRight className="w-3 h-3 text-[#1C2030] shrink-0" />
+                  <span className="text-xs text-[#64748B] max-w-[140px] truncate">{asset.hostname}</span>
+                </>
+              )}
+            </nav>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass(asset.status)}`} />

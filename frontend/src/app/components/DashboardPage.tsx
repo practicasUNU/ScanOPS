@@ -3,6 +3,7 @@ import { TopBar } from './TopBar';
 import { ENSComplianceWidget } from './ENSComplianceWidget';
 import { Activity, AlertTriangle, CheckCircle2, CalendarClock, Play, Pause, Zap, Power, Shield, Loader2, Users, Circle, RefreshCw } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import * as Dialog from '@radix-ui/react-dialog';
 import { getCycleState, mapApiCycleToUI } from '../utils/cycleState';
 import { useCycleStatus } from '../../hooks/useCycleStatus';
@@ -274,6 +275,27 @@ export function DashboardPage() {
   const { metrics, loading: metricsLoading } = useDashboardMetrics(60000);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
+  const [metricsHistory, setMetricsHistory] = useState<{
+    assets: number[];
+    vulns: number[];
+    compliance: number[];
+  }>({ assets: [], vulns: [], compliance: [] });
+
+  useEffect(() => {
+    if (!metrics) return;
+    setMetricsHistory(prev => ({
+      assets:     [...prev.assets.slice(-7),     metrics.total_assets],
+      vulns:      [...prev.vulns.slice(-7),      metrics.open_vulnerabilities],
+      compliance: [...prev.compliance.slice(-7), metrics.ens_compliance_score],
+    }));
+  }, [metrics]);
+
+  const toSparkData = (arr: number[]) => {
+    if (arr.length === 0) return [{ v: 0 }, { v: 0 }];
+    if (arr.length === 1) return [{ v: arr[0] }, { v: arr[0] }];
+    return arr.map(v => ({ v }));
+  };
+
   useEffect(() => {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
@@ -419,61 +441,144 @@ export function DashboardPage() {
         <main className="flex-1 overflow-auto p-6 space-y-6">
           {/* KPI Cards */}
           <div className="grid grid-cols-4 gap-4">
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 bg-[#8B5CF6]/10 rounded-lg flex items-center justify-center">
-                  <Activity className="w-5 h-5 text-[#8B5CF6]" />
+            {/* Total Assets */}
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-0 overflow-hidden relative">
+              <div className="flex items-start justify-between mb-2">
+                <div className="w-9 h-9 bg-[#8B5CF6]/10 rounded-lg flex items-center justify-center">
+                  <Activity className="w-4.5 h-4.5 text-[#8B5CF6]" />
                 </div>
+                {metrics && !metrics.m1_available && (
+                  <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M1 offline</span>
+                )}
               </div>
-              <div className="text-3xl font-semibold text-white mb-1">
-                {metricsLoading ? '—' : (metrics?.total_assets ?? '—')}
-              </div>
-              <div className="text-sm text-[#64748B]">Total Assets</div>
-              {metrics && !metrics.m1_available && (
-                <span className="text-xs text-[#f59e0b] font-mono">M1 offline</span>
+              {metricsLoading ? (
+                <>
+                  <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
+                  <div className="h-3.5 w-20 bg-[#1C2030] rounded animate-pulse" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-semibold text-white leading-none mb-1">
+                    {metrics?.total_assets ?? '—'}
+                  </div>
+                  <div className="text-xs text-[#64748B] mb-2">Total Assets</div>
+                </>
               )}
+              <div className="mt-auto -mx-5 -mb-5">
+                <ResponsiveContainer width="100%" height={44}>
+                  <AreaChart data={toSparkData(metricsHistory.assets)} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                    <defs>
+                      <linearGradient id="spark-assets" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <Area type="monotone" dataKey="v" stroke="#8B5CF6" strokeWidth={1.5} fill="url(#spark-assets)" dot={false} isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 bg-[#ff3b3b]/10 rounded-lg flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-[#ff3b3b]" />
+            {/* Open Vulnerabilities */}
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-0 overflow-hidden relative">
+              <div className="flex items-start justify-between mb-2">
+                <div className="w-9 h-9 bg-[#EF4444]/10 rounded-lg flex items-center justify-center">
+                  <AlertTriangle className="w-4.5 h-4.5 text-[#EF4444]" />
                 </div>
+                {metrics && !metrics.m3_available && (
+                  <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M3 offline</span>
+                )}
               </div>
-              <div className="text-3xl font-semibold text-white mb-1">
-                {metricsLoading ? '—' : (metrics?.open_vulnerabilities ?? '—')}
-              </div>
-              <div className="text-sm text-[#64748B]">Open Vulnerabilities</div>
-              {metrics && !metrics.m3_available && (
-                <span className="text-xs text-[#f59e0b] font-mono">M3 offline</span>
+              {metricsLoading ? (
+                <>
+                  <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
+                  <div className="h-3.5 w-24 bg-[#1C2030] rounded animate-pulse" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-semibold text-white leading-none mb-1">
+                    {metrics?.open_vulnerabilities ?? '—'}
+                  </div>
+                  <div className="text-xs text-[#64748B] mb-2">Open Vulnerabilities</div>
+                </>
               )}
+              <div className="mt-auto -mx-5 -mb-5">
+                <ResponsiveContainer width="100%" height={44}>
+                  <AreaChart data={toSparkData(metricsHistory.vulns)} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                    <defs>
+                      <linearGradient id="spark-vulns" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#EF4444" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <Area type="monotone" dataKey="v" stroke="#EF4444" strokeWidth={1.5} fill="url(#spark-vulns)" dot={false} isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 bg-[#22c55e]/10 rounded-lg flex items-center justify-center">
-                  <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
+            {/* ENS Compliance */}
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-0 overflow-hidden relative">
+              <div className="flex items-start justify-between mb-2">
+                <div className="w-9 h-9 bg-[#22c55e]/10 rounded-lg flex items-center justify-center">
+                  <CheckCircle2 className="w-4.5 h-4.5 text-[#22c55e]" />
                 </div>
+                {metrics && !metrics.m3_available && (
+                  <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M3 offline</span>
+                )}
               </div>
-              <div className="text-3xl font-semibold text-white mb-1">
-                {metricsLoading ? '—' : `${metrics?.ens_compliance_score ?? '—'}%`}
-              </div>
-              <div className="text-sm text-[#64748B]">ENS Compliance</div>
-              {metrics && !metrics.m3_available && (
-                <span className="text-xs text-[#f59e0b] font-mono">M3 offline</span>
+              {metricsLoading ? (
+                <>
+                  <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
+                  <div className="h-3.5 w-22 bg-[#1C2030] rounded animate-pulse" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-semibold text-white leading-none mb-1">
+                    {metrics?.ens_compliance_score != null ? `${metrics.ens_compliance_score}%` : '—'}
+                  </div>
+                  <div className="text-xs text-[#64748B] mb-2">ENS Compliance</div>
+                </>
               )}
+              <div className="mt-auto -mx-5 -mb-5">
+                <ResponsiveContainer width="100%" height={44}>
+                  <AreaChart data={toSparkData(metricsHistory.compliance)} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                    <defs>
+                      <linearGradient id="spark-compliance" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22C55E" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <Area type="monotone" dataKey="v" stroke="#22C55E" strokeWidth={1.5} fill="url(#spark-compliance)" dot={false} isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
-            {/* Dynamic Ciclo Semanal card */}
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 bg-[#f59e0b]/10 rounded-lg flex items-center justify-center">
-                  <CalendarClock className="w-5 h-5 text-[#f59e0b]" />
+            {/* Ciclo Semanal */}
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col overflow-hidden relative">
+              <div className="flex items-start justify-between mb-2">
+                <div className="w-9 h-9 bg-[#f59e0b]/10 rounded-lg flex items-center justify-center">
+                  <CalendarClock className="w-4.5 h-4.5 text-[#f59e0b]" />
                 </div>
               </div>
-              <div className="text-xs text-[#64748B] mb-1 font-mono">{cycle.weekLabel}</div>
-              <div className="text-lg font-semibold text-white mb-1">{cycle.phase}</div>
+              <div className="text-[10px] text-[#64748B] mb-1 font-mono">{cycle.weekLabel}</div>
+              <div className="text-lg font-semibold text-white mb-1 leading-tight">{cycle.phase}</div>
               <div className="text-sm text-[#f59e0b] font-mono">{cycle.timeRemaining}</div>
+              <div className="mt-auto pt-4 flex items-end gap-1">
+                {[1,2,3,4,5,6,7].map(w => (
+                  <div
+                    key={w}
+                    className="flex-1 rounded-sm transition-all duration-300"
+                    style={{
+                      height: w <= (cycle.activeBlock ?? 0) + 1 ? `${12 + w * 3}px` : '8px',
+                      background: w <= (cycle.activeBlock ?? 0) + 1
+                        ? `rgba(245,158,11,${0.3 + w * 0.05})`
+                        : '#1C2030',
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
