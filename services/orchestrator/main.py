@@ -1,14 +1,18 @@
 import asyncio
 import json
 import os
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from services.orchestrator.cycle_state import CycleStatus, get_cycle_status
 from services.orchestrator.health_checker import check_all_modules
@@ -27,12 +31,67 @@ _M1_BASE = os.getenv("M1_URL", "http://localhost:8001") + "/api/v1"
 _M3_BASE = os.getenv("M3_URL", "http://localhost:8002")
 _M5_BASE = os.getenv("M5_URL", "http://localhost:8006")
 
+# ── Rate limiter — ENS Alto op.acc.6 ────────────────────────────────────────
+class _SlidingWindowStore:
+    def __init__(self):
+        self._hits: dict[str, list[float]] = defaultdict(list)
+
+    def is_allowed(self, key: str, limit: int, window: int) -> bool:
+        now = time.monotonic()
+        bucket = self._hits[key]
+        # Evict timestamps outside the window
+        cutoff = now - window
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        return True
+
+_rate_store = _SlidingWindowStore()
+
+# Stricter limits for auth endpoints
+_AUTH_PATHS = {"/auth/token", "/auth/login"}
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple per-IP sliding-window rate limiter.
+
+    General API: 120 req / 60 s
+    Auth endpoints: 10 req / 60 s
+    ENS Alto op.acc.6 — control de acceso y limitación de intentos.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+        path = request.url.path
+
+        if any(path.endswith(p) for p in _AUTH_PATHS):
+            allowed = _rate_store.is_allowed(f"auth:{client_ip}", limit=10, window=60)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many login attempts. Try again in 60 seconds."},
+                    headers={"Retry-After": "60"},
+                )
+        else:
+            allowed = _rate_store.is_allowed(f"api:{client_ip}", limit=120, window=60)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded. Max 120 requests/min."},
+                    headers={"Retry-After": "60"},
+                )
+
+        return await call_next(request)
+
+
 app = FastAPI(
     title="ScanOPS Orchestrator",
     description="Cycle status and module health — ENS Alto [op.exp.3]",
     version="1.0.0",
 )
 
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -409,10 +468,12 @@ async def get_modules_health():
 
 
 @app.post("/orchestrator/cycle/pause")
-async def pause_cycle():
-    """Toggles _paused state."""
+async def pause_cycle(request: Request):
+    """Toggles _paused state. ENS op.exp.3"""
     global _paused
     _paused = not _paused
+    action = "PAUSED" if _paused else "RESUMED"
+    _add_log_entry("INFO", f"Cycle {action} by {request.client.host if request.client else 'unknown'}", "orchestrator")
     return {"paused": _paused}
 
 
@@ -437,10 +498,11 @@ async def activate_kill_switch(totp_code: str = "000000"):
 
 
 @app.post("/orchestrator/cycle/kill-switch/deactivate")
-async def deactivate_kill_switch():
-    """Deactivates kill switch."""
+async def deactivate_kill_switch(request: Request):
+    """Deactivates kill switch. ENS op.exp.3 / op.acc.5"""
     global _kill_switch_active
     _kill_switch_active = False
+    _add_log_entry("INFO", f"Kill switch DEACTIVATED by {request.client.host if request.client else 'unknown'}", "orchestrator")
     return {"kill_switch_active": False}
 
 
