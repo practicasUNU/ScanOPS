@@ -354,7 +354,7 @@ export function DashboardPage() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -398,7 +398,7 @@ export function DashboardPage() {
                 onClick={async () => {
                   try { await cycleActions.pauseCycle(); refetch(); } catch {}
                 }}
-                className="px-4 py-1.5 text-xs bg-[#f59e0b] text-[#0f1117] rounded-lg hover:bg-[#d97706] transition-colors font-semibold"
+                className="px-4 py-1.5 text-xs bg-[#f59e0b] text-[#0A0C10] rounded-lg hover:bg-[#d97706] transition-colors font-semibold"
               >
                 Reanudar ahora
               </button>
@@ -411,7 +411,7 @@ export function DashboardPage() {
 
         {/* First-load skeleton */}
         {cycleLoading && !cycleData && (
-          <div className="flex items-center justify-center h-32 text-[#9ca3af] text-sm font-mono">
+          <div className="flex items-center justify-center h-32 text-[#64748B] text-sm font-mono">
             Conectando con orchestrator...
           </div>
         )}
@@ -419,22 +419,22 @@ export function DashboardPage() {
         <main className="flex-1 overflow-auto p-6 space-y-6">
           {/* KPI Cards */}
           <div className="grid grid-cols-4 gap-4">
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
               <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 bg-[#00d4ff]/10 rounded-lg flex items-center justify-center">
-                  <Activity className="w-5 h-5 text-[#00d4ff]" />
+                <div className="w-10 h-10 bg-[#8B5CF6]/10 rounded-lg flex items-center justify-center">
+                  <Activity className="w-5 h-5 text-[#8B5CF6]" />
                 </div>
               </div>
               <div className="text-3xl font-semibold text-white mb-1">
                 {metricsLoading ? '—' : (metrics?.total_assets ?? '—')}
               </div>
-              <div className="text-sm text-[#9ca3af]">Total Assets</div>
+              <div className="text-sm text-[#64748B]">Total Assets</div>
               {metrics && !metrics.m1_available && (
                 <span className="text-xs text-[#f59e0b] font-mono">M1 offline</span>
               )}
             </div>
 
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
               <div className="flex items-start justify-between mb-3">
                 <div className="w-10 h-10 bg-[#ff3b3b]/10 rounded-lg flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-[#ff3b3b]" />
@@ -443,13 +443,13 @@ export function DashboardPage() {
               <div className="text-3xl font-semibold text-white mb-1">
                 {metricsLoading ? '—' : (metrics?.open_vulnerabilities ?? '—')}
               </div>
-              <div className="text-sm text-[#9ca3af]">Open Vulnerabilities</div>
+              <div className="text-sm text-[#64748B]">Open Vulnerabilities</div>
               {metrics && !metrics.m3_available && (
                 <span className="text-xs text-[#f59e0b] font-mono">M3 offline</span>
               )}
             </div>
 
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
               <div className="flex items-start justify-between mb-3">
                 <div className="w-10 h-10 bg-[#22c55e]/10 rounded-lg flex items-center justify-center">
                   <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
@@ -458,20 +458,20 @@ export function DashboardPage() {
               <div className="text-3xl font-semibold text-white mb-1">
                 {metricsLoading ? '—' : `${metrics?.ens_compliance_score ?? '—'}%`}
               </div>
-              <div className="text-sm text-[#9ca3af]">ENS Compliance</div>
+              <div className="text-sm text-[#64748B]">ENS Compliance</div>
               {metrics && !metrics.m3_available && (
                 <span className="text-xs text-[#f59e0b] font-mono">M3 offline</span>
               )}
             </div>
 
             {/* Dynamic Ciclo Semanal card */}
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
               <div className="flex items-start justify-between mb-3">
                 <div className="w-10 h-10 bg-[#f59e0b]/10 rounded-lg flex items-center justify-center">
                   <CalendarClock className="w-5 h-5 text-[#f59e0b]" />
                 </div>
               </div>
-              <div className="text-xs text-[#9ca3af] mb-1 font-mono">{cycle.weekLabel}</div>
+              <div className="text-xs text-[#64748B] mb-1 font-mono">{cycle.weekLabel}</div>
               <div className="text-lg font-semibold text-white mb-1">{cycle.phase}</div>
               <div className="text-sm text-[#f59e0b] font-mono">{cycle.timeRemaining}</div>
             </div>
@@ -481,8 +481,8 @@ export function DashboardPage() {
 
           {/* ── Active Sessions (admin only) ──────────────────────── */}
           {userRole === 'system_manager' && (
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1e2530]">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1C2030]">
                 <div className="flex items-center gap-2.5">
                   <div className="w-7 h-7 bg-[#a78bfa]/10 rounded-lg flex items-center justify-center">
                     <Users className="w-3.5 h-3.5 text-[#a78bfa]" />
@@ -492,23 +492,23 @@ export function DashboardPage() {
                     {activeSessions.length}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] text-[#4b5563] font-mono">
+                <div className="flex items-center gap-2 text-[10px] text-[#334155] font-mono">
                   {sessionsLastUpdate && (
                     <span>actualizado {sessionsLastUpdate.toLocaleTimeString('es-ES')}</span>
                   )}
                   {sessionsLoading
-                    ? <Loader2 className="w-3 h-3 text-[#6b7280] animate-spin" />
-                    : <RefreshCw className="w-3 h-3 text-[#4b5563]" />
+                    ? <Loader2 className="w-3 h-3 text-[#475569] animate-spin" />
+                    : <RefreshCw className="w-3 h-3 text-[#334155]" />
                   }
                 </div>
               </div>
 
               {activeSessions.length === 0 ? (
-                <div className="px-5 py-6 text-center text-xs text-[#4b5563] font-mono">
+                <div className="px-5 py-6 text-center text-xs text-[#334155] font-mono">
                   {sessionsLoading ? 'Cargando sesiones...' : 'Sin sesiones activas registradas'}
                 </div>
               ) : (
-                <div className="divide-y divide-[#1e2530]">
+                <div className="divide-y divide-[#1C2030]">
                   {activeSessions.map((s) => {
                     const ago = Math.round((Date.now() - new Date(s.last_seen).getTime()) / 60000);
                     const agoLabel = ago < 1 ? 'ahora mismo' : ago < 60 ? `hace ${ago}m` : `hace ${Math.round(ago/60)}h`;
@@ -527,16 +527,16 @@ export function DashboardPage() {
                               {ROLE_LABELS[s.role] ?? s.role}
                             </span>
                           </div>
-                          <div className="text-[11px] text-[#6b7280] font-mono truncate mt-0.5">
+                          <div className="text-[11px] text-[#475569] font-mono truncate mt-0.5">
                             {s.ip !== '—' ? s.ip : 'IP desconocida'}
                             {s.user_agent !== '—' && (
-                              <span className="ml-2 text-[#4b5563]">· {s.user_agent.split(' ')[0]}</span>
+                              <span className="ml-2 text-[#334155]">· {s.user_agent.split(' ')[0]}</span>
                             )}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
                           <div className="text-[11px] text-[#22c55e] font-mono">● activo</div>
-                          <div className="text-[10px] text-[#4b5563]">{agoLabel}</div>
+                          <div className="text-[10px] text-[#334155]">{agoLabel}</div>
                         </div>
                       </div>
                     );
@@ -547,7 +547,7 @@ export function DashboardPage() {
           )}
 
           {/* Temporal pipeline */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-6">
             <h2 className="text-lg font-semibold text-white mb-5">Pipeline Semanal</h2>
 
             <div className="flex items-stretch gap-3">
@@ -558,11 +558,11 @@ export function DashboardPage() {
                     <div
                       className={`flex-1 rounded-lg p-4 border transition-all ${
                         isActive
-                          ? 'border-[#00d4ff]/40 shadow-[0_0_12px_rgba(0,212,255,0.15)] bg-[#0f1117]'
-                          : 'border-[#1e2530] bg-[#0f1117]'
+                          ? 'border-[#8B5CF6]/40 shadow-[0_0_12px_rgba(139,92,246,0.15)] bg-[#0A0C10]'
+                          : 'border-[#1C2030] bg-[#0A0C10]'
                       }`}
                     >
-                      <div className="text-xs text-[#9ca3af] font-mono mb-1">{block.timeLabel}</div>
+                      <div className="text-xs text-[#64748B] font-mono mb-1">{block.timeLabel}</div>
                       <div className="text-sm text-white mb-3">{block.phaseLabel}</div>
                       <div className="flex flex-wrap gap-2">
                         {block.modules.map((mod) => (
@@ -576,8 +576,8 @@ export function DashboardPage() {
                                 : mod.status === 'completed'
                                 ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20'
                                 : mod.status === 'in_progress' || mod.status === 'in-progress'
-                                ? 'bg-[#00d4ff]/10 text-[#00d4ff] border-[#00d4ff]/30 animate-pulse'
-                                : 'bg-[#374151] text-[#6b7280] border-[#4b5563]'
+                                ? 'bg-[#8B5CF6]/10 text-[#8B5CF6] border-[#8B5CF6]/30 animate-pulse'
+                                : 'bg-[#374151] text-[#475569] border-[#334155]'
                             }`}
                           >
                             {mod.id}{mod.label ? ` ${mod.label}` : ''}
@@ -586,7 +586,7 @@ export function DashboardPage() {
                       </div>
                     </div>
                     {i < pipelineBlocks.length - 1 && (
-                      <span className="text-[#4b5563] text-xl select-none">→</span>
+                      <span className="text-[#334155] text-xl select-none">→</span>
                     )}
                   </div>
                 );
@@ -595,12 +595,12 @@ export function DashboardPage() {
           </div>
 
           {/* Live log */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-[#1e2530]">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-[#1C2030]">
               <h2 className="text-lg font-semibold text-white">Live Execution Log</h2>
               <div className="flex items-center gap-1.5 text-xs font-mono">
-                <div className={`w-2 h-2 rounded-full ${logConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#6b7280]'}`} />
-                <span className={logConnected ? 'text-[#22c55e]' : 'text-[#6b7280]'}>
+                <div className={`w-2 h-2 rounded-full ${logConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#475569]'}`} />
+                <span className={logConnected ? 'text-[#22c55e]' : 'text-[#475569]'}>
                   {logConnected ? 'LIVE' : 'OFFLINE'}
                 </span>
               </div>
@@ -608,20 +608,20 @@ export function DashboardPage() {
 
             <div ref={logContainerRef} className="bg-[#0a0c12] p-3 h-32 overflow-y-auto font-mono text-xs space-y-0.5">
               {logEntries.length === 0 ? (
-                <div className="text-[#4b5563]">Esperando eventos del ciclo...</div>
+                <div className="text-[#334155]">Esperando eventos del ciclo...</div>
               ) : (
                 logEntries.map((entry, i) => (
                   <div key={i} className="flex gap-2">
-                    <span className="text-[#4b5563] shrink-0">
+                    <span className="text-[#334155] shrink-0">
                       {new Date(entry.timestamp).toLocaleTimeString('es-ES')}
                     </span>
                     <span className={`shrink-0 ${
                       entry.level === 'SUCCESS' ? 'text-[#22c55e]' :
                       entry.level === 'WARN' ? 'text-[#f59e0b]' :
                       entry.level === 'ERROR' ? 'text-[#ff3b3b]' :
-                      'text-[#00d4ff]'
+                      'text-[#8B5CF6]'
                     }`}>{entry.level}</span>
-                    <span className="text-[#6b7280] shrink-0">[{entry.module}]</span>
+                    <span className="text-[#475569] shrink-0">[{entry.module}]</span>
                     <span className="text-[#d1d5db]">{entry.message}</span>
                   </div>
                 ))
@@ -642,7 +642,7 @@ export function DashboardPage() {
               }}
               className={`px-6 py-2.5 font-semibold rounded-lg transition-colors flex items-center gap-2 ${
                 isPausedManually
-                  ? 'bg-[#f59e0b] text-[#0f1117] hover:bg-[#d97706]'
+                  ? 'bg-[#f59e0b] text-[#0A0C10] hover:bg-[#d97706]'
                   : 'bg-[#f59e0b] hover:bg-[#d97706] text-white'
               }`}
             >
@@ -650,7 +650,7 @@ export function DashboardPage() {
               {isPausedManually ? 'Pausado' : 'Pause'}
             </button>
 
-            <button className="px-6 py-2.5 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 text-[#00d4ff] border border-[#00d4ff]/30 font-semibold rounded-lg transition-colors flex items-center gap-2">
+            <button className="px-6 py-2.5 bg-[#8B5CF6]/10 hover:bg-[#8B5CF6]/20 text-[#8B5CF6] border border-[#8B5CF6]/30 font-semibold rounded-lg transition-colors flex items-center gap-2">
               <Zap className="w-4 h-4" />
               Emergency Scan
             </button>
@@ -682,16 +682,16 @@ export function DashboardPage() {
       {/* Immediate cycle modal */}
       {immOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-2xl w-full max-w-2xl
+          <div className="bg-[#111318] border border-[#1C2030] rounded-2xl w-full max-w-2xl
                           mx-4 shadow-2xl flex flex-col max-h-[80vh]">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2530]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1C2030]">
               <div className="flex items-center gap-3">
                 <Zap className="w-5 h-5 text-[#a78bfa]"/>
                 <div>
                   <h3 className="text-sm font-bold text-white">Ciclo Inmediato — Todos los activos</h3>
-                  <p className="text-xs text-[#6b7280]">M1 → M2 → M3 → M8 → M4</p>
+                  <p className="text-xs text-[#475569]">M1 → M2 → M3 → M8 → M4</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -699,14 +699,14 @@ export function DashboardPage() {
                   <span key={phase} className={`text-xs font-mono px-2 py-0.5 rounded border ${
                     immPhase === phase
                       ? 'bg-[#a78bfa]/20 border-[#a78bfa]/40 text-[#a78bfa] animate-pulse'
-                      : 'bg-[#1e2530] border-[#374151] text-[#4b5563]'
+                      : 'bg-[#1C2030] border-[#374151] text-[#334155]'
                   }`}>
                     {phase.toUpperCase()}
                   </span>
                 ))}
                 {!immRunning && (
                   <button onClick={() => setImmOpen(false)}
-                    className="text-[#6b7280] hover:text-white text-lg">×</button>
+                    className="text-[#475569] hover:text-white text-lg">×</button>
                 )}
               </div>
             </div>
@@ -730,7 +730,7 @@ export function DashboardPage() {
 
             {/* Log */}
             <div ref={immLogRef}
-                 className="flex-1 overflow-y-auto bg-[#0f1117] p-4 font-mono text-xs
+                 className="flex-1 overflow-y-auto bg-[#0A0C10] p-4 font-mono text-xs
                             space-y-0.5 min-h-[300px]">
               {immLogs.length === 0 && <p className="text-[#374151]">Iniciando ciclo...</p>}
               {immLogs.map((l, i) => (
@@ -740,7 +740,7 @@ export function DashboardPage() {
                     l.level === 'success' ? 'text-[#22c55e]' :
                     l.level === 'error'   ? 'text-[#ff3b3b]' :
                     l.level === 'warn'    ? 'text-[#f59e0b]' :
-                    'text-[#9ca3af]'
+                    'text-[#64748B]'
                   }>{l.msg}</span>
                 </div>
               ))}
@@ -754,19 +754,19 @@ export function DashboardPage() {
 
             {/* Footer */}
             {immPhase === 'done' && (
-              <div className="px-5 py-4 border-t border-[#1e2530] space-y-3">
+              <div className="px-5 py-4 border-t border-[#1C2030] space-y-3">
                 {immApprovals.length > 0 && (
                   <div className="flex items-center gap-4">
                     <div className="flex flex-col items-center gap-2">
                       <img src={`data:image/png;base64,${immApprovals[0].qr_code_base64}`}
-                           alt="QR TOTP" className="w-48 h-48 rounded-lg border border-[#1e2530]"/>
-                      <p className="text-[10px] text-[#6b7280]">Escanea con Google Authenticator</p>
+                           alt="QR TOTP" className="w-48 h-48 rounded-lg border border-[#1C2030]"/>
+                      <p className="text-[10px] text-[#475569]">Escanea con Google Authenticator</p>
                     </div>
                     <div>
                       <p className="text-xs font-bold text-white">
                         Aprobación maestra #{immApprovals[0].approval_id}
                       </p>
-                      <p className="text-[10px] font-mono text-[#00d4ff] mt-0.5">
+                      <p className="text-[10px] font-mono text-[#8B5CF6] mt-0.5">
                         {immApprovals[0].asset_ip}
                       </p>
                       <p className="text-[10px] text-[#f59e0b] font-mono mt-0.5">PIN: 1234</p>
@@ -828,7 +828,7 @@ export function DashboardPage() {
               </div>
             )}
             {immPhase === 'error' && (
-              <div className="px-5 py-3 border-t border-[#1e2530] flex items-center gap-3">
+              <div className="px-5 py-3 border-t border-[#1C2030] flex items-center gap-3">
                 <AlertTriangle className="w-4 h-4 text-[#ff3b3b]"/>
                 <span className="text-xs text-[#ff3b3b]">Ciclo fallido — revisa los logs</span>
                 <button onClick={() => { setImmLogs([]); setImmErrors([]); setImmPhase('idle'); handleImmediateCycle(); }}
@@ -847,12 +847,12 @@ export function DashboardPage() {
       <Dialog.Root open={showKillSwitchModal} onOpenChange={setShowKillSwitchModal}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#1a1d27] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl shadow-[#ff3b3b]/10">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#111318] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl shadow-[#ff3b3b]/10">
             <Dialog.Title className="text-xl font-semibold text-[#ff3b3b] mb-3 flex items-center gap-2">
               <Shield className="w-5 h-5" />
               ⚠ Activar Kill Switch
             </Dialog.Title>
-            <Dialog.Description className="text-sm text-[#9ca3af] mb-6 leading-relaxed">
+            <Dialog.Description className="text-sm text-[#64748B] mb-6 leading-relaxed">
               Esta acción detiene completamente el ciclo semanal. No se reanudará automáticamente.
               Requiere reactivación manual por el Responsable de Sistemas.
             </Dialog.Description>
@@ -866,7 +866,7 @@ export function DashboardPage() {
                   type="text"
                   value={killSwitchTotp}
                   onChange={(e) => setKillSwitchTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-4 py-2.5 text-white placeholder:text-[#6b7280] focus:outline-none focus:border-[#ff3b3b] focus:ring-1 focus:ring-[#ff3b3b] transition-colors font-mono tracking-widest text-center text-lg"
+                  className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-4 py-2.5 text-white placeholder:text-[#475569] focus:outline-none focus:border-[#ff3b3b] focus:ring-1 focus:ring-[#ff3b3b] transition-colors font-mono tracking-widest text-center text-lg"
                   placeholder="000000"
                   maxLength={6}
                 />
@@ -881,7 +881,7 @@ export function DashboardPage() {
               </button>
 
               <Dialog.Close asChild>
-                <button className="w-full bg-transparent border border-[#1e2530] hover:bg-[#1e2530] text-[#9ca3af] hover:text-white font-semibold py-2.5 rounded-lg transition-colors">
+                <button className="w-full bg-transparent border border-[#1C2030] hover:bg-[#1C2030] text-[#64748B] hover:text-white font-semibold py-2.5 rounded-lg transition-colors">
                   Cancelar
                 </button>
               </Dialog.Close>

@@ -39,24 +39,24 @@ function serviceBadgeClass(service: string) {
     return 'border-[#ff3b3b]/40 text-[#ff3b3b] bg-[#ff3b3b]/5';
   }
   if (['ssh', 'http', 'https', 'mysql'].some(k => s.includes(k))) {
-    return 'border-[#00d4ff]/40 text-[#00d4ff] bg-[#00d4ff]/5';
+    return 'border-[#8B5CF6]/40 text-[#8B5CF6] bg-[#8B5CF6]/5';
   }
-  return 'border-[#374151] text-[#6b7280] bg-[#374151]/10';
+  return 'border-[#374151] text-[#475569] bg-[#374151]/10';
 }
 
 function OsIcon({ os }: { os?: string | null }) {
-  if (!os) return <HelpCircle className="w-3.5 h-3.5 text-[#6b7280] shrink-0" />;
-  if (os.toLowerCase().includes('linux')) return <Terminal className="w-3.5 h-3.5 text-[#00d4ff] shrink-0" />;
-  if (os.toLowerCase().includes('windows')) return <Monitor className="w-3.5 h-3.5 text-[#00d4ff] shrink-0" />;
-  return <HelpCircle className="w-3.5 h-3.5 text-[#6b7280] shrink-0" />;
+  if (!os) return <HelpCircle className="w-3.5 h-3.5 text-[#475569] shrink-0" />;
+  if (os.toLowerCase().includes('linux')) return <Terminal className="w-3.5 h-3.5 text-[#8B5CF6] shrink-0" />;
+  if (os.toLowerCase().includes('windows')) return <Monitor className="w-3.5 h-3.5 text-[#8B5CF6] shrink-0" />;
+  return <HelpCircle className="w-3.5 h-3.5 text-[#475569] shrink-0" />;
 }
 
 const severityClass = (sev: string) => {
   switch (sev.toUpperCase()) {
     case 'CRITICAL': return 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10';
     case 'HIGH':     return 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10';
-    case 'MEDIUM':   return 'text-[#00d4ff] border-[#00d4ff]/30 bg-[#00d4ff]/10';
-    default:         return 'text-[#6b7280] border-[#374151] bg-[#374151]/20';
+    case 'MEDIUM':   return 'text-[#8B5CF6] border-[#8B5CF6]/30 bg-[#8B5CF6]/10';
+    default:         return 'text-[#475569] border-[#374151] bg-[#374151]/20';
   }
 };
 
@@ -65,8 +65,8 @@ const vulnSeverityClass = (sev: string) => {
     case 'CRITICAL': return 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10';
     case 'HIGH':     return 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10';
     case 'MEDIUM':   return 'text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10';
-    case 'LOW':      return 'text-[#00d4ff] border-[#00d4ff]/30 bg-[#00d4ff]/10';
-    default:         return 'text-[#6b7280] border-[#374151] bg-[#374151]/20';
+    case 'LOW':      return 'text-[#8B5CF6] border-[#8B5CF6]/30 bg-[#8B5CF6]/10';
+    default:         return 'text-[#475569] border-[#374151] bg-[#374151]/20';
   }
 };
 
@@ -240,8 +240,8 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
         </div>
       )}
 
-      <div className="flex items-start gap-3 bg-[#00d4ff]/5 border border-[#00d4ff]/20 rounded-lg px-4 py-3 text-sm text-[#9ca3af]">
-        <Info className="w-4 h-4 text-[#00d4ff] shrink-0 mt-0.5" />
+      <div className="flex items-start gap-3 bg-[#8B5CF6]/5 border border-[#8B5CF6]/20 rounded-lg px-4 py-3 text-sm text-[#64748B]">
+        <Info className="w-4 h-4 text-[#8B5CF6] shrink-0 mt-0.5" />
         <span>
           Hosts descubiertos por M2 (Nmap) no registrados en el inventario oficial.
           Clasificar como activo conocido o marcar como no autorizado.
@@ -249,21 +249,21 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
       </div>
 
       {/* Network Scan Button */}
-      <div className="flex items-center gap-3 bg-[#1a1d27] border border-[#1e2530] rounded-lg px-4 py-3">
-        <Wifi className="w-4 h-4 text-[#00d4ff] shrink-0" />
-        <span className="text-sm text-[#9ca3af] whitespace-nowrap">Rango CIDR:</span>
+      <div className="flex items-center gap-3 bg-[#111318] border border-[#1C2030] rounded-lg px-4 py-3">
+        <Wifi className="w-4 h-4 text-[#8B5CF6] shrink-0" />
+        <span className="text-sm text-[#64748B] whitespace-nowrap">Rango CIDR:</span>
         <input
           type="text"
           value={networkScanCidr}
           onChange={e => setNetworkScanCidr(e.target.value)}
           placeholder="10.202.15.0/24"
           disabled={networkScanState === 'scanning'}
-          className="flex-1 bg-[#111318] border border-[#1e2530] rounded-lg px-3 py-1.5 text-sm text-white font-mono placeholder-[#4b5563] focus:outline-none focus:border-[#00d4ff]/50 disabled:opacity-50"
+          className="flex-1 bg-[#111318] border border-[#1C2030] rounded-lg px-3 py-1.5 text-sm text-white font-mono placeholder-[#334155] focus:outline-none focus:border-[#8B5CF6]/50 disabled:opacity-50"
         />
         <button
           onClick={handleNetworkScan}
           disabled={networkScanState === 'scanning' || !networkScanCidr.trim()}
-          className="flex items-center gap-2 px-4 py-1.5 text-sm bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg hover:bg-[#00d4ff]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          className="flex items-center gap-2 px-4 py-1.5 text-sm bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] rounded-lg hover:bg-[#8B5CF6]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
         >
           {networkScanState === 'scanning' ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> Escaneando...</>
@@ -285,37 +285,37 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
       )}
 
       {discoveredIPs.length > 0 && (
-        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-[#111318] border-b border-[#1e2530]">
+        <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-[#111318] border-b border-[#1C2030]">
             <div className="flex items-center gap-2">
-              <Wifi className="w-4 h-4 text-[#00d4ff]" />
-              <span className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider">
+              <Wifi className="w-4 h-4 text-[#8B5CF6]" />
+              <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">
                 Hosts descubiertos — {discoveredIPs.length} en total
               </span>
             </div>
             <button
               onClick={() => setDiscoveredIPs([])}
-              className="text-xs text-[#6b7280] hover:text-white transition-colors"
+              className="text-xs text-[#475569] hover:text-white transition-colors"
             >
               Limpiar
             </button>
           </div>
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+            <thead className="text-xs text-[#475569] uppercase bg-[#111318] border-b border-[#1C2030]">
               <tr>
                 <th className="px-4 py-2.5 font-semibold">IP</th>
                 <th className="px-4 py-2.5 font-semibold">Estado</th>
                 <th className="px-4 py-2.5 font-semibold">Acción</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1e2530]">
+            <tbody className="divide-y divide-[#1C2030]">
               {discoveredIPs.map(({ ip, existing }) => (
-                <tr key={ip} className="hover:bg-[#1e2530]/40 transition-colors">
+                <tr key={ip} className="hover:bg-[#1C2030]/40 transition-colors">
                   <td className="px-4 py-3 font-mono text-white">{ip}</td>
                   <td className="px-4 py-3">
                     {existing ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs text-[#9ca3af]">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#6b7280]" />
+                      <span className="inline-flex items-center gap-1.5 text-xs text-[#64748B]">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#475569]" />
                         Ya registrado
                       </span>
                     ) : (
@@ -353,9 +353,9 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
         </div>
       )}
 
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+      <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
         <table className="w-full text-sm text-left">
-          <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+          <thead className="text-xs text-[#475569] uppercase bg-[#111318] border-b border-[#1C2030]">
             <tr>
               <th className="px-4 py-3 font-semibold w-6"></th>
               <th className="px-4 py-3 font-semibold">IP / Target</th>
@@ -367,17 +367,17 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
               <th className="px-4 py-3 font-semibold">Acciones</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#1e2530]">
+          <tbody className="divide-y divide-[#1C2030]">
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-6 py-8 text-center text-[#6b7280] font-mono">
+                <td colSpan={8} className="px-6 py-8 text-center text-[#475569] font-mono">
                   <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
                   Cargando datos M2...
                 </td>
               </tr>
             ) : snapshots.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-6 py-8 text-center text-[#6b7280] font-mono">
+                <td colSpan={8} className="px-6 py-8 text-center text-[#475569] font-mono">
                   No hay dispositivos descubiertos sin registrar.
                 </td>
               </tr>
@@ -392,13 +392,13 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                   <>
                     <tr
                       key={snap.snapshot_id}
-                      className="hover:bg-[#1e2530]/40 transition-colors cursor-pointer"
+                      className="hover:bg-[#1C2030]/40 transition-colors cursor-pointer"
                       onClick={(e) => {
                         if ((e.target as HTMLElement).closest('button')) return;
                         toggleRow(snap.snapshot_id);
                       }}
                     >
-                      <td className="px-4 py-4 text-[#6b7280]">
+                      <td className="px-4 py-4 text-[#475569]">
                         {isExpanded
                           ? <ChevronDown className="w-3.5 h-3.5" />
                           : <ChevronRight className="w-3.5 h-3.5" />}
@@ -406,13 +406,13 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
 
                       <td className="px-4 py-4">
                         <div className="text-white font-mono">{snap.target}</div>
-                        <div className="text-xs text-[#6b7280] mt-0.5">{snap.snapshot_id}</div>
+                        <div className="text-xs text-[#475569] mt-0.5">{snap.snapshot_id}</div>
                       </td>
 
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-1.5">
                           <OsIcon os={snap.os_family} />
-                          <span className={snap.os_family ? 'text-[#9ca3af] text-xs' : 'text-[#6b7280] text-xs'}>
+                          <span className={snap.os_family ? 'text-[#64748B] text-xs' : 'text-[#475569] text-xs'}>
                             {snap.os_family ?? 'Desconocido'}
                           </span>
                         </div>
@@ -420,11 +420,11 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
 
                       <td className="px-4 py-4">
                         {snap.ports_open ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#1e2530] text-white text-xs font-mono">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-[#1C2030] text-white text-xs font-mono">
                             {snap.ports_open}
                           </span>
                         ) : (
-                          <span className="text-[#6b7280] text-xs">—</span>
+                          <span className="text-[#475569] text-xs">—</span>
                         )}
                       </td>
 
@@ -439,12 +439,12 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                             </span>
                           ))}
                           {extraPorts > 0 && (
-                            <span className="text-[10px] text-[#6b7280] self-center">+{extraPorts} más</span>
+                            <span className="text-[10px] text-[#475569] self-center">+{extraPorts} más</span>
                           )}
                         </div>
                       </td>
 
-                      <td className="px-4 py-4 text-xs text-[#9ca3af] whitespace-nowrap">
+                      <td className="px-4 py-4 text-xs text-[#64748B] whitespace-nowrap">
                         {fmt.format(new Date(snap.created_at))}
                       </td>
 
@@ -452,23 +452,23 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                         {snap.status === 'completed' && (
                           <div className="flex items-center gap-1.5">
                             <div className="w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
-                            <span className="text-xs text-[#9ca3af]">Completado</span>
+                            <span className="text-xs text-[#64748B]">Completado</span>
                           </div>
                         )}
                         {snap.status === 'running' && (
                           <div className="flex items-center gap-1.5">
                             <div className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
-                            <span className="text-xs text-[#9ca3af]">Escaneando...</span>
+                            <span className="text-xs text-[#64748B]">Escaneando...</span>
                           </div>
                         )}
                         {snap.status === 'failed' && (
                           <div className="flex items-center gap-1.5">
                             <div className="w-1.5 h-1.5 rounded-full bg-[#ff3b3b]" />
-                            <span className="text-xs text-[#9ca3af]">Error</span>
+                            <span className="text-xs text-[#64748B]">Error</span>
                           </div>
                         )}
                         {!['completed', 'running', 'failed'].includes(snap.status) && (
-                          <span className="text-xs text-[#6b7280]">{snap.status}</span>
+                          <span className="text-xs text-[#475569]">{snap.status}</span>
                         )}
                       </td>
 
@@ -484,7 +484,7 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                           <button
                             onClick={() => handleRescan(snap)}
                             disabled={rs.status === 'scanning'}
-                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1C2030] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {rs.status === 'scanning'
                               ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -514,14 +514,14 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                     </tr>
 
                     {isExpanded && (
-                      <tr key={`${snap.snapshot_id}-expanded`} className="bg-[#0f1117]">
+                      <tr key={`${snap.snapshot_id}-expanded`} className="bg-[#0A0C10]">
                         <td colSpan={8} className="px-8 py-4">
                           {!snap.ports || snap.ports.length === 0 ? (
-                            <p className="text-xs text-[#6b7280] font-mono">Sin datos de puertos disponibles.</p>
+                            <p className="text-xs text-[#475569] font-mono">Sin datos de puertos disponibles.</p>
                           ) : (
                             <table className="w-full text-xs text-left">
                               <thead>
-                                <tr className="text-[#6b7280] uppercase">
+                                <tr className="text-[#475569] uppercase">
                                   <th className="pr-6 py-1 font-semibold">Puerto</th>
                                   <th className="pr-6 py-1 font-semibold">Protocolo</th>
                                   <th className="pr-6 py-1 font-semibold">Servicio</th>
@@ -529,21 +529,21 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                                   <th className="pr-6 py-1 font-semibold">Estado</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-[#1e2530]/50">
+                              <tbody className="divide-y divide-[#1C2030]/50">
                                 {snap.ports.map((p) => (
                                   <tr key={p.port}>
                                     <td className="pr-6 py-1.5 font-mono text-white">{p.port}</td>
-                                    <td className="pr-6 py-1.5 text-[#6b7280]">tcp</td>
+                                    <td className="pr-6 py-1.5 text-[#475569]">tcp</td>
                                     <td className="pr-6 py-1.5">
                                       <span className={`px-1.5 py-0.5 rounded border font-mono ${serviceBadgeClass(p.service)}`}>
                                         {p.service || '—'}
                                       </span>
                                     </td>
-                                    <td className="pr-6 py-1.5 text-[#9ca3af] font-mono">{p.version || '—'}</td>
+                                    <td className="pr-6 py-1.5 text-[#64748B] font-mono">{p.version || '—'}</td>
                                     <td className="pr-6 py-1.5">
                                       <div className="flex items-center gap-1.5">
-                                        <div className={`w-1.5 h-1.5 rounded-full ${p.state === 'open' ? 'bg-[#22c55e]' : 'bg-[#6b7280]'}`} />
-                                        <span className="text-[#9ca3af]">{p.state}</span>
+                                        <div className={`w-1.5 h-1.5 rounded-full ${p.state === 'open' ? 'bg-[#22c55e]' : 'bg-[#475569]'}`} />
+                                        <span className="text-[#64748B]">{p.state}</span>
                                       </div>
                                     </td>
                                   </tr>
@@ -563,30 +563,30 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
       </div>
 
       {alreadyRegistered.length > 0 && (
-        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+        <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
           <button
             onClick={() => setRegisteredExpanded(prev => !prev)}
-            className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-[#1e2530]/40 transition-colors"
+            className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-[#1C2030]/40 transition-colors"
           >
             {registeredExpanded
-              ? <ChevronDown className="w-3.5 h-3.5 text-[#6b7280]" />
-              : <ChevronRight className="w-3.5 h-3.5 text-[#6b7280]" />}
-            <span className="text-xs text-[#6b7280]">
+              ? <ChevronDown className="w-3.5 h-3.5 text-[#475569]" />
+              : <ChevronRight className="w-3.5 h-3.5 text-[#475569]" />}
+            <span className="text-xs text-[#475569]">
               IPs descubiertas ya en inventario ({alreadyRegistered.length})
             </span>
           </button>
           {registeredExpanded && (
-            <table className="w-full text-sm text-left border-t border-[#1e2530]">
-              <thead className="text-xs text-[#6b7280] uppercase bg-[#111318]">
+            <table className="w-full text-sm text-left border-t border-[#1C2030]">
+              <thead className="text-xs text-[#475569] uppercase bg-[#111318]">
                 <tr>
                   <th className="px-4 py-2 font-semibold">IP</th>
                   <th className="px-4 py-2 font-semibold">Estado</th>
                   <th className="px-4 py-2 font-semibold">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#1e2530]">
+              <tbody className="divide-y divide-[#1C2030]">
                 {alreadyRegistered.map(s => (
-                  <tr key={s.snapshot_id} className="hover:bg-[#1e2530]/40">
+                  <tr key={s.snapshot_id} className="hover:bg-[#1C2030]/40">
                     <td className="px-4 py-2.5 font-mono text-white text-xs">{s.target}</td>
                     <td className="px-4 py-2.5">
                       {s.isBlacklisted ? (
@@ -598,7 +598,7 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                           ACTIVO
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] border-[#374151] bg-[#374151]/10 text-[#6b7280]">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] border-[#374151] bg-[#374151]/10 text-[#475569]">
                           {s.registeredStatus ?? 'REGISTRADO'}
                         </span>
                       )}
@@ -606,7 +606,7 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                     <td className="px-4 py-2.5">
                       <button
                         onClick={() => onRegisterAsset(s.target)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1C2030] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white transition-colors"
                       >
                         <ExternalLink className="w-3 h-3" />
                         Ver en inventario
@@ -626,12 +626,12 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1d27] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#111318] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
             <Dialog.Title className="text-base font-semibold text-white mb-2 flex items-center gap-2">
               <ShieldX className="w-4 h-4 text-[#ff3b3b]" />
               Añadir a lista negra
             </Dialog.Title>
-            <Dialog.Description className="text-sm text-[#9ca3af] mb-4">
+            <Dialog.Description className="text-sm text-[#64748B] mb-4">
               La IP <span className="font-mono text-white">{blacklistTarget}</span> será registrada como BLOQUEADA en el inventario.
               Quedará registrada en los logs de auditoría (ENS op.exp.1).
               Esta acción indica que la IP es sospechosa o no autorizada en la red.
@@ -644,7 +644,7 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                 type="text"
                 value={blacklistMotivo}
                 onChange={e => { setBlacklistMotivo(e.target.value); setBlacklistError(null); }}
-                className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#ff3b3b] transition-colors"
+                className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#475569] focus:outline-none focus:border-[#ff3b3b] transition-colors"
                 placeholder="ej. IP desconocida escaneando la red"
               />
               {blacklistError && <p className="text-xs text-[#ff3b3b] mt-1">{blacklistError}</p>}
@@ -659,7 +659,7 @@ function ShadowITTab({ onRegisterAsset, registeredAssets }: ShadowITTabProps) {
                 Bloquear IP
               </button>
               <Dialog.Close asChild>
-                <button className="px-5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
+                <button className="px-5 bg-[#374151] hover:bg-[#334155] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
                   Cancelar
                 </button>
               </Dialog.Close>
@@ -699,7 +699,7 @@ function VaultTab() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-lg px-4 py-3 text-sm text-[#9ca3af]">
+      <div className="flex items-start gap-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-lg px-4 py-3 text-sm text-[#64748B]">
         <Lock className="w-4 h-4 text-[#f59e0b] shrink-0 mt-0.5" />
         <span>
           Las credenciales están cifradas en HashiCorp Vault (AES-256).
@@ -708,9 +708,9 @@ function VaultTab() {
         </span>
       </div>
 
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+      <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
         <table className="w-full text-sm text-left">
-          <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+          <thead className="text-xs text-[#475569] uppercase bg-[#111318] border-b border-[#1C2030]">
             <tr>
               <th className="px-6 py-3 font-semibold">Activo</th>
               <th className="px-6 py-3 font-semibold">Tipo de credencial</th>
@@ -719,18 +719,18 @@ function VaultTab() {
               <th className="px-6 py-3 font-semibold">Acciones</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#1e2530]">
+          <tbody className="divide-y divide-[#1C2030]">
             {VAULT_ENTRIES.map((entry) => (
               <>
-                <tr key={entry.ref} className="hover:bg-[#1e2530]/40 transition-colors">
+                <tr key={entry.ref} className="hover:bg-[#1C2030]/40 transition-colors">
                   <td className="px-6 py-4 font-mono text-white">{entry.asset}</td>
-                  <td className="px-6 py-4 text-[#9ca3af]">{entry.type}</td>
+                  <td className="px-6 py-4 text-[#64748B]">{entry.type}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-[#6b7280]">{entry.ref}</span>
+                      <span className="font-mono text-xs text-[#475569]">{entry.ref}</span>
                       <button
                         onClick={() => handleCopy(entry.ref)}
-                        className="text-[#6b7280] hover:text-[#00d4ff] transition-colors shrink-0"
+                        className="text-[#475569] hover:text-[#8B5CF6] transition-colors shrink-0"
                         title="Copiar referencia"
                       >
                         {copiedRef === entry.ref
@@ -739,14 +739,14 @@ function VaultTab() {
                       </button>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-xs text-[#9ca3af]">
+                  <td className="px-6 py-4 text-xs text-[#64748B]">
                     {fmt.format(new Date(entry.rotated))}
                   </td>
                   <td className="px-6 py-4">
                     {maskedRow === entry.ref ? (
                       <button
                         onClick={() => setMaskedRow(null)}
-                        className="px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                        className="px-2.5 py-1 text-xs bg-[#1C2030] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white transition-colors"
                       >
                         Cerrar
                       </button>
@@ -762,16 +762,16 @@ function VaultTab() {
                   </td>
                 </tr>
                 {maskedRow === entry.ref && (
-                  <tr key={`${entry.ref}-masked`} className="bg-[#0f1117]">
+                  <tr key={`${entry.ref}-masked`} className="bg-[#0A0C10]">
                     <td colSpan={5} className="px-6 py-3">
                       <div className="flex items-center gap-3">
                         <input
                           type="password"
                           readOnly
                           value="••••••••••••••••"
-                          className="font-mono text-sm bg-[#1a1d27] border border-[#1e2530] rounded px-3 py-1.5 text-[#9ca3af] w-48 focus:outline-none"
+                          className="font-mono text-sm bg-[#111318] border border-[#1C2030] rounded px-3 py-1.5 text-[#64748B] w-48 focus:outline-none"
                         />
-                        <span className="text-xs text-[#6b7280]">Valor enmascarado — solo referencia visible</span>
+                        <span className="text-xs text-[#475569]">Valor enmascarado — solo referencia visible</span>
                       </div>
                     </td>
                   </tr>
@@ -780,7 +780,7 @@ function VaultTab() {
             ))}
           </tbody>
         </table>
-        <div className="px-6 py-2.5 border-t border-[#1e2530] text-xs text-[#6b7280]">
+        <div className="px-6 py-2.5 border-t border-[#1C2030] text-xs text-[#475569]">
           Vault path: http://localhost:8200 · Política: scanops-readonly · ENS mp.info.3
         </div>
       </div>
@@ -1122,7 +1122,7 @@ export function AssetManagerPage() {
   const dynamicFields = getFieldsForTipo(newAssetForm.tipo);
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -1133,20 +1133,20 @@ export function AssetManagerPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-semibold text-white mb-1">Asset Manager (M1)</h1>
-              <p className="text-[#9ca3af] text-sm">Inventario centralizado y gestión de credenciales (ENS op.exp.1)</p>
+              <p className="text-[#64748B] text-sm">Inventario centralizado y gestión de credenciales (ENS op.exp.1)</p>
             </div>
             <div className="flex gap-3">
               <button
                 onClick={refetch}
                 disabled={loading}
-                className="flex items-center gap-2 px-3 py-2 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-sm text-[#9ca3af] hover:text-white transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 bg-[#111318] border border-[#1C2030] rounded-lg text-sm text-[#64748B] hover:text-white transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 Actualizar
               </button>
               <button
                 onClick={() => handleOpenCreateDialog()}
-                className="flex items-center gap-2 px-4 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-semibold rounded-lg transition-colors text-sm"
+                className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] text-[#0A0C10] font-semibold rounded-lg transition-colors text-sm"
               >
                 <Plus className="w-4 h-4" />
                 Nuevo Activo
@@ -1163,8 +1163,8 @@ export function AssetManagerPage() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="bg-[#1a1d27] border border-[#1e2530] h-10 justify-start rounded-lg p-1">
-              <TabsTrigger value="cmdb" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff]">
+            <TabsList className="bg-[#111318] border border-[#1C2030] h-10 justify-start rounded-lg p-1">
+              <TabsTrigger value="cmdb" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#8B5CF6]/10 data-[state=active]:text-[#8B5CF6]">
                 <Server className="w-3.5 h-3.5" /> Inventario Oficial
               </TabsTrigger>
               <TabsTrigger value="shadow" className="flex items-center gap-2 text-xs data-[state=active]:bg-[#f59e0b]/10 data-[state=active]:text-[#f59e0b]">
@@ -1177,9 +1177,9 @@ export function AssetManagerPage() {
 
             {/* TAB 1: Inventario Oficial */}
             <TabsContent value="cmdb" className="mt-4 space-y-3">
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+              <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+                  <thead className="text-xs text-[#475569] uppercase bg-[#111318] border-b border-[#1C2030]">
                     <tr>
                       <th className="px-6 py-3 font-semibold">ID</th>
                       <th className="px-6 py-3 font-semibold">Activo</th>
@@ -1190,11 +1190,11 @@ export function AssetManagerPage() {
                       <th className="px-6 py-3 font-semibold">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#1e2530]">
+                  <tbody className="divide-y divide-[#1C2030]">
                     {loading ? (
-                      <tr><td colSpan={7} className="px-6 py-8 text-center text-[#6b7280] font-mono">Cargando inventario...</td></tr>
+                      <tr><td colSpan={7} className="px-6 py-8 text-center text-[#475569] font-mono">Cargando inventario...</td></tr>
                     ) : assets.length === 0 ? (
-                      <tr><td colSpan={7} className="px-6 py-8 text-center text-[#6b7280] font-mono">No hay activos registrados.</td></tr>
+                      <tr><td colSpan={7} className="px-6 py-8 text-center text-[#475569] font-mono">No hay activos registrados.</td></tr>
                     ) : (
                       assets.map((asset) => {
                         const rs = rowState[asset.id] ?? { status: 'idle' };
@@ -1202,40 +1202,40 @@ export function AssetManagerPage() {
                         return (
                           <tr
                             key={asset.id}
-                            className="hover:bg-[#1e2530]/50 transition-colors cursor-pointer"
+                            className="hover:bg-[#1C2030]/50 transition-colors cursor-pointer"
                             onClick={(e) => {
                               if ((e.target as HTMLElement).closest('button')) return;
                               handleOpenSheet(asset);
                             }}
                           >
-                            <td className="px-6 py-4 font-mono text-[#6b7280]">{asset.id}</td>
+                            <td className="px-6 py-4 font-mono text-[#475569]">{asset.id}</td>
                             <td className="px-6 py-4">
                               <div className="text-white font-mono">{asset.ip}</div>
-                              <div className="text-xs text-[#9ca3af] mt-0.5">{asset.hostname || 'Sin hostname'}</div>
+                              <div className="text-xs text-[#64748B] mt-0.5">{asset.hostname || 'Sin hostname'}</div>
                               {asset.nombre
-                                ? <span className="text-xs text-[#9ca3af]">{asset.nombre}</span>
+                                ? <span className="text-xs text-[#64748B]">{asset.nombre}</span>
                                 : null}
                             </td>
                             <td className="px-6 py-4">
                               <Badge variant="outline" className={`border ${
                                 asset.criticidad === 'CRITICA' ? 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10' :
                                 asset.criticidad === 'ALTA'    ? 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10' :
-                                'text-[#00d4ff] border-[#00d4ff]/30 bg-[#00d4ff]/10'
+                                'text-[#8B5CF6] border-[#8B5CF6]/30 bg-[#8B5CF6]/10'
                               }`}>
                                 {asset.criticidad}
                               </Badge>
                             </td>
-                            <td className="px-6 py-4 text-[#9ca3af]">{asset.tipo}</td>
+                            <td className="px-6 py-4 text-[#64748B]">{asset.tipo}</td>
                             <td className="px-6 py-4 text-white">{asset.responsable}</td>
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-1.5">
                                 <div className={`w-1.5 h-1.5 rounded-full ${
                                   asset.status === 'ACTIVO'         ? 'bg-[#22c55e]' :
                                   asset.status === 'MANTENIMIENTO'  ? 'bg-[#f59e0b]' :
-                                  asset.status === 'PENDIENTE_ALTA' ? 'bg-[#00d4ff]' :
-                                  'bg-[#6b7280]'
+                                  asset.status === 'PENDIENTE_ALTA' ? 'bg-[#8B5CF6]' :
+                                  'bg-[#475569]'
                                 }`} />
-                                <span className="text-xs text-[#9ca3af]">{asset.status}</span>
+                                <span className="text-xs text-[#64748B]">{asset.status}</span>
                               </div>
                             </td>
                             <td className="px-6 py-4">
@@ -1248,8 +1248,8 @@ export function AssetManagerPage() {
                                       onClick={(e) => { e.stopPropagation(); setRowTool(prev => ({ ...prev, [asset.id]: tool })); }}
                                       className={`px-2 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
                                         activeTool === tool
-                                          ? 'border-[#00d4ff]/50 text-[#00d4ff] bg-[#00d4ff]/10'
-                                          : 'border-[#1e2530] text-[#6b7280] bg-[#1a1d27] hover:border-[#374151] hover:text-[#9ca3af]'
+                                          ? 'border-[#8B5CF6]/50 text-[#8B5CF6] bg-[#8B5CF6]/10'
+                                          : 'border-[#1C2030] text-[#475569] bg-[#111318] hover:border-[#374151] hover:text-[#64748B]'
                                       }`}
                                     >
                                       {tool}
@@ -1259,7 +1259,7 @@ export function AssetManagerPage() {
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleScan(asset, activeTool); }}
                                     disabled={rs.status === 'scanning'}
-                                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg hover:bg-[#00d4ff]/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] rounded-lg hover:bg-[#8B5CF6]/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                   >
                                     {rs.status === 'scanning'
                                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1269,14 +1269,14 @@ export function AssetManagerPage() {
                                   {/* View button */}
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleOpenSheet(asset); }}
-                                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1e2530]/50 border border-[#1e2530] text-[#9ca3af] rounded-lg hover:bg-[#1e2530] hover:text-white transition-colors"
+                                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1C2030]/50 border border-[#1C2030] text-[#64748B] rounded-lg hover:bg-[#1C2030] hover:text-white transition-colors"
                                   >
                                     <Eye className="w-3.5 h-3.5" />
                                     Ver
                                   </button>
                                 </div>
                                 {rs.status === 'scanning' && rs.msg && (
-                                  <div className="text-xs text-[#00d4ff] font-mono truncate max-w-[240px] animate-pulse">{rs.msg}</div>
+                                  <div className="text-xs text-[#8B5CF6] font-mono truncate max-w-[240px] animate-pulse">{rs.msg}</div>
                                 )}
                                 {rs.status === 'done' && rs.msg && (
                                   <div className="text-xs text-[#22c55e] font-mono truncate max-w-[240px]">{rs.msg}</div>
@@ -1310,19 +1310,19 @@ export function AssetManagerPage() {
 
       {/* ── Sheet: Asset Detail ── */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="bg-[#1a1d27] border-l border-[#1e2530] text-white w-[600px] sm:max-w-[600px] overflow-y-auto">
-          <SheetHeader className="pb-4 border-b border-[#1e2530]">
+        <SheetContent className="bg-[#111318] border-l border-[#1C2030] text-white w-[600px] sm:max-w-[600px] overflow-y-auto">
+          <SheetHeader className="pb-4 border-b border-[#1C2030]">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <SheetTitle className="text-white font-mono text-lg">
                   {sheetAsset?.ip ?? '—'}
                 </SheetTitle>
-                <p className="text-xs text-[#9ca3af]">{sheetAsset?.hostname || 'Sin hostname'}</p>
+                <p className="text-xs text-[#64748B]">{sheetAsset?.hostname || 'Sin hostname'}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => sheetAsset && navigate(`/assets/${sheetAsset.id}`)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white hover:bg-[#2a3040] transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#1C2030] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white hover:bg-[#2a3040] transition-colors"
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
                   Vista completa
@@ -1356,11 +1356,11 @@ export function AssetManagerPage() {
               {/* ── Sección 1: Información del activo ── */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider">Información del activo</span>
+                  <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Información del activo</span>
                   {!editingAsset ? (
                     <button
                       onClick={() => setEditingAsset(true)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                      className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#1C2030] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white transition-colors"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       Editar
@@ -1390,7 +1390,7 @@ export function AssetManagerPage() {
                             notas: (sheetAsset as any).notas ?? '',
                           });
                         }}
-                        className="px-2.5 py-1 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                        className="px-2.5 py-1 text-xs bg-[#1C2030] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white transition-colors"
                       >
                         Cancelar
                       </button>
@@ -1401,21 +1401,21 @@ export function AssetManagerPage() {
                 <div className="grid grid-cols-2 gap-3">
                   {/* IP — always readonly */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5 flex items-center gap-1.5">
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5 flex items-center gap-1.5">
                       IP
-                      <span className="text-[10px] text-[#6b7280] bg-[#0f1117] border border-[#1e2530] px-1.5 py-0.5 rounded font-mono normal-case tracking-normal">Inmutable</span>
+                      <span className="text-[10px] text-[#475569] bg-[#0A0C10] border border-[#1C2030] px-1.5 py-0.5 rounded font-mono normal-case tracking-normal">Inmutable</span>
                     </div>
                     <div className="text-white font-mono text-xs">{sheetAsset.ip}</div>
                   </div>
 
                   {/* Hostname */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Hostname</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">Hostname</div>
                     {editingAsset ? (
                       <input
                         value={editForm.hostname}
                         onChange={e => setEditForm(p => ({ ...p, hostname: e.target.value }))}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors font-mono"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#8B5CF6] transition-colors font-mono"
                         placeholder="servidor-01.local"
                       />
                     ) : (
@@ -1425,12 +1425,12 @@ export function AssetManagerPage() {
 
                   {/* Nombre */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Nombre personalizado</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">Nombre personalizado</div>
                     {editingAsset ? (
                       <input
                         value={editForm.nombre}
                         onChange={e => setEditForm(p => ({ ...p, nombre: e.target.value }))}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#8B5CF6] transition-colors"
                         placeholder="ej. Servidor Principal BBDD"
                       />
                     ) : (
@@ -1440,12 +1440,12 @@ export function AssetManagerPage() {
 
                   {/* Tipo */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Tipo</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">Tipo</div>
                     {editingAsset ? (
                       <select
                         value={editForm.tipo}
                         onChange={e => setEditForm(p => ({ ...p, tipo: e.target.value }))}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#8B5CF6] transition-colors"
                       >
                         <option value="SERVER">SERVER</option>
                         <option value="ENDPOINT">ENDPOINT</option>
@@ -1461,12 +1461,12 @@ export function AssetManagerPage() {
 
                   {/* Criticidad */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Criticidad</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">Criticidad</div>
                     {editingAsset ? (
                       <select
                         value={editForm.criticidad}
                         onChange={e => setEditForm(p => ({ ...p, criticidad: e.target.value }))}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#8B5CF6] transition-colors"
                       >
                         <option value="BAJA">BAJA</option>
                         <option value="MEDIA">MEDIA</option>
@@ -1482,12 +1482,12 @@ export function AssetManagerPage() {
 
                   {/* Responsable */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Responsable</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">Responsable</div>
                     {editingAsset ? (
                       <input
                         value={editForm.responsable}
                         onChange={e => setEditForm(p => ({ ...p, responsable: e.target.value }))}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#8B5CF6] transition-colors"
                         placeholder="admin@empresa.es"
                       />
                     ) : (
@@ -1497,12 +1497,12 @@ export function AssetManagerPage() {
 
                   {/* Estado */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Estado</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">Estado</div>
                     {editingAsset ? (
                       <select
                         value={editForm.status}
                         onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#8B5CF6] transition-colors"
                       >
                         <option value="ACTIVO">ACTIVO</option>
                         <option value="BAJA">BAJA</option>
@@ -1514,51 +1514,51 @@ export function AssetManagerPage() {
                         <div className={`w-1.5 h-1.5 rounded-full ${
                           sheetAsset.status === 'ACTIVO'         ? 'bg-[#22c55e]' :
                           sheetAsset.status === 'MANTENIMIENTO'  ? 'bg-[#f59e0b]' :
-                          sheetAsset.status === 'PENDIENTE_ALTA' ? 'bg-[#00d4ff]' :
-                          'bg-[#6b7280]'
+                          sheetAsset.status === 'PENDIENTE_ALTA' ? 'bg-[#8B5CF6]' :
+                          'bg-[#475569]'
                         }`} />
-                        <span className="text-xs text-[#9ca3af]">{sheetAsset.status}</span>
+                        <span className="text-xs text-[#64748B]">{sheetAsset.status}</span>
                       </div>
                     )}
                   </div>
 
                   {/* Notas — full width */}
                   <div className="col-span-2">
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">Notas</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">Notas</div>
                     {editingAsset ? (
                       <textarea
                         value={editForm.notas}
                         onChange={e => setEditForm(p => ({ ...p, notas: e.target.value }))}
                         rows={3}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#00d4ff] transition-colors resize-none"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white w-full focus:outline-none focus:border-[#8B5CF6] transition-colors resize-none"
                         placeholder="Observaciones adicionales..."
                       />
                     ) : (
-                      <div className="text-xs text-[#9ca3af]">{(sheetAsset as any).notas || '—'}</div>
+                      <div className="text-xs text-[#64748B]">{(sheetAsset as any).notas || '—'}</div>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* ── Sección 2: Resultados de escaneo ── */}
-              <div className="border-t border-[#1e2530] pt-4 space-y-3">
+              <div className="border-t border-[#1C2030] pt-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider">Resultados de escaneo</span>
+                  <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Resultados de escaneo</span>
                   {sheetVulns.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-[#1e2530] text-xs text-[#9ca3af] font-mono">{sheetVulns.length}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-[#1C2030] text-xs text-[#64748B] font-mono">{sheetVulns.length}</span>
                   )}
                 </div>
 
                 {sheetVulnsLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-[#6b7280] py-2">
+                  <div className="flex items-center gap-2 text-xs text-[#475569] py-2">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cargando resultados...
                   </div>
                 ) : sheetVulns.length === 0 ? (
-                  <p className="text-xs text-[#6b7280] py-2">Sin resultados de escaneo. Lanza un escaneo desde el inventario.</p>
+                  <p className="text-xs text-[#475569] py-2">Sin resultados de escaneo. Lanza un escaneo desde el inventario.</p>
                 ) : (
                   <div className="space-y-2">
                     {sheetVulns.slice(0, 10).map((v) => (
-                      <div key={v.id} className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-3 space-y-1.5">
+                      <div key={v.id} className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-3 space-y-1.5">
                         <div className="flex items-start gap-2 justify-between">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded border font-semibold ${vulnSeverityClass(v.severity)}`}>
@@ -1566,15 +1566,15 @@ export function AssetManagerPage() {
                             </span>
                             <span className="text-xs text-white truncate">{v.title}</span>
                           </div>
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[#1e2530] text-[#6b7280] font-mono">
+                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[#1C2030] text-[#475569] font-mono">
                             {v.tool_source}
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
                           {v.cve_id && (
-                            <span className="text-[10px] font-mono text-[#00d4ff]">{v.cve_id}</span>
+                            <span className="text-[10px] font-mono text-[#8B5CF6]">{v.cve_id}</span>
                           )}
-                          <span className="text-[10px] text-[#6b7280]">{sheetAsset.ip}</span>
+                          <span className="text-[10px] text-[#475569]">{sheetAsset.ip}</span>
                         </div>
                       </div>
                     ))}
@@ -1584,7 +1584,7 @@ export function AssetManagerPage() {
                 <button
                   onClick={handleFullScan}
                   disabled={fullScanState.status === 'scanning'}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] hover:text-white rounded-lg text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full justify-center"
+                  className="flex items-center gap-2 px-4 py-2 bg-[#1C2030] border border-[#1C2030] text-[#64748B] hover:text-white rounded-lg text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed w-full justify-center"
                 >
                   {fullScanState.status === 'scanning'
                     ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -1600,8 +1600,8 @@ export function AssetManagerPage() {
               </div>
 
               {/* ── Sección 3: Metadatos ENS ── */}
-              <div className="border-t border-[#1e2530] pt-4 space-y-3">
-                <span className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider">Trazabilidad ENS Alto</span>
+              <div className="border-t border-[#1C2030] pt-4 space-y-3">
+                <span className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Trazabilidad ENS Alto</span>
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   {([
                     ['ID interno', String(sheetAsset.id)],
@@ -1612,12 +1612,12 @@ export function AssetManagerPage() {
                     ['Rango de red', (sheetAsset as any).network_range ?? '—'],
                   ] as [string, string][]).map(([label, value]) => (
                     <div key={label}>
-                      <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">{label}</div>
+                      <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">{label}</div>
                       <div className="text-white font-mono">{value}</div>
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-[#6b7280]">
+                <p className="text-[10px] text-[#475569]">
                   Registro auditado bajo ENS op.exp.1 · RD 311/2022
                 </p>
               </div>
@@ -1631,12 +1631,12 @@ export function AssetManagerPage() {
       <Dialog.Root open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1d27] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#111318] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
             <Dialog.Title className="text-base font-semibold text-white mb-2 flex items-center gap-2">
               <Trash2 className="w-4 h-4 text-[#ff3b3b]" />
               Confirmar eliminación
             </Dialog.Title>
-            <Dialog.Description className="text-sm text-[#9ca3af] mb-5">
+            <Dialog.Description className="text-sm text-[#64748B] mb-5">
               Esta acción eliminará el activo{' '}
               <span className="font-mono text-white">{sheetAsset?.ip}</span>{' '}
               del inventario. La operación quedará registrada en los logs de auditoría (ENS op.exp.1).
@@ -1653,7 +1653,7 @@ export function AssetManagerPage() {
                 Eliminar activo
               </button>
               <Dialog.Close asChild>
-                <button className="px-5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
+                <button className="px-5 bg-[#374151] hover:bg-[#334155] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
                   Cancelar
                 </button>
               </Dialog.Close>
@@ -1669,13 +1669,13 @@ export function AssetManagerPage() {
       >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#1a1d27] border border-[#1e2530] rounded-lg shadow-2xl z-50">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#111318] border border-[#1C2030] rounded-lg shadow-2xl z-50">
             <div className="p-6 overflow-y-auto max-h-[80vh]">
               <Dialog.Title className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
-                <Plus className="w-4 h-4 text-[#00d4ff]" />
+                <Plus className="w-4 h-4 text-[#8B5CF6]" />
                 Nuevo Activo
               </Dialog.Title>
-              <Dialog.Description className="text-sm text-[#9ca3af] mb-5">
+              <Dialog.Description className="text-sm text-[#64748B] mb-5">
                 Registrar un nuevo activo en el inventario (ENS op.exp.1)
               </Dialog.Description>
 
@@ -1689,7 +1689,7 @@ export function AssetManagerPage() {
                     type="text"
                     value={newAssetForm.ip}
                     onChange={e => { setNewAssetForm(p => ({ ...p, ip: e.target.value })); setNewAssetErrors(p => ({ ...p, ip: undefined })); }}
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors font-mono"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#475569] focus:outline-none focus:border-[#8B5CF6] transition-colors font-mono"
                     placeholder="192.168.1.1"
                   />
                   {newAssetErrors.ip && (
@@ -1704,7 +1704,7 @@ export function AssetManagerPage() {
                     type="text"
                     value={newAssetForm.hostname}
                     onChange={e => setNewAssetForm(p => ({ ...p, hostname: e.target.value }))}
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors font-mono"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#475569] focus:outline-none focus:border-[#8B5CF6] transition-colors font-mono"
                     placeholder="servidor-01.local"
                   />
                 </div>
@@ -1716,7 +1716,7 @@ export function AssetManagerPage() {
                     type="text"
                     value={newAssetForm.nombre}
                     onChange={e => setNewAssetForm(p => ({ ...p, nombre: e.target.value }))}
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#475569] focus:outline-none focus:border-[#8B5CF6] transition-colors"
                     placeholder="ej. Servidor Principal BBDD"
                   />
                 </div>
@@ -1737,7 +1737,7 @@ export function AssetManagerPage() {
                           fabricante: '', usuario_asignado: '',
                         }));
                       }}
-                      className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00d4ff] transition-colors"
+                      className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#8B5CF6] transition-colors"
                     >
                       <option value="SERVER">SERVER</option>
                       <option value="ENDPOINT">ENDPOINT</option>
@@ -1752,7 +1752,7 @@ export function AssetManagerPage() {
                     <select
                       value={newAssetForm.criticidad}
                       onChange={e => setNewAssetForm(p => ({ ...p, criticidad: e.target.value }))}
-                      className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00d4ff] transition-colors"
+                      className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#8B5CF6] transition-colors"
                     >
                       <option value="BAJA">BAJA</option>
                       <option value="MEDIA">MEDIA</option>
@@ -1771,7 +1771,7 @@ export function AssetManagerPage() {
                     type="text"
                     value={newAssetForm.responsable}
                     onChange={e => { setNewAssetForm(p => ({ ...p, responsable: e.target.value })); setNewAssetErrors(p => ({ ...p, responsable: undefined })); }}
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#475569] focus:outline-none focus:border-[#8B5CF6] transition-colors"
                     placeholder="admin@empresa.es"
                   />
                   {newAssetErrors.responsable && (
@@ -1781,8 +1781,8 @@ export function AssetManagerPage() {
 
                 {/* Dynamic fields */}
                 {dynamicFields.length > 0 && (
-                  <div className="border-t border-[#1e2530] pt-3">
-                    <p className="text-xs text-[#6b7280] mb-3">Detalles específicos — {newAssetForm.tipo}</p>
+                  <div className="border-t border-[#1C2030] pt-3">
+                    <p className="text-xs text-[#475569] mb-3">Detalles específicos — {newAssetForm.tipo}</p>
                     <div className="grid grid-cols-2 gap-3">
                       {dynamicFields.map((field) => (
                         <div key={field.key} className={field.fullWidth ? 'col-span-2' : ''}>
@@ -1791,7 +1791,7 @@ export function AssetManagerPage() {
                             <select
                               value={(newAssetForm as any)[field.key]}
                               onChange={e => setNewAssetForm(p => ({ ...p, [field.key]: e.target.value }))}
-                              className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00d4ff] transition-colors"
+                              className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#8B5CF6] transition-colors"
                             >
                               <option value="">— Seleccionar —</option>
                               {field.options?.map(o => (
@@ -1804,7 +1804,7 @@ export function AssetManagerPage() {
                               value={(newAssetForm as any)[field.key]}
                               onChange={e => setNewAssetForm(p => ({ ...p, [field.key]: e.target.value }))}
                               placeholder={field.placeholder}
-                              className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors"
+                              className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#475569] focus:outline-none focus:border-[#8B5CF6] transition-colors"
                             />
                           )}
                         </div>
@@ -1820,7 +1820,7 @@ export function AssetManagerPage() {
                     value={newAssetForm.notas}
                     onChange={e => setNewAssetForm(p => ({ ...p, notas: e.target.value }))}
                     rows={2}
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#6b7280] focus:outline-none focus:border-[#00d4ff] transition-colors resize-none"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-white text-sm placeholder:text-[#475569] focus:outline-none focus:border-[#8B5CF6] transition-colors resize-none"
                     placeholder="Observaciones adicionales..."
                   />
                 </div>
@@ -1836,13 +1836,13 @@ export function AssetManagerPage() {
                   <button
                     onClick={handleCreateAsset}
                     disabled={newAssetSubmitting}
-                    className="flex-1 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="flex-1 bg-[#8B5CF6] hover:bg-[#00b8e6] text-[#0A0C10] font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {newAssetSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                     Crear Activo
                   </button>
                   <Dialog.Close asChild>
-                    <button className="px-6 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold py-2.5 rounded-lg transition-colors">
+                    <button className="px-6 bg-[#374151] hover:bg-[#334155] text-white font-semibold py-2.5 rounded-lg transition-colors">
                       Cancelar
                     </button>
                   </Dialog.Close>

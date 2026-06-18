@@ -124,19 +124,19 @@ const getSeverityBadge = (severity: unknown) => {
   switch (String(severity ?? '').toUpperCase()) {
     case 'CRITICAL': return 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30';
     case 'HIGH':     return 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30';
-    case 'MEDIUM':   return 'bg-[#00d4ff]/10 text-[#00d4ff] border-[#00d4ff]/30';
+    case 'MEDIUM':   return 'bg-[#8B5CF6]/10 text-[#8B5CF6] border-[#8B5CF6]/30';
     case 'LOW':      return 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30';
-    default:         return 'bg-[#6b7280]/10 text-[#6b7280] border-[#6b7280]/30';
+    default:         return 'bg-[#475569]/10 text-[#475569] border-[#475569]/30';
   }
 };
 
 const getSourceIcon = (source: string | undefined) => {
   switch (source) {
-    case 'Suricata (NIDS)':   return <Activity className="w-4 h-4 text-[#00d4ff]" />;
+    case 'Suricata (NIDS)':   return <Activity className="w-4 h-4 text-[#8B5CF6]" />;
     case 'Wazuh (HIDS)':      return <Lock className="w-4 h-4 text-[#22c55e]" />;
     case 'Cowrie (Honeypot)': return <Flame className="w-4 h-4 text-[#ff3b3b]" />;
     case 'M4-Pipeline':       return <ShieldAlert className="w-4 h-4 text-[#a78bfa]" />;
-    default:                  return <Server className="w-4 h-4 text-[#9ca3af]" />;
+    default:                  return <Server className="w-4 h-4 text-[#64748B]" />;
   }
 };
 
@@ -148,11 +148,11 @@ function AlertDateTime({ ts }: { ts: string }) {
     return (
       <div className="whitespace-nowrap">
         <div className="font-mono text-xs text-white font-semibold">{time}</div>
-        <div className="font-mono text-[10px] text-[#6b7280]">{date}</div>
+        <div className="font-mono text-[10px] text-[#475569]">{date}</div>
       </div>
     );
   } catch {
-    return <span className="font-mono text-[10px] text-[#9ca3af]">{ts}</span>;
+    return <span className="font-mono text-[10px] text-[#64748B]">{ts}</span>;
   }
 }
 
@@ -469,7 +469,7 @@ export function AlertsPage() {
   });
 
   const SEVERITY_COLOR: Record<string, string> = {
-    CRITICAL: '#ff3b3b', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#3b82f6', INFO: '#6b7280',
+    CRITICAL: '#ff3b3b', HIGH: '#f97316', MEDIUM: '#f59e0b', LOW: '#3b82f6', INFO: '#475569',
   };
   const SOURCE_COLOR: Record<string, string> = {
     'web_log': '#a855f7', 'syslog': '#06b6d4', 'auth_log': '#22c55e',
@@ -492,7 +492,7 @@ export function AlertsPage() {
     s === 'running' ? 'ACTIVO' : s === 'stopped' ? 'DETENIDO' : 'DESCONOCIDO';
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -516,9 +516,9 @@ export function AlertsPage() {
                   )}
                 </h1>
                 <div className="flex items-center gap-3">
-                  <p className="text-[#9ca3af] text-sm">Correlación de eventos Wazuh, Suricata y Honeypots (ENS op.mon.1)</p>
+                  <p className="text-[#64748B] text-sm">Correlación de eventos Wazuh, Suricata y Honeypots (ENS op.mon.1)</p>
                   {lastUpdated && (
-                    <span className="text-xs text-[#6b7280] font-mono">Actualizado: {lastUpdated}</span>
+                    <span className="text-xs text-[#475569] font-mono">Actualizado: {lastUpdated}</span>
                   )}
                 </div>
               </div>
@@ -528,8 +528,8 @@ export function AlertsPage() {
               onClick={() => setIsLive(!isLive)}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 border cursor-pointer ${
                 isLive
-                  ? 'bg-[#1a1d27] border-[#1e2530] text-[#6b7280] hover:text-white'
-                  : 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff] hover:bg-[#00d4ff]/20'
+                  ? 'bg-[#111318] border-[#1C2030] text-[#475569] hover:text-white'
+                  : 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/20'
               }`}
             >
               <Wifi className="w-4 h-4" />
@@ -540,10 +540,10 @@ export function AlertsPage() {
           {/* ─── KPIS TOP ─── */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 shrink-0">
             {/* Card 1 — Ataques Perimetrales */}
-            <div className="relative bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 flex items-center justify-between overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#00d4ff] to-transparent" />
+            <div className="relative bg-[#111318] border border-[#1C2030] rounded-xl p-4 flex items-center justify-between overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#8B5CF6] to-transparent" />
               <div>
-                <p className="text-[11px] text-[#6b7280] uppercase tracking-wider font-semibold mb-1.5">Ataques Perimetrales Bloqueados</p>
+                <p className="text-[11px] text-[#475569] uppercase tracking-wider font-semibold mb-1.5">Ataques Perimetrales Bloqueados</p>
                 <h3 className="text-3xl font-bold text-white tabular-nums leading-none">
                   {kpisLoading ? '—' : ((kpis?.suricata_blocked ?? 0) + pipelineEvents.length).toLocaleString()}
                 </h3>
@@ -552,16 +552,16 @@ export function AlertsPage() {
                   {kpis ? `Suricata IPS · ${lastUpdated}` : '+12% vs ayer (Suricata IPS)'}
                 </p>
               </div>
-              <div className="p-3.5 bg-[#00d4ff]/10 rounded-xl border border-[#00d4ff]/10 shrink-0">
-                <Activity className="w-5 h-5 text-[#00d4ff]" />
+              <div className="p-3.5 bg-[#8B5CF6]/10 rounded-xl border border-[#8B5CF6]/10 shrink-0">
+                <Activity className="w-5 h-5 text-[#8B5CF6]" />
               </div>
             </div>
 
             {/* Card 2 — Alertas Wazuh HIDS */}
-            <div className="relative bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 flex items-center justify-between overflow-hidden">
+            <div className="relative bg-[#111318] border border-[#1C2030] rounded-xl p-4 flex items-center justify-between overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#f59e0b] to-transparent" />
               <div>
-                <p className="text-[11px] text-[#6b7280] uppercase tracking-wider font-semibold mb-1.5">Alertas Wazuh HIDS (hoy)</p>
+                <p className="text-[11px] text-[#475569] uppercase tracking-wider font-semibold mb-1.5">Alertas Wazuh HIDS (hoy)</p>
                 <h3 className="text-3xl font-bold text-white tabular-nums leading-none">
                   {wazuhCount > 0 ? wazuhCount : (kpisLoading ? '—' : (kpis?.wazuh_auth_failures ?? 0))}
                 </h3>
@@ -576,10 +576,10 @@ export function AlertsPage() {
             </div>
 
             {/* Card 3 — Honeypot */}
-            <div className="relative bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 flex items-center justify-between overflow-hidden">
+            <div className="relative bg-[#111318] border border-[#1C2030] rounded-xl p-4 flex items-center justify-between overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#ff3b3b] to-transparent" />
               <div>
-                <p className="text-[11px] text-[#6b7280] uppercase tracking-wider font-semibold mb-1.5">Interacciones en Honeypot</p>
+                <p className="text-[11px] text-[#475569] uppercase tracking-wider font-semibold mb-1.5">Interacciones en Honeypot</p>
                 <h3
                   className="text-3xl font-bold tabular-nums leading-none"
                   style={{ color: kpis && kpis.cowrie_interactions > 0 ? '#ff3b3b' : 'white' }}
@@ -597,7 +597,7 @@ export function AlertsPage() {
             </div>
 
             {/* Card 4 — Estado SIEM */}
-            <div className="relative bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 flex items-center justify-between overflow-hidden">
+            <div className="relative bg-[#111318] border border-[#1C2030] rounded-xl p-4 flex items-center justify-between overflow-hidden">
               <div
                 className="absolute top-0 left-0 right-0 h-[2px]"
                 style={{
@@ -609,7 +609,7 @@ export function AlertsPage() {
                 }}
               />
               <div>
-                <p className="text-[11px] text-[#6b7280] uppercase tracking-wider font-semibold mb-1.5">Estado del Nodo SIEM</p>
+                <p className="text-[11px] text-[#475569] uppercase tracking-wider font-semibold mb-1.5">Estado del Nodo SIEM</p>
                 <h3
                   className="text-3xl font-bold tabular-nums leading-none"
                   style={{
@@ -668,18 +668,18 @@ export function AlertsPage() {
           )}
 
           {/* ─── TABS ─── */}
-          <div className="flex items-center gap-1 bg-[#1a1d27] border border-[#1e2530] rounded-xl p-1 shrink-0 w-fit">
+          <div className="flex items-center gap-1 bg-[#111318] border border-[#1C2030] rounded-xl p-1 shrink-0 w-fit">
             <button
               onClick={() => setActiveTab('alertas')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'alertas' ? 'bg-[#0f1117] text-white shadow-sm' : 'text-[#6b7280] hover:text-white'}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'alertas' ? 'bg-[#0A0C10] text-white shadow-sm' : 'text-[#475569] hover:text-white'}`}
             >
               <ShieldAlert className="w-3.5 h-3.5" />
               Alertas &amp; Honeypots
-              <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-[#1e2530] text-[#6b7280] font-mono tabular-nums">{filteredAlerts.length}</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[9px] bg-[#1C2030] text-[#475569] font-mono tabular-nums">{filteredAlerts.length}</span>
             </button>
             <button
               onClick={() => { setActiveTab('telemetria'); if (!telemetryLoaded && !telemetryLoading) fetchTelemetry(); }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'telemetria' ? 'bg-[#0f1117] text-white shadow-sm' : 'text-[#6b7280] hover:text-white'}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'telemetria' ? 'bg-[#0A0C10] text-white shadow-sm' : 'text-[#475569] hover:text-white'}`}
             >
               <Server className="w-3.5 h-3.5" />
               Telemetría Agentless
@@ -694,13 +694,13 @@ export function AlertsPage() {
           <div className="flex gap-6 flex-1 min-h-0">
 
             {/* ─── PANEL IZQUIERDO: EVENT FEED ─── */}
-            <div className="flex-[2] bg-[#1a1d27] border border-[#1e2530] rounded-xl flex flex-col overflow-hidden">
+            <div className="flex-[2] bg-[#111318] border border-[#1C2030] rounded-xl flex flex-col overflow-hidden">
               {/* Panel Header */}
-              <div className="px-4 pt-3.5 pb-3 flex items-center justify-between border-b border-[#1e2530]">
+              <div className="px-4 pt-3.5 pb-3 flex items-center justify-between border-b border-[#1C2030]">
                 <div className="flex items-center gap-2.5">
-                  <Activity className="w-4 h-4 text-[#00d4ff]" />
+                  <Activity className="w-4 h-4 text-[#8B5CF6]" />
                   <span className="text-sm font-semibold text-white">Eventos en Tiempo Real</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#0f1117] text-[#6b7280] border border-[#1e2530] tabular-nums">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#0A0C10] text-[#475569] border border-[#1C2030] tabular-nums">
                     {filteredAlerts.length}
                   </span>
                 </div>
@@ -720,28 +720,28 @@ export function AlertsPage() {
                 </div>
               </div>
               {/* Toolbar */}
-              <div className="p-4 border-b border-[#1e2530] flex flex-wrap items-center justify-between gap-4">
+              <div className="p-4 border-b border-[#1C2030] flex flex-wrap items-center justify-between gap-4">
                 <div className="relative w-full max-w-xs">
-                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-[#6b7280]" />
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-[#475569]" />
                   <input
                     type="text"
                     placeholder="Buscar IP o CVE..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff] transition-colors"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6] transition-colors"
                   />
                 </div>
 
-                <div className="flex items-center gap-2 bg-[#0f1117] p-1 rounded-lg border border-[#1e2530]">
-                  <Filter className="w-4 h-4 text-[#6b7280] ml-2 mr-1" />
+                <div className="flex items-center gap-2 bg-[#0A0C10] p-1 rounded-lg border border-[#1C2030]">
+                  <Filter className="w-4 h-4 text-[#475569] ml-2 mr-1" />
                   {['ALL', 'Suricata (NIDS)', 'Wazuh (HIDS)', 'Cowrie (Honeypot)', 'M4-Pipeline'].map((src) => (
                     <button
                       key={src}
                       onClick={() => setFilterSource(src)}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                         filterSource === src
-                          ? 'bg-[#1e2530] text-white'
-                          : 'text-[#6b7280] hover:text-white hover:bg-[#1a1d27]'
+                          ? 'bg-[#1C2030] text-white'
+                          : 'text-[#475569] hover:text-white hover:bg-[#111318]'
                       }`}
                     >
                       {src === 'ALL' ? 'Todos' : src === 'M4-Pipeline' ? 'Pipeline' : src.split(' ')[0]}
@@ -752,7 +752,7 @@ export function AlertsPage() {
 
               {/* Cabeceras de columna */}
               {filteredAlerts.length > 0 && (
-                <div className="px-4 py-2 grid grid-cols-[56px_1fr_120px] items-center gap-3 text-[9px] font-bold text-[#374151] uppercase tracking-widest bg-[#0d1117]/50 border-b border-[#1e2530]/50 select-none">
+                <div className="px-4 py-2 grid grid-cols-[56px_1fr_120px] items-center gap-3 text-[9px] font-bold text-[#374151] uppercase tracking-widest bg-[#0d1117]/50 border-b border-[#1C2030]/50 select-none">
                   <span>Hora</span>
                   <span>Mensaje</span>
                   <span className="text-right">Fuente / IPs</span>
@@ -761,7 +761,7 @@ export function AlertsPage() {
               {/* Lista de Eventos */}
               <div className="flex-1 overflow-auto custom-scrollbar p-2">
                 {filteredAlerts.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-[#6b7280]">
+                  <div className="flex flex-col items-center justify-center h-full text-[#475569]">
                     <Search className="w-12 h-12 mb-3 opacity-20" />
                     <p className="text-sm">No se encontraron eventos con esos filtros.</p>
                   </div>
@@ -773,7 +773,7 @@ export function AlertsPage() {
                       return (
                         <div
                           key={alertId}
-                          className="flex items-start gap-3 px-3 py-3 rounded-lg bg-[#0f1117]/50 hover:bg-[#1e2530]/60 border border-transparent hover:border-[#1e2530] transition-all"
+                          className="flex items-start gap-3 px-3 py-3 rounded-lg bg-[#0A0C10]/50 hover:bg-[#1C2030]/60 border border-transparent hover:border-[#1C2030] transition-all"
                           style={{
                             borderLeft: `2px solid ${
                               a.severity === 'CRITICAL' ? '#ff3b3b' :
@@ -790,7 +790,7 @@ export function AlertsPage() {
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getSeverityBadge(a.severity)}`}>
                                 {a.severity ?? 'UNKNOWN'}
                               </span>
-                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#1e2530] text-[#9ca3af] text-[10px] font-semibold">
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#1C2030] text-[#64748B] text-[10px] font-semibold">
                                 {getSourceIcon(a.source)}
                                 <span>{a.source?.split(' ')?.[0]}</span>
                               </span>
@@ -807,13 +807,13 @@ export function AlertsPage() {
                             <div className="flex items-center gap-4 mt-1.5">
                               {a.target_ip && (
                                 <div className="flex items-center gap-1 text-[11px]">
-                                  <span className="text-[#4b5563]">dst</span>
-                                  <span className="font-mono text-[#00d4ff]">{a.target_ip}</span>
+                                  <span className="text-[#334155]">dst</span>
+                                  <span className="font-mono text-[#8B5CF6]">{a.target_ip}</span>
                                 </div>
                               )}
                               {(a.attacker_ip ?? a.src_ip) && (
                                 <div className="flex items-center gap-1 text-[11px]">
-                                  <span className="text-[#4b5563]">src</span>
+                                  <span className="text-[#334155]">src</span>
                                   <span className="font-mono text-[#ff3b3b]">{a.attacker_ip ?? a.src_ip}</span>
                                 </div>
                               )}
@@ -831,7 +831,7 @@ export function AlertsPage() {
             <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto custom-scrollbar">
 
               {/* ── TÍTULO DEL PANEL ── */}
-              <div className="relative bg-[#1a1d27] border border-[#1e2530] rounded-xl px-5 py-3 flex items-center justify-between shrink-0 overflow-hidden">
+              <div className="relative bg-[#111318] border border-[#1C2030] rounded-xl px-5 py-3 flex items-center justify-between shrink-0 overflow-hidden">
                 <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#ff3b3b]/60 to-transparent" />
                 <div className="flex items-center gap-2.5">
                   <div className="w-7 h-7 rounded-lg bg-[#ff3b3b]/10 border border-[#ff3b3b]/15 flex items-center justify-center shrink-0">
@@ -839,30 +839,30 @@ export function AlertsPage() {
                   </div>
                   <div>
                     <span className="text-sm font-semibold text-white block leading-tight">Honeypot Intelligence</span>
-                    <span className="text-[10px] text-[#6b7280]">Detección de intrusos por engaño</span>
+                    <span className="text-[10px] text-[#475569]">Detección de intrusos por engaño</span>
                   </div>
                   <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 text-[#ff3b3b] font-mono uppercase tracking-wider ml-1">ENS op.exp.4</span>
                 </div>
                 {honeypotLoading && (
-                  <span className="text-[10px] text-[#4b5563] font-mono animate-pulse">cargando...</span>
+                  <span className="text-[10px] text-[#334155] font-mono animate-pulse">cargando...</span>
                 )}
               </div>
 
               {/* ── SECCIÓN 1: ESTADO DE CONTENEDORES ── */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 shrink-0">
-                <h4 className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-3 flex items-center gap-2">
+              <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4 shrink-0">
+                <h4 className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-3 flex items-center gap-2">
                   <Layers className="w-3.5 h-3.5" /> Estado de Contenedores
                 </h4>
                 <div className="space-y-2">
                   {/* Cowrie */}
-                  <div className="flex items-center justify-between p-3 bg-[#0f1117] rounded-lg border border-[#1e2530]">
+                  <div className="flex items-center justify-between p-3 bg-[#0A0C10] rounded-lg border border-[#1C2030]">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-[#ff3b3b]/10 flex items-center justify-center">
                         <Flame className="w-4 h-4 text-[#ff3b3b]" />
                       </div>
                       <div>
                         <div className="text-sm font-medium text-white">Cowrie SSH/Telnet</div>
-                        <div className="text-[10px] text-[#6b7280] font-mono">
+                        <div className="text-[10px] text-[#475569] font-mono">
                           {honeypotStatus?.cowrie?.ports?.length
                             ? `Puertos: ${honeypotStatus.cowrie.ports.join(', ')}`
                             : 'puertos: 2222, 2223'}
@@ -890,14 +890,14 @@ export function AlertsPage() {
                   </div>
 
                   {/* Beelzebub */}
-                  <div className="flex items-center justify-between p-3 bg-[#0f1117] rounded-lg border border-[#1e2530]">
+                  <div className="flex items-center justify-between p-3 bg-[#0A0C10] rounded-lg border border-[#1C2030]">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-[#a855f7]/10 flex items-center justify-center">
                         <Database className="w-4 h-4 text-[#a855f7]" />
                       </div>
                       <div>
                         <div className="text-sm font-medium text-white">Beelzebub HTTP/MySQL</div>
-                        <div className="text-[10px] text-[#6b7280] font-mono">
+                        <div className="text-[10px] text-[#475569] font-mono">
                           {honeypotStatus?.beelzebub?.ports?.length
                             ? `Puertos: ${honeypotStatus.beelzebub.ports.join(', ')}`
                             : 'puertos: 8880, 3306'}
@@ -926,10 +926,10 @@ export function AlertsPage() {
 
                   {/* Red de aislamiento */}
                   {honeypotStatus && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0f1117] rounded-lg border border-[#1e2530]">
-                      <Globe className="w-3 h-3 text-[#6b7280]" />
-                      <span className="text-[10px] text-[#6b7280] font-mono">
-                        Red aislada: <span className="text-[#9ca3af]">{honeypotStatus.isolation_network}</span>
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0A0C10] rounded-lg border border-[#1C2030]">
+                      <Globe className="w-3 h-3 text-[#475569]" />
+                      <span className="text-[10px] text-[#475569] font-mono">
+                        Red aislada: <span className="text-[#64748B]">{honeypotStatus.isolation_network}</span>
                       </span>
                     </div>
                   )}
@@ -937,15 +937,15 @@ export function AlertsPage() {
               </div>
 
               {/* ── SECCIÓN 2: SESIONES CAPTURADAS (TABS Cowrie / Beelzebub) ── */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl flex flex-col">
+              <div className="bg-[#111318] border border-[#1C2030] rounded-xl flex flex-col">
                 {/* Tab switcher */}
-                <div className="flex border-b border-[#1e2530]">
+                <div className="flex border-b border-[#1C2030]">
                   <button
                     onClick={() => { setHoneypotTab('cowrie'); setExpandedSession(null); }}
                     className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer rounded-tl-xl ${
                       honeypotTab === 'cowrie'
                         ? 'text-[#ff3b3b] border-b-2 border-[#ff3b3b] bg-[#ff3b3b]/5'
-                        : 'text-[#6b7280] hover:text-white'
+                        : 'text-[#475569] hover:text-white'
                     }`}
                   >
                     <Flame className="w-3.5 h-3.5" />
@@ -957,7 +957,7 @@ export function AlertsPage() {
                     className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer rounded-tr-xl ${
                       honeypotTab === 'beelzebub'
                         ? 'text-[#a855f7] border-b-2 border-[#a855f7] bg-[#a855f7]/5'
-                        : 'text-[#6b7280] hover:text-white'
+                        : 'text-[#475569] hover:text-white'
                     }`}
                   >
                     <Database className="w-3.5 h-3.5" />
@@ -969,7 +969,7 @@ export function AlertsPage() {
                 {/* Lista de eventos del tab activo */}
                 <div className="overflow-y-auto max-h-64 custom-scrollbar p-2 space-y-1">
                   {(honeypotTab === 'cowrie' ? cowrieEvents : beelzebubEvents).length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-[#6b7280]">
+                    <div className="flex flex-col items-center justify-center py-8 text-[#475569]">
                       <Bug className="w-8 h-8 mb-2 opacity-20" />
                       <p className="text-xs">
                         {honeypotLoading ? 'Cargando eventos...' : 'Sin eventos capturados'}
@@ -982,11 +982,11 @@ export function AlertsPage() {
                       const accentColor = honeypotTab === 'cowrie' ? '#ff3b3b' : '#a855f7';
 
                       return (
-                        <div key={idx} className="rounded-lg overflow-hidden border border-[#1e2530]">
+                        <div key={idx} className="rounded-lg overflow-hidden border border-[#1C2030]">
                           {/* Fila principal */}
                           <button
                             onClick={() => setExpandedSession(isExpanded ? null : idx)}
-                            className="w-full flex items-center gap-3 p-2.5 bg-[#0f1117] hover:bg-[#1e2530]/60 transition-colors cursor-pointer text-left"
+                            className="w-full flex items-center gap-3 p-2.5 bg-[#0A0C10] hover:bg-[#1C2030]/60 transition-colors cursor-pointer text-left"
                           >
                             <div
                               className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -994,21 +994,21 @@ export function AlertsPage() {
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-mono text-[#9ca3af]" style={{ color: accentColor }}>
+                                <span className="text-[10px] font-mono text-[#64748B]" style={{ color: accentColor }}>
                                   {ev.src_ip ?? '—'}
                                 </span>
-                                <span className="text-[10px] text-[#6b7280] truncate">{ev.event_type}</span>
+                                <span className="text-[10px] text-[#475569] truncate">{ev.event_type}</span>
                               </div>
                               {ev.detail && (
-                                <p className="text-[10px] text-[#6b7280] truncate mt-0.5">{ev.detail}</p>
+                                <p className="text-[10px] text-[#475569] truncate mt-0.5">{ev.detail}</p>
                               )}
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               {ev.timestamp && <AlertDateTime ts={ev.timestamp} />}
                               {commands.length > 1
                                 ? (isExpanded
-                                    ? <ChevronDown className="w-3 h-3 text-[#6b7280]" />
-                                    : <ChevronRight className="w-3 h-3 text-[#6b7280]" />)
+                                    ? <ChevronDown className="w-3 h-3 text-[#475569]" />
+                                    : <ChevronRight className="w-3 h-3 text-[#475569]" />)
                                 : null
                               }
                             </div>
@@ -1016,8 +1016,8 @@ export function AlertsPage() {
 
                           {/* Panel expandible — comandos ejecutados */}
                           {isExpanded && commands.length > 0 && (
-                            <div className="bg-[#0a0d14] border-t border-[#1e2530] p-2.5">
-                              <p className="text-[9px] text-[#6b7280] uppercase tracking-wider mb-1.5 font-semibold">Comandos ejecutados</p>
+                            <div className="bg-[#0a0d14] border-t border-[#1C2030] p-2.5">
+                              <p className="text-[9px] text-[#475569] uppercase tracking-wider mb-1.5 font-semibold">Comandos ejecutados</p>
                               <div className="space-y-1">
                                 {commands.map((cmd, ci) => (
                                   <div key={ci} className="flex items-start gap-2">
@@ -1036,12 +1036,12 @@ export function AlertsPage() {
               </div>
 
               {/* ── SECCIÓN 3: TIMELINE DE ATACANTES ── */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4">
-                <h4 className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-3 flex items-center gap-2">
+              <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4">
+                <h4 className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-3 flex items-center gap-2">
                   <Clock className="w-3.5 h-3.5" /> Timeline Atacantes (7d)
                 </h4>
                 {honeypotAttackers.length === 0 ? (
-                  <p className="text-xs text-[#6b7280] text-center py-4">
+                  <p className="text-xs text-[#475569] text-center py-4">
                     {honeypotLoading ? 'Cargando...' : 'Sin datos de atacantes'}
                   </p>
                 ) : (
@@ -1051,12 +1051,12 @@ export function AlertsPage() {
                       return (
                         <div key={idx}>
                           <div className="flex justify-between items-start mb-1">
-                            <span className="text-[11px] font-mono text-[#9ca3af]">{atk.ip}</span>
+                            <span className="text-[11px] font-mono text-[#64748B]">{atk.ip}</span>
                             <span className="text-[10px] font-bold" style={{ color: idx === 0 ? '#ff3b3b' : '#f59e0b' }}>
                               {atk.attempts} intentos
                             </span>
                           </div>
-                          <div className="w-full bg-[#0f1117] rounded-full h-1.5 mb-1">
+                          <div className="w-full bg-[#0A0C10] rounded-full h-1.5 mb-1">
                             <div
                               className="h-1.5 rounded-full transition-all"
                               style={{
@@ -1067,7 +1067,7 @@ export function AlertsPage() {
                               }}
                             />
                           </div>
-                          <div className="flex justify-between text-[9px] text-[#4b5563] font-mono">
+                          <div className="flex justify-between text-[9px] text-[#334155] font-mono">
                             <span>Primero: {fmtDate(atk.first_seen)}</span>
                             <span>Último: {fmtDate(atk.last_seen)}</span>
                           </div>
@@ -1084,15 +1084,15 @@ export function AlertsPage() {
 
           {activeTab === 'telemetria' && (
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-          <div className="bg-[#0d1117] border border-[#1e2530] rounded-xl overflow-hidden">
+          <div className="bg-[#0d1117] border border-[#1C2030] rounded-xl overflow-hidden">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2530]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1C2030]">
               <div className="flex items-center gap-3">
                 <Server className="w-5 h-5 text-[#a855f7]" />
                 <div>
                   <h2 className="text-white font-semibold text-sm">Telemetría Agentless de Activos</h2>
-                  <p className="text-[#6b7280] text-xs mt-0.5">
+                  <p className="text-[#475569] text-xs mt-0.5">
                     Recolección vía SSH — logs web, syslog, auth, audit, procesos · ENS op.exp.4 · op.mon.1
                   </p>
                 </div>
@@ -1110,7 +1110,7 @@ export function AlertsPage() {
             </div>
 
             {!telemetryLoaded && !telemetryLoading && (
-              <div className="flex flex-col items-center justify-center py-14 text-[#4b5563]">
+              <div className="flex flex-col items-center justify-center py-14 text-[#334155]">
                 <Server className="w-10 h-10 mb-3 opacity-30" />
                 <p className="text-sm">Pulsa "Iniciar Escaneo" para recolectar telemetría de todos los activos</p>
                 <p className="text-xs mt-1 text-[#374151]">Se conectará vía SSH y analizará logs web, syslog, procesos y conexiones</p>
@@ -1133,7 +1133,7 @@ export function AlertsPage() {
                     <div
                       key={h.asset_ip}
                       onClick={() => setExpandedHost(expandedHost === h.asset_ip ? null : h.asset_ip)}
-                      className="cursor-pointer rounded-lg border border-[#1e2530] bg-[#0f1117]/60 p-4
+                      className="cursor-pointer rounded-lg border border-[#1C2030] bg-[#0A0C10]/60 p-4
                         hover:border-[#a855f7]/30 transition-all"
                     >
                       <div className="flex items-center justify-between mb-2">
@@ -1141,7 +1141,7 @@ export function AlertsPage() {
                           <span className={`w-2 h-2 rounded-full ${h.reachable ? 'bg-[#22c55e]' : 'bg-[#ef4444]'}`} />
                           <span className="text-white text-xs font-semibold">{h.asset_name}</span>
                         </div>
-                        <span className="text-[10px] font-mono text-[#6b7280]">{h.asset_ip}</span>
+                        <span className="text-[10px] font-mono text-[#475569]">{h.asset_ip}</span>
                       </div>
                       {h.reachable ? (
                         <>
@@ -1162,10 +1162,10 @@ export function AlertsPage() {
                               </span>
                             )}
                             {h.total_events === 0 && (
-                              <span className="text-[10px] text-[#6b7280]">Sin eventos detectados</span>
+                              <span className="text-[10px] text-[#475569]">Sin eventos detectados</span>
                             )}
                           </div>
-                          <div className="flex gap-3 mt-2 text-[10px] text-[#6b7280]">
+                          <div className="flex gap-3 mt-2 text-[10px] text-[#475569]">
                             <span>{h.processes.length} procs</span>
                             <span>{h.connections.length} conex</span>
                             <span>{h.log_sources.join(', ') || '—'}</span>
@@ -1177,12 +1177,12 @@ export function AlertsPage() {
 
                       {/* Detalle expandido del host */}
                       {expandedHost === h.asset_ip && h.reachable && (
-                        <div className="mt-3 pt-3 border-t border-[#1e2530] space-y-2">
+                        <div className="mt-3 pt-3 border-t border-[#1C2030] space-y-2">
                           {h.last_logins.length > 0 && (
                             <div>
-                              <p className="text-[10px] text-[#6b7280] mb-1 uppercase tracking-wider">Últimos logins</p>
+                              <p className="text-[10px] text-[#475569] mb-1 uppercase tracking-wider">Últimos logins</p>
                               {h.last_logins.slice(0, 5).map((l, i) => (
-                                <p key={i} className="text-[10px] font-mono text-[#9ca3af] truncate">{l}</p>
+                                <p key={i} className="text-[10px] font-mono text-[#64748B] truncate">{l}</p>
                               ))}
                             </div>
                           )}
@@ -1203,13 +1203,13 @@ export function AlertsPage() {
                 {/* Filtros de eventos */}
                 {telemetryEvents.length > 0 && (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Search className="w-3.5 h-3.5 text-[#6b7280]" />
+                    <Search className="w-3.5 h-3.5 text-[#475569]" />
                     <input
                       value={telemetrySearch}
                       onChange={e => setTelemetrySearch(e.target.value)}
                       placeholder="Buscar IP, acción, activo…"
-                      className="bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1 text-xs text-white
-                        placeholder-[#4b5563] focus:outline-none focus:border-[#a855f7]/40 w-48"
+                      className="bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1 text-xs text-white
+                        placeholder-[#334155] focus:outline-none focus:border-[#a855f7]/40 w-48"
                     />
                     {(['ALL','CRITICAL','HIGH','MEDIUM','LOW'] as const).map(s => (
                       <button
@@ -1218,13 +1218,13 @@ export function AlertsPage() {
                         className={`px-3 py-1 rounded text-[10px] font-bold border transition-all ${
                           telemetryFilter === s
                             ? 'bg-[#a855f7]/20 text-[#a855f7] border-[#a855f7]/40'
-                            : 'bg-transparent text-[#6b7280] border-[#1e2530] hover:border-[#374151]'
+                            : 'bg-transparent text-[#475569] border-[#1C2030] hover:border-[#374151]'
                         }`}
                       >
                         {s}
                       </button>
                     ))}
-                    <span className="text-[10px] text-[#4b5563] ml-auto">
+                    <span className="text-[10px] text-[#334155] ml-auto">
                       {telemetryFiltered.length} / {telemetryEvents.length} eventos
                     </span>
                   </div>
@@ -1232,14 +1232,14 @@ export function AlertsPage() {
 
                 {/* Tabla de eventos */}
                 {telemetryFiltered.length === 0 ? (
-                  <div className="text-center py-8 text-[#4b5563] text-sm">
+                  <div className="text-center py-8 text-[#334155] text-sm">
                     {telemetryEvents.length === 0
                       ? '✅ Sin eventos de seguridad detectados en los activos'
                       : 'Sin resultados para el filtro aplicado'}
                   </div>
                 ) : (
                   <>
-                  <div className="flex items-center gap-3 px-3 py-2 text-[9px] font-bold text-[#374151] uppercase tracking-widest rounded-lg bg-[#0d1117]/70 border border-[#1e2530]/60 select-none">
+                  <div className="flex items-center gap-3 px-3 py-2 text-[9px] font-bold text-[#374151] uppercase tracking-widest rounded-lg bg-[#0d1117]/70 border border-[#1C2030]/60 select-none">
                     <span className="w-[68px] shrink-0">Hora</span>
                     <span className="w-[104px] shrink-0">Severidad / Tipo</span>
                     <span className="flex-1">Mensaje</span>
@@ -1249,8 +1249,8 @@ export function AlertsPage() {
                     {telemetryFiltered.slice(0, 100).map((ev, i) => (
                       <div
                         key={ev.alert_id || i}
-                        className="flex items-start gap-3 p-3 rounded-lg bg-[#0f1117]/50
-                          hover:bg-[#1e2530]/40 border border-transparent hover:border-[#1e2530] transition-all"
+                        className="flex items-start gap-3 p-3 rounded-lg bg-[#0A0C10]/50
+                          hover:bg-[#1C2030]/40 border border-transparent hover:border-[#1C2030] transition-all"
                       >
                         {/* Fecha/hora */}
                         <AlertDateTime ts={ev.timestamp} />
@@ -1260,9 +1260,9 @@ export function AlertsPage() {
                           <span
                             className="px-2 py-0.5 rounded text-[10px] font-bold border"
                             style={{
-                              color: SEVERITY_COLOR[ev.severity] || '#6b7280',
-                              borderColor: (SEVERITY_COLOR[ev.severity] || '#6b7280') + '40',
-                              backgroundColor: (SEVERITY_COLOR[ev.severity] || '#6b7280') + '12',
+                              color: SEVERITY_COLOR[ev.severity] || '#475569',
+                              borderColor: (SEVERITY_COLOR[ev.severity] || '#475569') + '40',
+                              backgroundColor: (SEVERITY_COLOR[ev.severity] || '#475569') + '12',
                             }}
                           >
                             {ev.severity}
@@ -1270,9 +1270,9 @@ export function AlertsPage() {
                           <span
                             className="px-2 py-0.5 rounded text-[10px] font-bold border"
                             style={{
-                              color: SOURCE_COLOR[ev.source] || '#6b7280',
-                              borderColor: (SOURCE_COLOR[ev.source] || '#6b7280') + '40',
-                              backgroundColor: (SOURCE_COLOR[ev.source] || '#6b7280') + '12',
+                              color: SOURCE_COLOR[ev.source] || '#475569',
+                              borderColor: (SOURCE_COLOR[ev.source] || '#475569') + '40',
+                              backgroundColor: (SOURCE_COLOR[ev.source] || '#475569') + '12',
                             }}
                           >
                             {SOURCE_LABEL[ev.source] || (ev.source ?? '').toUpperCase()}
@@ -1284,18 +1284,18 @@ export function AlertsPage() {
                           <div className="flex items-center gap-2 mb-0.5">
                             <span className="text-white text-xs font-medium truncate">{ev.message}</span>
                           </div>
-                          <div className="flex items-center gap-3 text-[10px] text-[#6b7280]">
+                          <div className="flex items-center gap-3 text-[10px] text-[#475569]">
                             <span className="font-mono text-[#a855f7]">{ev.agent_name}</span>
                             {ev.src_ip && <span>Origen: <span className="text-[#f97316] font-mono">{ev.src_ip}</span></span>}
                             {ev.action_type && <span className="font-mono">{ev.action_type}</span>}
                             {ev.mitre_technique && (
-                              <span className="px-1.5 py-0.5 rounded bg-[#1e2530] font-mono text-[#6b7280]">
+                              <span className="px-1.5 py-0.5 rounded bg-[#1C2030] font-mono text-[#475569]">
                                 {ev.mitre_technique}
                               </span>
                             )}
                           </div>
                           {ev.raw_log && ev.raw_log !== ev.message && (
-                            <p className="text-[10px] font-mono text-[#4b5563] truncate mt-0.5">{ev.raw_log}</p>
+                            <p className="text-[10px] font-mono text-[#334155] truncate mt-0.5">{ev.raw_log}</p>
                           )}
                         </div>
                       </div>

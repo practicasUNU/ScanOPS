@@ -42,7 +42,7 @@ const ROLE_LABELS: Record<string, string> = {
 const ROLE_COLORS: Record<string, string> = {
   system_manager:   'text-[#ff3b3b] bg-[#ff3b3b]/10 border-[#ff3b3b]/30',
   security_officer: 'text-[#f59e0b] bg-[#f59e0b]/10 border-[#f59e0b]/30',
-  auditor:          'text-[#00d4ff] bg-[#00d4ff]/10 border-[#00d4ff]/30',
+  auditor:          'text-[#8B5CF6] bg-[#8B5CF6]/10 border-[#8B5CF6]/30',
 };
 
 interface SettingTab {
@@ -492,8 +492,8 @@ export function SettingsPage() {
       label: 'Reconocimiento de Superficie',
       description: 'Enumeración de activos vivos, resolución DNS y fingerprinting de servicios mediante Nmap y herramientas auxiliares.',
       icon: ScanSearch,
-      accentColor: 'text-[#00d4ff]',
-      borderColor: 'border-[#00d4ff]/30',
+      accentColor: 'text-[#8B5CF6]',
+      borderColor: 'border-[#8B5CF6]/30',
     },
     {
       key: 'm3',
@@ -554,18 +554,18 @@ export function SettingsPage() {
     return (
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider">
+          <label className="text-xs font-medium text-[#475569] uppercase tracking-wider">
             {label}
           </label>
           <span className={`text-[10px] font-mono flex items-center gap-1 ${
             status === 'stored' ? 'text-[#22c55e]'
             : status === 'vault_unavailable' ? 'text-[#f59e0b]'
-            : 'text-[#6b7280]'
+            : 'text-[#475569]'
           }`}>
             {status === 'stored' && <><CheckCircle2 className="w-3 h-3" /> En Vault</>}
             {status === 'vault_unavailable' && <>⚠ Vault no disponible</>}
             {(!status || status === 'not_set' || status === 'error') && (
-              <span className="text-[#6b7280]">Vault path: {vaultPath}</span>
+              <span className="text-[#475569]">Vault path: {vaultPath}</span>
             )}
           </span>
         </div>
@@ -575,12 +575,12 @@ export function SettingsPage() {
             value={value}
             onChange={e => onChange(e.target.value)}
             placeholder={placeholder}
-            className="flex-1 bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] placeholder:text-[#374151]"
+            className="flex-1 bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6] placeholder:text-[#374151]"
           />
           <button
             onClick={onSave}
             disabled={saving || !value || value === '••••••••' || value === '***************************'}
-            className="px-3 py-2 bg-[#1e2530] border border-[#374151] text-white text-xs font-semibold rounded-lg hover:bg-[#252b3b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0"
+            className="px-3 py-2 bg-[#1C2030] border border-[#374151] text-white text-xs font-semibold rounded-lg hover:bg-[#252b3b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shrink-0"
           >
             {saving
               ? <><RefreshCw className="w-3 h-3 animate-spin" /> Guardando...</>
@@ -597,7 +597,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -607,7 +607,7 @@ export function SettingsPage() {
           {/* Cabecera */}
           <div>
             <h1 className="text-2xl font-semibold text-white mb-1">Configuración del Entorno</h1>
-            <p className="text-[#9ca3af] text-sm">Gestión centralizada de variables, integraciones y motores de ScanOps.</p>
+            <p className="text-[#64748B] text-sm">Gestión centralizada de variables, integraciones y motores de ScanOps.</p>
           </div>
 
           <div className="flex flex-1 gap-6 min-h-0">
@@ -624,14 +624,14 @@ export function SettingsPage() {
                       isActive
                         ? tab.id === 'users'
                           ? 'bg-[#7c3aed]/10 border border-[#7c3aed]/30 text-[#a78bfa]'
-                          : 'bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff]'
-                        : 'bg-transparent border border-transparent text-[#9ca3af] hover:bg-[#1a1d27] hover:border-[#1e2530] hover:text-white'
+                          : 'bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6]'
+                        : 'bg-transparent border border-transparent text-[#64748B] hover:bg-[#111318] hover:border-[#1C2030] hover:text-white'
                     }`}
                   >
-                    <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${isActive ? (tab.id === 'users' ? 'text-[#a78bfa]' : 'text-[#00d4ff]') : 'text-[#6b7280]'}`} />
+                    <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${isActive ? (tab.id === 'users' ? 'text-[#a78bfa]' : 'text-[#8B5CF6]') : 'text-[#475569]'}`} />
                     <div>
                       <div className={`text-sm font-semibold ${isActive ? 'text-white' : ''}`}>{tab.label}</div>
-                      <div className={`text-xs mt-0.5 ${isActive ? 'text-[#9ca3af]' : 'text-[#6b7280]'}`}>
+                      <div className={`text-xs mt-0.5 ${isActive ? 'text-[#64748B]' : 'text-[#475569]'}`}>
                         {tab.description}
                       </div>
                     </div>
@@ -641,102 +641,102 @@ export function SettingsPage() {
             </aside>
 
             {/* PANEL DERECHO */}
-            <div className="flex-1 bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6 overflow-y-auto custom-scrollbar space-y-6 relative">
+            <div className="flex-1 bg-[#111318] border border-[#1C2030] rounded-lg p-6 overflow-y-auto custom-scrollbar space-y-6 relative">
 
               {/* ─── PESTAÑA 1: IA Y RAZONAMIENTO ─── */}
               {activeTab === 'ia' && (
                 <div className="space-y-6 animate-fadeIn">
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <Cpu className="w-4 h-4 text-[#00d4ff]" />
+                      <Cpu className="w-4 h-4 text-[#8B5CF6]" />
                       <span>Motor de Inferencia Local (Ollama Client)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">URL Base de la API</label>
-                        <input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] transition-colors" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">URL Base de la API</label>
+                        <input type="text" value={ollamaUrl} onChange={(e) => setOllamaUrl(e.target.value)} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6] transition-colors" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Modelo Activo de Lenguaje</label>
-                        <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff] transition-colors">
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Modelo Activo de Lenguaje</label>
+                        <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6] transition-colors">
                           <option value="mistral:7b">mistral:7b (Predeterminado M8)</option>
                           <option value="llama3:8b">llama3:8b (Análisis Extendido)</option>
                           <option value="codellama:7b">codellama:7b (Análisis de Exploits)</option>
                         </select>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between pt-2 border-t border-[#1e2530]">
+                    <div className="flex items-center justify-between pt-2 border-t border-[#1C2030]">
                       <div className="flex items-center gap-2">
                         {connectionStatus === 'testing' && <span className="text-xs font-mono text-[#f59e0b] flex items-center gap-1"><RefreshCw className="w-3 h-3 animate-spin" /> Verificando sockets locales...</span>}
                         {connectionStatus === 'success' && <span className="text-xs font-mono text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Conexión establecida de forma segura (mp.info.3)</span>}
                         {connectionStatus === 'error' && <span className="text-xs font-mono text-[#ff3b3b] flex items-center gap-1"><XCircle className="w-3 h-3" /> Servidor Ollama inaccesible en el puerto designado</span>}
-                        {connectionStatus === 'idle' && <span className="text-xs text-[#6b7280] font-mono">Toda inferencia se ejecuta de forma aislada en local.</span>}
+                        {connectionStatus === 'idle' && <span className="text-xs text-[#475569] font-mono">Toda inferencia se ejecuta de forma aislada en local.</span>}
                       </div>
-                      <button onClick={handleTestOllamaConnection} disabled={connectionStatus === 'testing'} className="px-4 py-1.5 bg-[#1e2530] hover:bg-[#252b3b] border border-[#374151] text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50">Probar Conexión</button>
+                      <button onClick={handleTestOllamaConnection} disabled={connectionStatus === 'testing'} className="px-4 py-1.5 bg-[#1C2030] hover:bg-[#252b3b] border border-[#374151] text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50">Probar Conexión</button>
                     </div>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <Sliders className="w-4 h-4 text-[#00d4ff]" />
+                      <Sliders className="w-4 h-4 text-[#8B5CF6]" />
                       <span>Hiperparámetros de Inferencia de Seguridad</span>
                     </div>
                     <div className="space-y-4">
                       <div>
-                        <div className="flex justify-between text-xs font-medium text-[#6b7280] uppercase mb-1">
+                        <div className="flex justify-between text-xs font-medium text-[#475569] uppercase mb-1">
                           <span>Temperatura Global (`temperature`)</span>
                           <span className="font-mono text-white text-sm">{temperature}</span>
                         </div>
-                        <input type="range" min="0.0" max="1.0" step="0.05" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} className="w-full h-1 bg-[#0f1117] rounded-lg appearance-none cursor-pointer accent-[#00d4ff]" />
-                        <p className="text-[11px] text-[#6b7280] mt-1">Valores bajos (0.0 - 0.2) garantizan respuestas deterministas requeridas para el mapeo legal del ENS y la inyección SQL.</p>
+                        <input type="range" min="0.0" max="1.0" step="0.05" value={temperature} onChange={(e) => setTemperature(parseFloat(e.target.value))} className="w-full h-1 bg-[#0A0C10] rounded-lg appearance-none cursor-pointer accent-[#8B5CF6]" />
+                        <p className="text-[11px] text-[#475569] mt-1">Valores bajos (0.0 - 0.2) garantizan respuestas deterministas requeridas para el mapeo legal del ENS y la inyección SQL.</p>
                       </div>
                       <div>
-                        <div className="flex justify-between text-xs font-medium text-[#6b7280] uppercase mb-1">
+                        <div className="flex justify-between text-xs font-medium text-[#475569] uppercase mb-1">
                           <span>Muestreo de Núcleo (`top_p`)</span>
                           <span className="font-mono text-white text-sm">{topP}</span>
                         </div>
-                        <input type="range" min="0.0" max="1.0" step="0.05" value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))} className="w-full h-1 bg-[#0f1117] rounded-lg appearance-none cursor-pointer accent-[#00d4ff]" />
+                        <input type="range" min="0.0" max="1.0" step="0.05" value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))} className="w-full h-1 bg-[#0A0C10] rounded-lg appearance-none cursor-pointer accent-[#8B5CF6]" />
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <Database className="w-4 h-4 text-[#00d4ff]" />
+                      <Database className="w-4 h-4 text-[#8B5CF6]" />
                       <span>Motor RAG y Base de Conocimiento Jurídica</span>
                     </div>
-                    <div className="divide-y divide-[#1e2530] text-sm">
+                    <div className="divide-y divide-[#1C2030] text-sm">
                       <div className="flex items-center justify-between py-2.5">
-                        <div><div className="text-white font-medium text-xs font-mono">rd_311_2022.txt</div><div className="text-[11px] text-[#6b7280]">Texto completo indexado del Esquema Nacional de Seguridad.</div></div>
+                        <div><div className="text-white font-medium text-xs font-mono">rd_311_2022.txt</div><div className="text-[11px] text-[#475569]">Texto completo indexado del Esquema Nacional de Seguridad.</div></div>
                         <span className="px-2 py-0.5 rounded bg-[#22c55e]/10 text-[#22c55e] text-xs font-mono border border-[#22c55e]/20">Indexado</span>
                       </div>
                       <div className="flex items-center justify-between py-2.5">
-                        <div><div className="text-white font-medium text-xs font-mono">vulnerability_mapping.json</div><div className="text-[11px] text-[#6b7280]">Matriz de lookup rápido para patrones de RCE, SQLi y Auth Bypass.</div></div>
+                        <div><div className="text-white font-medium text-xs font-mono">vulnerability_mapping.json</div><div className="text-[11px] text-[#475569]">Matriz de lookup rápido para patrones de RCE, SQLi y Auth Bypass.</div></div>
                         <span className="px-2 py-0.5 rounded bg-[#22c55e]/10 text-[#22c55e] text-xs font-mono border border-[#22c55e]/20">Indexado</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                        <RefreshCw className="w-4 h-4 text-[#00d4ff]" />
+                        <RefreshCw className="w-4 h-4 text-[#8B5CF6]" />
                         <span>Procesador de Flujo Continuo (Streaming Processor)</span>
                       </div>
-                      <button onClick={() => setStreamingEnabled(!streamingEnabled)} className="text-[#9ca3af] hover:text-white transition-colors cursor-pointer">
-                        {streamingEnabled ? <ToggleRight className="w-8 h-8 text-[#22c55e]" /> : <ToggleLeft className="w-8 h-8 text-[#6b7280]" />}
+                      <button onClick={() => setStreamingEnabled(!streamingEnabled)} className="text-[#64748B] hover:text-white transition-colors cursor-pointer">
+                        {streamingEnabled ? <ToggleRight className="w-8 h-8 text-[#22c55e]" /> : <ToggleLeft className="w-8 h-8 text-[#475569]" />}
                       </button>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Tamaño del Batch de Hallazgos</label>
-                        <input type="number" value={batchSize} disabled={!streamingEnabled} onChange={(e) => setBatchSize(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] transition-colors disabled:opacity-30" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Tamaño del Batch de Hallazgos</label>
+                        <input type="number" value={batchSize} disabled={!streamingEnabled} onChange={(e) => setBatchSize(parseInt(e.target.value))} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6] transition-colors disabled:opacity-30" />
                       </div>
-                      <div className="text-xs text-[#6b7280] self-center pt-5">Determina cuántas vulnerabilidades emite el módulo M3 a Redis simultáneamente para el filtrado asíncrono de M8.</div>
+                      <div className="text-xs text-[#475569] self-center pt-5">Determina cuántas vulnerabilidades emite el módulo M3 a Redis simultáneamente para el filtrado asíncrono de M8.</div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1e2530]">
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1C2030]">
                     {saveAiStatus === 'saved' && <span className="text-xs text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Guardado</span>}
                     {saveAiStatus === 'error' && <span className="text-xs text-[#ff3b3b] flex items-center gap-1"><XCircle className="w-3 h-3" /> Error al guardar</span>}
                     <button
@@ -745,7 +745,7 @@ export function SettingsPage() {
                           streaming_enabled: streamingEnabled, batch_size: batchSize },
                         setSaveAiStatus)}
                       disabled={saveAiStatus === 'saving'}
-                      className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold rounded-lg text-sm transition-colors cursor-pointer"
+                      className="flex items-center gap-2 px-5 py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0A0C10] font-bold rounded-lg text-sm transition-colors cursor-pointer"
                     >
                       {saveAiStatus === 'saving'
                         ? <><RefreshCw className="w-4 h-4 animate-spin" /> Guardando...</>
@@ -759,18 +759,18 @@ export function SettingsPage() {
               {activeTab === 'integrations' && (
                 <div className="space-y-6 animate-fadeIn">
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                        <Server className="w-4 h-4 text-[#00d4ff]" />
+                        <Server className="w-4 h-4 text-[#8B5CF6]" />
                         <span>CMDB: Snipe-IT (Sincronización de Inventario)</span>
                       </div>
                       <span className="px-2 py-0.5 rounded bg-[#22c55e]/10 text-[#22c55e] text-xs font-mono border border-[#22c55e]/20">Activo (M1)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">URL Base (SNIPEIT_BASE_URL)</label>
-                        <input type="text" value={snipeUrl} onChange={(e) => setSnipeUrl(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">URL Base (SNIPEIT_BASE_URL)</label>
+                        <input type="text" value={snipeUrl} onChange={(e) => setSnipeUrl(e.target.value)} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
                       </div>
                       <div>
                         <VaultSecretField
@@ -786,17 +786,17 @@ export function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                        <ShieldAlert className="w-4 h-4 text-[#00d4ff]" />
+                        <ShieldAlert className="w-4 h-4 text-[#8B5CF6]" />
                         <span>Threat Intelligence: MISP</span>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">URL del Nodo MISP</label>
-                        <input type="text" value={mispUrl} onChange={(e) => setMispUrl(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">URL del Nodo MISP</label>
+                        <input type="text" value={mispUrl} onChange={(e) => setMispUrl(e.target.value)} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
                       </div>
                       <div>
                         <VaultSecretField
@@ -810,20 +810,20 @@ export function SettingsPage() {
                         />
                       </div>
                     </div>
-                    <p className="text-[11px] text-[#6b7280]">Permite enriquecer los hallazgos del M3 con IoCs recientes de la red de inteligencia.</p>
+                    <p className="text-[11px] text-[#475569]">Permite enriquecer los hallazgos del M3 con IoCs recientes de la red de inteligencia.</p>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4 opacity-75">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4 opacity-75">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
                         <FileKey className="w-4 h-4 text-[#f59e0b]" />
                         <span>Notificación a Autoridades: CCN-CERT LUCÍA</span>
                       </div>
                       <button onClick={() => setLuciaEnabled(!luciaEnabled)} className="cursor-pointer">
-                        {luciaEnabled ? <ToggleRight className="w-8 h-8 text-[#22c55e]" /> : <ToggleLeft className="w-8 h-8 text-[#6b7280]" />}
+                        {luciaEnabled ? <ToggleRight className="w-8 h-8 text-[#22c55e]" /> : <ToggleLeft className="w-8 h-8 text-[#475569]" />}
                       </button>
                     </div>
-                    <p className="text-xs text-[#9ca3af]">Integración para el reporte automatizado de incidentes críticos según RD 311/2022 (ENS Alto).</p>
+                    <p className="text-xs text-[#64748B]">Integración para el reporte automatizado de incidentes críticos según RD 311/2022 (ENS Alto).</p>
                     {luciaEnabled && (
                       <div className="p-3 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-lg text-[#f59e0b] text-xs mt-3">
                         ⚠ Requiere certificado digital P12 instalado en el contenedor del Orquestador.
@@ -836,20 +836,20 @@ export function SettingsPage() {
               {/* ─── PESTAÑA 3: ALERTAS Y NOTIFICACIONES ─── */}
               {activeTab === 'alerts' && (
                 <div className="space-y-6 animate-fadeIn">
-                  <div className="flex items-center justify-between bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5">
+                  <div className="flex items-center justify-between bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5">
                     <div>
                       <h3 className="text-white font-semibold text-sm">Motor de Notificaciones Global</h3>
-                      <p className="text-xs text-[#6b7280] mt-1">Habilita o silencia todas las alertas salientes. Útil durante mantenimientos programados.</p>
+                      <p className="text-xs text-[#475569] mt-1">Habilita o silencia todas las alertas salientes. Útil durante mantenimientos programados.</p>
                     </div>
                     <button onClick={() => setGlobalAlerts(!globalAlerts)} className="cursor-pointer">
-                      {globalAlerts ? <ToggleRight className="w-10 h-10 text-[#22c55e]" /> : <ToggleLeft className="w-10 h-10 text-[#6b7280]" />}
+                      {globalAlerts ? <ToggleRight className="w-10 h-10 text-[#22c55e]" /> : <ToggleLeft className="w-10 h-10 text-[#475569]" />}
                     </button>
                   </div>
 
                   <div className={`space-y-6 transition-opacity ${globalAlerts ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-                    <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                    <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                        <MessageSquare className="w-4 h-4 text-[#00d4ff]" />
+                        <MessageSquare className="w-4 h-4 text-[#8B5CF6]" />
                         <span>Webhook de Slack / Mattermost</span>
                       </div>
                       <div>
@@ -862,13 +862,13 @@ export function SettingsPage() {
                           vaultPath="scanops/config/slack"
                           onSave={() => handleSaveSecret('slack', '/orchestrator/secrets/slack', { webhook_url: slackUrl })}
                         />
-                        <p className="text-[11px] text-[#6b7280] mt-1.5">Las vulnerabilidades de severidad ALTA o CRÍTICA se enviarán a este canal automáticamente.</p>
+                        <p className="text-[11px] text-[#475569] mt-1.5">Las vulnerabilidades de severidad ALTA o CRÍTICA se enviarán a este canal automáticamente.</p>
                       </div>
                     </div>
 
-                    <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                    <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                        <Send className="w-4 h-4 text-[#00d4ff]" />
+                        <Send className="w-4 h-4 text-[#8B5CF6]" />
                         <span>Bot de Telegram</span>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -884,29 +884,29 @@ export function SettingsPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Chat ID (Destinatario)</label>
-                          <input type="text" value={tgChat} onChange={(e) => setTgChat(e.target.value)} placeholder="-1001234567890" className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] placeholder:text-[#374151]" />
+                          <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Chat ID (Destinatario)</label>
+                          <input type="text" value={tgChat} onChange={(e) => setTgChat(e.target.value)} placeholder="-1001234567890" className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6] placeholder:text-[#374151]" />
                         </div>
                       </div>
                     </div>
 
-                    <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                    <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                        <Mail className="w-4 h-4 text-[#00d4ff]" />
+                        <Mail className="w-4 h-4 text-[#8B5CF6]" />
                         <span>Servidor SMTP (Envío de Reportes M7)</span>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Servidor Host</label>
-                          <input type="text" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                          <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Servidor Host</label>
+                          <input type="text" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Puerto</label>
-                          <input type="number" value={smtpPort} onChange={(e) => setSmtpPort(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                          <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Puerto</label>
+                          <input type="number" value={smtpPort} onChange={(e) => setSmtpPort(parseInt(e.target.value))} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
                         </div>
                         <div className="md:col-span-1">
-                          <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Usuario</label>
-                          <input type="text" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                          <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Usuario</label>
+                          <input type="text" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
                         </div>
                         <div className="md:col-span-2">
                           <VaultSecretField
@@ -923,15 +923,15 @@ export function SettingsPage() {
                     </div>
 
                     <div className="flex items-center justify-end gap-3 pt-2">
-                      {testAlertStatus === 'testing' && <span className="text-xs font-mono text-[#00d4ff] flex items-center gap-1"><RefreshCw className="w-3 h-3 animate-spin" /> Procesando cola...</span>}
+                      {testAlertStatus === 'testing' && <span className="text-xs font-mono text-[#8B5CF6] flex items-center gap-1"><RefreshCw className="w-3 h-3 animate-spin" /> Procesando cola...</span>}
                       {testAlertStatus === 'success' && <span className="text-xs font-mono text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Prueba despachada</span>}
-                      <button onClick={handleTestAlerts} disabled={testAlertStatus === 'testing'} className="px-4 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-semibold rounded-lg transition-colors text-sm cursor-pointer disabled:opacity-50 flex items-center gap-2">
+                      <button onClick={handleTestAlerts} disabled={testAlertStatus === 'testing'} className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] text-[#0A0C10] font-semibold rounded-lg transition-colors text-sm cursor-pointer disabled:opacity-50 flex items-center gap-2">
                         <BellRing className="w-4 h-4" /> Disparar Prueba
                       </button>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1e2530]">
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1C2030]">
                     {saveAlertsStatus === 'saved' && <span className="text-xs text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Guardado</span>}
                     {saveAlertsStatus === 'error' && <span className="text-xs text-[#ff3b3b] flex items-center gap-1"><XCircle className="w-3 h-3" /> Error al guardar</span>}
                     <button
@@ -941,7 +941,7 @@ export function SettingsPage() {
                           smtp_host: smtpHost, smtp_port: smtpPort, smtp_user: smtpUser },
                         setSaveAlertsStatus)}
                       disabled={saveAlertsStatus === 'saving'}
-                      className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold rounded-lg text-sm transition-colors cursor-pointer"
+                      className="flex items-center gap-2 px-5 py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0A0C10] font-bold rounded-lg text-sm transition-colors cursor-pointer"
                     >
                       {saveAlertsStatus === 'saving'
                         ? <><RefreshCw className="w-4 h-4 animate-spin" /> Guardando...</>
@@ -955,52 +955,52 @@ export function SettingsPage() {
               {activeTab === 'scanners' && (
                 <div className="space-y-6 animate-fadeIn">
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <Activity className="w-4 h-4 text-[#00d4ff]" />
+                      <Activity className="w-4 h-4 text-[#8B5CF6]" />
                       <span>Motores de Reconocimiento y Escaneo (M2 & M3)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Timeout Global Nmap (Segundos)</label>
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Timeout Global Nmap (Segundos)</label>
                         <div className="relative">
-                          <Timer className="absolute left-3 top-2.5 w-4 h-4 text-[#6b7280]" />
-                          <input type="number" value={nmapTimeout} onChange={(e) => setNmapTimeout(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-9 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                          <Timer className="absolute left-3 top-2.5 w-4 h-4 text-[#475569]" />
+                          <input type="number" value={nmapTimeout} onChange={(e) => setNmapTimeout(parseInt(e.target.value))} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg pl-9 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Plantillas Personalizadas Nuclei</label>
-                        <input type="text" disabled value="/app/templates/nuclei_custom" className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-[#6b7280] font-mono opacity-50" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Plantillas Personalizadas Nuclei</label>
+                        <input type="text" disabled value="/app/templates/nuclei_custom" className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-[#475569] font-mono opacity-50" />
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
                       <Skull className="w-4 h-4 text-[#ff3b3b]" />
                       <span>Fuerza Bruta y Movimiento Lateral (Hydra / NetExec)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Reintentos Máximos (Hydra)</label>
-                        <input type="number" value={hydraRetries} onChange={(e) => setHydraRetries(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#ff3b3b]" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Reintentos Máximos (Hydra)</label>
+                        <input type="number" value={hydraRetries} onChange={(e) => setHydraRetries(parseInt(e.target.value))} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#ff3b3b]" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Hilos Concurrentes (NetExec)</label>
-                        <input type="number" value={nxcThreads} onChange={(e) => setNxcThreads(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#ff3b3b]" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Hilos Concurrentes (NetExec)</label>
+                        <input type="number" value={nxcThreads} onChange={(e) => setNxcThreads(parseInt(e.target.value))} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#ff3b3b]" />
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <TerminalSquare className="w-4 h-4 text-[#00d4ff]" />
+                      <TerminalSquare className="w-4 h-4 text-[#8B5CF6]" />
                       <span>Metasploit RPC Server (M4)</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Puerto RPC</label>
-                        <input type="number" value={msfPort} onChange={(e) => setMsfPort(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Puerto RPC</label>
+                        <input type="number" value={msfPort} onChange={(e) => setMsfPort(parseInt(e.target.value))} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
                       </div>
                       <div>
                         <VaultSecretField
@@ -1016,7 +1016,7 @@ export function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1e2530]">
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#1C2030]">
                     {saveScannersStatus === 'saved' && <span className="text-xs text-[#22c55e] flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Guardado</span>}
                     {saveScannersStatus === 'error' && <span className="text-xs text-[#ff3b3b] flex items-center gap-1"><XCircle className="w-3 h-3" /> Error al guardar</span>}
                     <button
@@ -1025,7 +1025,7 @@ export function SettingsPage() {
                           nxc_threads: nxcThreads, msf_rpc_port: msfPort },
                         setSaveScannersStatus)}
                       disabled={saveScannersStatus === 'saving'}
-                      className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold rounded-lg text-sm transition-colors cursor-pointer"
+                      className="flex items-center gap-2 px-5 py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0A0C10] font-bold rounded-lg text-sm transition-colors cursor-pointer"
                     >
                       {saveScannersStatus === 'saving'
                         ? <><RefreshCw className="w-4 h-4 animate-spin" /> Guardando...</>
@@ -1039,30 +1039,30 @@ export function SettingsPage() {
               {activeTab === 'security' && (
                 <div className="space-y-6 animate-fadeIn">
 
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                      <Lock className="w-4 h-4 text-[#00d4ff]" />
+                      <Lock className="w-4 h-4 text-[#8B5CF6]" />
                       <span>Control de Sesiones y Acceso Lógico (ENS op.acc)</span>
                     </div>
 
-                    <div className="flex items-center justify-between pt-4 border-b border-[#1e2530] pb-4">
+                    <div className="flex items-center justify-between pt-4 border-b border-[#1C2030] pb-4">
                       <div>
                         <div className="text-white text-sm font-medium">Autenticación MFA Obligatoria</div>
-                        <div className="text-xs text-[#6b7280] mt-1">Exigir TOTP en todos los inicios de sesión de administradores.</div>
+                        <div className="text-xs text-[#475569] mt-1">Exigir TOTP en todos los inicios de sesión de administradores.</div>
                       </div>
                       <button onClick={() => setMfaEnforced(!mfaEnforced)} className="cursor-pointer">
-                        {mfaEnforced ? <ToggleRight className="w-10 h-10 text-[#22c55e]" /> : <ToggleLeft className="w-10 h-10 text-[#6b7280]" />}
+                        {mfaEnforced ? <ToggleRight className="w-10 h-10 text-[#22c55e]" /> : <ToggleLeft className="w-10 h-10 text-[#475569]" />}
                       </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
                       <div>
-                        <label className="block text-xs font-medium text-[#6b7280] uppercase tracking-wider mb-2">Expiración de Sesión JWT (Minutos)</label>
-                        <input type="number" value={jwtExpire} onChange={(e) => setJwtExpire(parseInt(e.target.value))} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff]" />
-                        <p className="text-[11px] text-[#6b7280] mt-1.5">El valor por defecto es 480 minutos (8 horas de turno laboral).</p>
+                        <label className="block text-xs font-medium text-[#475569] uppercase tracking-wider mb-2">Expiración de Sesión JWT (Minutos)</label>
+                        <input type="number" value={jwtExpire} onChange={(e) => setJwtExpire(parseInt(e.target.value))} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6]" />
+                        <p className="text-[11px] text-[#475569] mt-1.5">El valor por defecto es 480 minutos (8 horas de turno laboral).</p>
                       </div>
                       <div className="flex flex-col justify-end">
-                        <button className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-[#1e2530] hover:bg-[#252b3b] border border-[#374151] text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer">
+                        <button className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-[#1C2030] hover:bg-[#252b3b] border border-[#374151] text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer">
                           <KeyRound className="w-4 h-4" />
                           Regenerar Secreto TOTP Administrador
                         </button>
@@ -1077,7 +1077,7 @@ export function SettingsPage() {
                       </div>
                       <div className="flex-1">
                         <h3 className="text-white font-semibold text-lg">Kill Switch Global de Emergencia</h3>
-                        <p className="text-sm text-[#9ca3af] mt-1 mb-4">
+                        <p className="text-sm text-[#64748B] mt-1 mb-4">
                           Esta acción revoca de inmediato todos los tokens de cancelación, aborta cualquier intento de explotación en progreso mediante M4 y purga las colas de Celery. Esta acción es <strong>IRREVERSIBLE</strong> y quedará registrada en los logs de auditoría.
                         </p>
                         <button
@@ -1102,15 +1102,15 @@ export function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="p-4 bg-[#00d4ff]/5 border border-[#00d4ff]/20 rounded-xl">
+                  <div className="p-4 bg-[#8B5CF6]/5 border border-[#8B5CF6]/20 rounded-xl">
                     <div className="flex items-start gap-3">
-                      <Lock className="w-4 h-4 text-[#00d4ff] shrink-0 mt-0.5" />
+                      <Lock className="w-4 h-4 text-[#8B5CF6] shrink-0 mt-0.5" />
                       <div>
-                        <h4 className="text-sm font-semibold text-[#00d4ff]">Gestión de secretos — ENS mp.info.3</h4>
-                        <p className="text-xs text-[#9ca3af] mt-1">
+                        <h4 className="text-sm font-semibold text-[#8B5CF6]">Gestión de secretos — ENS mp.info.3</h4>
+                        <p className="text-xs text-[#64748B] mt-1">
                           Las credenciales sensibles (tokens API, contraseñas, webhooks) se cifran y almacenan en HashiCorp Vault (AES-256). El frontend nunca recibe los valores reales — solo referencias de ruta. Conforme a RD 311/2022.
                         </p>
-                        <p className="text-xs text-[#6b7280] mt-1.5 font-mono">
+                        <p className="text-xs text-[#475569] mt-1.5 font-mono">
                           Vault: http://localhost:8200 · Mount: secret/
                         </p>
                       </div>
@@ -1128,10 +1128,10 @@ export function SettingsPage() {
                   <div className="flex items-start justify-between mb-6">
                     <div>
                       <h2 className="text-white font-semibold text-base flex items-center gap-2">
-                        <CalendarClock className="w-5 h-5 text-[#00d4ff]" />
+                        <CalendarClock className="w-5 h-5 text-[#8B5CF6]" />
                         Ciclo de Ejecución Semanal del Pipeline
                       </h2>
-                      <p className="text-xs text-[#6b7280] mt-1">
+                      <p className="text-xs text-[#475569] mt-1">
                         Define el día y hora de arranque de cada fase. El Orquestador respeta este orden de forma secuencial y no lanzará una fase hasta que la anterior haya completado.
                       </p>
                     </div>
@@ -1146,7 +1146,7 @@ export function SettingsPage() {
                   {/* Timeline vertical */}
                   <div className="relative">
                     {/* Línea vertical del timeline */}
-                    <div className="absolute left-[27px] top-8 bottom-8 w-px bg-gradient-to-b from-[#00d4ff]/40 via-[#a78bfa]/30 to-[#22c55e]/40" />
+                    <div className="absolute left-[27px] top-8 bottom-8 w-px bg-gradient-to-b from-[#8B5CF6]/40 via-[#a78bfa]/30 to-[#22c55e]/40" />
 
                     <div className="space-y-3">
                       {pipelinePhases.map((phase, index) => {
@@ -1161,18 +1161,18 @@ export function SettingsPage() {
                           <div key={phase.key} className="flex gap-4 items-start">
                             {/* Nodo del timeline */}
                             <div className="relative z-10 shrink-0">
-                              <div className={`w-14 h-14 rounded-xl border ${phase.borderColor} bg-[#0f1117] flex flex-col items-center justify-center gap-0.5`}>
+                              <div className={`w-14 h-14 rounded-xl border ${phase.borderColor} bg-[#0A0C10] flex flex-col items-center justify-center gap-0.5`}>
                                 <Icon className={`w-5 h-5 ${phase.accentColor}`} />
                                 <span className={`text-[9px] font-bold font-mono ${phase.accentColor} uppercase tracking-widest`}>{phase.module}</span>
                               </div>
                               {/* Conector al siguiente nodo */}
                               {index < pipelinePhases.length - 1 && (
-                                <div className="absolute left-1/2 -translate-x-1/2 top-full w-px h-3 bg-[#1e2530]" />
+                                <div className="absolute left-1/2 -translate-x-1/2 top-full w-px h-3 bg-[#1C2030]" />
                               )}
                             </div>
 
                             {/* Tarjeta de la fase */}
-                            <div className={`flex-1 bg-[#111318]/60 border rounded-xl p-4 transition-all ${showDesyncOnCard ? 'border-[#f59e0b]/40 bg-[#f59e0b]/5' : 'border-[#1e2530] hover:border-[#2a3040]'}`}>
+                            <div className={`flex-1 bg-[#111318]/60 border rounded-xl p-4 transition-all ${showDesyncOnCard ? 'border-[#f59e0b]/40 bg-[#f59e0b]/5' : 'border-[#1C2030] hover:border-[#2a3040]'}`}>
                               <div className="flex items-start justify-between gap-3 mb-3">
                                 <div>
                                   <div className="flex items-center gap-2">
@@ -1185,22 +1185,22 @@ export function SettingsPage() {
                                     )}
                                   </div>
                                   <h3 className="text-white font-semibold text-sm mt-0.5">{phase.label}</h3>
-                                  <p className="text-[11px] text-[#6b7280] mt-1 leading-relaxed">{phase.description}</p>
+                                  <p className="text-[11px] text-[#475569] mt-1 leading-relaxed">{phase.description}</p>
                                 </div>
                                 <div className="shrink-0 text-right">
-                                  <div className="text-xs font-mono text-[#9ca3af]">{dayLabel}</div>
+                                  <div className="text-xs font-mono text-[#64748B]">{dayLabel}</div>
                                   <div className={`text-lg font-bold font-mono ${phase.accentColor}`}>{phaseData.time}</div>
                                 </div>
                               </div>
 
                               {/* Controles */}
-                              <div className="flex gap-3 pt-3 border-t border-[#1e2530]/70">
+                              <div className="flex gap-3 pt-3 border-t border-[#1C2030]/70">
                                 <div className="flex-1">
-                                  <label className="block text-[10px] font-medium text-[#6b7280] uppercase tracking-wider mb-1.5">Día de ejecución</label>
+                                  <label className="block text-[10px] font-medium text-[#475569] uppercase tracking-wider mb-1.5">Día de ejecución</label>
                                   <select
                                     value={phaseData.day}
                                     onChange={(e) => updatePhase(phase.key, 'day', e.target.value)}
-                                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff] transition-colors cursor-pointer"
+                                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6] transition-colors cursor-pointer"
                                   >
                                     {DAYS_OF_WEEK.map(day => (
                                       <option key={day.value} value={day.value}>{day.label}</option>
@@ -1208,12 +1208,12 @@ export function SettingsPage() {
                                   </select>
                                 </div>
                                 <div className="w-36">
-                                  <label className="block text-[10px] font-medium text-[#6b7280] uppercase tracking-wider mb-1.5">Hora de inicio</label>
+                                  <label className="block text-[10px] font-medium text-[#475569] uppercase tracking-wider mb-1.5">Hora de inicio</label>
                                   <input
                                     type="time"
                                     value={phaseData.time}
                                     onChange={(e) => updatePhase(phase.key, 'time', e.target.value)}
-                                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00d4ff] transition-colors cursor-pointer"
+                                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#8B5CF6] transition-colors cursor-pointer"
                                   />
                                 </div>
                               </div>
@@ -1234,14 +1234,14 @@ export function SettingsPage() {
                   </div>
 
                   {/* Botón de guardar */}
-                  <div className="pt-6 mt-6 border-t border-[#1e2530] flex items-center justify-between">
-                    <div className="text-xs text-[#6b7280]">
-                      Los cambios se propagarán al servicio <span className="font-mono text-[#9ca3af]">orchestrator-worker</span> vía Redis pub/sub en el siguiente ciclo de heartbeat.
+                  <div className="pt-6 mt-6 border-t border-[#1C2030] flex items-center justify-between">
+                    <div className="text-xs text-[#475569]">
+                      Los cambios se propagarán al servicio <span className="font-mono text-[#64748B]">orchestrator-worker</span> vía Redis pub/sub en el siguiente ciclo de heartbeat.
                     </div>
                     <button
                       onClick={handleSaveCycle}
                       disabled={saveStatus === 'saving'}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold rounded-lg transition-colors text-sm cursor-pointer disabled:cursor-not-allowed shrink-0 ml-4"
+                      className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0A0C10] font-bold rounded-lg transition-colors text-sm cursor-pointer disabled:cursor-not-allowed shrink-0 ml-4"
                     >
                       {saveStatus === 'saving' && <RefreshCw className="w-4 h-4 animate-spin" />}
                       {saveStatus === 'saved' && <CheckCircle2 className="w-4 h-4" />}
@@ -1257,7 +1257,7 @@ export function SettingsPage() {
                 <div className="space-y-6 animate-fadeIn">
 
                   {/* ── Lista de usuarios ─────────────────────────────── */}
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
                         <Users className="w-4 h-4 text-[#a78bfa]" />
@@ -1272,94 +1272,94 @@ export function SettingsPage() {
                     </div>
 
                     {usersLoading ? (
-                      <div className="text-center py-8 text-[#6b7280] text-xs flex items-center justify-center gap-2">
+                      <div className="text-center py-8 text-[#475569] text-xs flex items-center justify-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin" /> Cargando usuarios...
                       </div>
                     ) : (
                       <div className="space-y-2">
                         {users.map(u => (
-                          <div key={u.id} className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${u.disabled ? 'opacity-50 border-[#1e2530] bg-[#0f1117]/40' : 'border-[#1e2530] bg-[#0f1117]/60'}`}>
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${u.disabled ? 'bg-[#374151] text-[#6b7280]' : 'bg-[#7c3aed]/20 text-[#a78bfa]'}`}>
+                          <div key={u.id} className={`flex items-center gap-3 px-4 py-3 rounded-lg border ${u.disabled ? 'opacity-50 border-[#1C2030] bg-[#0A0C10]/40' : 'border-[#1C2030] bg-[#0A0C10]/60'}`}>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${u.disabled ? 'bg-[#374151] text-[#475569]' : 'bg-[#7c3aed]/20 text-[#a78bfa]'}`}>
                               {(u.full_name || u.username).charAt(0).toUpperCase()}
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-mono text-white">{u.username}</span>
-                                {u.disabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#374151] text-[#9ca3af] font-semibold">DESHABILITADO</span>}
+                                {u.disabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#374151] text-[#64748B] font-semibold">DESHABILITADO</span>}
                               </div>
-                              <div className="text-xs text-[#6b7280] truncate">{u.full_name || '—'} · {u.email || '—'}</div>
+                              <div className="text-xs text-[#475569] truncate">{u.full_name || '—'} · {u.email || '—'}</div>
                               {u.departments.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {u.departments.map(d => (
-                                    <span key={d.id} className="text-[10px] px-1.5 py-0.5 bg-[#1e2530] rounded text-[#9ca3af]">{d.name}</span>
+                                    <span key={d.id} className="text-[10px] px-1.5 py-0.5 bg-[#1C2030] rounded text-[#64748B]">{d.name}</span>
                                   ))}
                                 </div>
                               )}
                             </div>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold shrink-0 ${ROLE_COLORS[u.role] ?? 'text-[#9ca3af] bg-[#1e2530] border-[#374151]'}`}>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold shrink-0 ${ROLE_COLORS[u.role] ?? 'text-[#64748B] bg-[#1C2030] border-[#374151]'}`}>
                               {ROLE_LABELS[u.role] ?? u.role}
                             </span>
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 onClick={() => openEditUser(u)}
-                                className="p-1.5 text-[#6b7280] hover:text-[#a78bfa] hover:bg-[#7c3aed]/10 rounded transition-colors"
+                                className="p-1.5 text-[#475569] hover:text-[#a78bfa] hover:bg-[#7c3aed]/10 rounded transition-colors"
                                 title="Editar"
                               ><Pencil className="w-3.5 h-3.5" /></button>
                               <button
                                 onClick={() => handleToggleDisable(u)}
                                 disabled={u.username === 'admin'}
-                                className="p-1.5 text-[#6b7280] hover:text-[#f59e0b] hover:bg-[#f59e0b]/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="p-1.5 text-[#475569] hover:text-[#f59e0b] hover:bg-[#f59e0b]/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                                 title={u.disabled ? 'Habilitar' : 'Deshabilitar'}
                               >{u.disabled ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}</button>
                               <button
                                 onClick={() => handleDeleteUser(u.username)}
                                 disabled={u.username === 'admin'}
-                                className="p-1.5 text-[#6b7280] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="p-1.5 text-[#475569] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                                 title="Eliminar"
                               ><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                           </div>
                         ))}
-                        {users.length === 0 && <p className="text-xs text-[#6b7280] text-center py-4">No hay usuarios cargados.</p>}
+                        {users.length === 0 && <p className="text-xs text-[#475569] text-center py-4">No hay usuarios cargados.</p>}
                       </div>
                     )}
                   </div>
 
                   {/* ── Departamentos ──────────────────────────────────── */}
-                  <div className="bg-[#111318]/50 border border-[#1e2530] rounded-xl p-5 space-y-4">
+                  <div className="bg-[#111318]/50 border border-[#1C2030] rounded-xl p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                        <ShieldAlert className="w-4 h-4 text-[#00d4ff]" />
+                        <ShieldAlert className="w-4 h-4 text-[#8B5CF6]" />
                         Departamentos
                       </div>
                       <button
                         onClick={() => { setDeptName(''); setDeptDesc(''); setShowDeptModal(true); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 border border-[#00d4ff]/30 text-[#00d4ff] text-xs font-semibold rounded-lg transition-colors"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8B5CF6]/10 hover:bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 text-[#8B5CF6] text-xs font-semibold rounded-lg transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" /> Nuevo departamento
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {departments.map(d => (
-                        <div key={d.id} className="flex items-center justify-between px-3 py-2.5 bg-[#0f1117] border border-[#1e2530] rounded-lg">
+                        <div key={d.id} className="flex items-center justify-between px-3 py-2.5 bg-[#0A0C10] border border-[#1C2030] rounded-lg">
                           <div>
                             <div className="text-sm text-white font-medium">{d.name}</div>
-                            {d.description && <div className="text-xs text-[#6b7280]">{d.description}</div>}
+                            {d.description && <div className="text-xs text-[#475569]">{d.description}</div>}
                           </div>
                           <button
                             onClick={() => handleDeleteDept(d.id)}
-                            className="p-1.5 text-[#6b7280] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded transition-colors ml-2"
+                            className="p-1.5 text-[#475569] hover:text-[#ff3b3b] hover:bg-[#ff3b3b]/10 rounded transition-colors ml-2"
                           ><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       ))}
-                      {departments.length === 0 && <p className="text-xs text-[#6b7280] col-span-2 text-center py-3">Sin departamentos.</p>}
+                      {departments.length === 0 && <p className="text-xs text-[#475569] col-span-2 text-center py-3">Sin departamentos.</p>}
                     </div>
                   </div>
 
                   {/* ── ENS note ───────────────────────────────────────── */}
-                  <div className="flex items-start gap-2 text-xs text-[#6b7280] bg-[#0f1117] border border-[#1e2530] rounded-lg px-4 py-3">
+                  <div className="flex items-start gap-2 text-xs text-[#475569] bg-[#0A0C10] border border-[#1C2030] rounded-lg px-4 py-3">
                     <Lock className="w-3.5 h-3.5 text-[#a78bfa] shrink-0 mt-0.5" />
-                    <span>Gestión de identidades bajo <span className="text-[#9ca3af] font-mono">ENS op.acc.1 / op.acc.4</span>. Solo el rol <span className="text-[#a78bfa] font-mono">system_manager</span> puede crear, editar o eliminar usuarios.</span>
+                    <span>Gestión de identidades bajo <span className="text-[#64748B] font-mono">ENS op.acc.1 / op.acc.4</span>. Solo el rol <span className="text-[#a78bfa] font-mono">system_manager</span> puede crear, editar o eliminar usuarios.</span>
                   </div>
                 </div>
               )}
@@ -1367,39 +1367,39 @@ export function SettingsPage() {
               {/* ── MODAL: CREAR/EDITAR USUARIO ─── */}
               {showUserModal && (
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                  <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
+                  <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-base font-semibold text-white flex items-center gap-2">
                         <Users className="w-4 h-4 text-[#a78bfa]" />
                         {editingUser ? `Editar · ${editingUser.username}` : 'Nuevo usuario'}
                       </h3>
-                      <button onClick={() => setShowUserModal(false)} className="text-[#6b7280] hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+                      <button onClick={() => setShowUserModal(false)} className="text-[#475569] hover:text-white transition-colors"><X className="w-4 h-4" /></button>
                     </div>
 
                     <div className="space-y-3">
                       {!editingUser && (
                         <div>
-                          <label className="text-xs text-[#9ca3af] mb-1 block">Usuario *</label>
+                          <label className="text-xs text-[#64748B] mb-1 block">Usuario *</label>
                           <input
                             value={uForm.username}
                             onChange={e => setUForm(p => ({ ...p, username: e.target.value }))}
-                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#a78bfa]"
+                            className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#a78bfa]"
                             placeholder="nombre_usuario"
                           />
                         </div>
                       )}
 
                       <div>
-                        <label className="text-xs text-[#9ca3af] mb-1 block">{editingUser ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña *'}</label>
+                        <label className="text-xs text-[#64748B] mb-1 block">{editingUser ? 'Nueva contraseña (dejar vacío para no cambiar)' : 'Contraseña *'}</label>
                         <div className="relative">
                           <input
                             type={showPass ? 'text' : 'password'}
                             value={uForm.password}
                             onChange={e => setUForm(p => ({ ...p, password: e.target.value }))}
-                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#a78bfa] pr-10"
+                            className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#a78bfa] pr-10"
                             placeholder={editingUser ? '••••••••' : 'Mínimo 8 caracteres'}
                           />
-                          <button type="button" onClick={() => setShowPass(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6b7280] hover:text-white">
+                          <button type="button" onClick={() => setShowPass(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#475569] hover:text-white">
                             {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                           </button>
                         </div>
@@ -1407,31 +1407,31 @@ export function SettingsPage() {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-xs text-[#9ca3af] mb-1 block">Nombre completo</label>
+                          <label className="text-xs text-[#64748B] mb-1 block">Nombre completo</label>
                           <input
                             value={uForm.full_name}
                             onChange={e => setUForm(p => ({ ...p, full_name: e.target.value }))}
-                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
+                            className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
                             placeholder="Juan García"
                           />
                         </div>
                         <div>
-                          <label className="text-xs text-[#9ca3af] mb-1 block">Email</label>
+                          <label className="text-xs text-[#64748B] mb-1 block">Email</label>
                           <input
                             value={uForm.email}
                             onChange={e => setUForm(p => ({ ...p, email: e.target.value }))}
-                            className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
+                            className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
                             placeholder="user@empresa.com"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="text-xs text-[#9ca3af] mb-1 block">Rol *</label>
+                        <label className="text-xs text-[#64748B] mb-1 block">Rol *</label>
                         <select
                           value={uForm.role}
                           onChange={e => setUForm(p => ({ ...p, role: e.target.value }))}
-                          className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
+                          className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#a78bfa]"
                         >
                           <option value="system_manager">Administrador (system_manager)</option>
                           <option value="security_officer">Responsable de Seguridad (security_officer)</option>
@@ -1440,10 +1440,10 @@ export function SettingsPage() {
                       </div>
 
                       <div>
-                        <label className="text-xs text-[#9ca3af] mb-1.5 block">Departamentos</label>
+                        <label className="text-xs text-[#64748B] mb-1.5 block">Departamentos</label>
                         <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
                           {departments.map(d => (
-                            <label key={d.id} className="flex items-center gap-2 px-2.5 py-2 bg-[#0f1117] border border-[#1e2530] rounded-lg cursor-pointer hover:border-[#374151] transition-colors">
+                            <label key={d.id} className="flex items-center gap-2 px-2.5 py-2 bg-[#0A0C10] border border-[#1C2030] rounded-lg cursor-pointer hover:border-[#374151] transition-colors">
                               <input
                                 type="checkbox"
                                 checked={uForm.department_ids.includes(d.id)}
@@ -1455,7 +1455,7 @@ export function SettingsPage() {
                                 }))}
                                 className="accent-[#a78bfa] w-3.5 h-3.5"
                               />
-                              <span className="text-xs text-[#9ca3af]">{d.name}</span>
+                              <span className="text-xs text-[#64748B]">{d.name}</span>
                             </label>
                           ))}
                         </div>
@@ -1477,7 +1477,7 @@ export function SettingsPage() {
                         {uSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                         {editingUser ? 'Guardar cambios' : 'Crear usuario'}
                       </button>
-                      <button onClick={() => setShowUserModal(false)} className="px-5 py-2.5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold text-sm rounded-lg transition-colors">
+                      <button onClick={() => setShowUserModal(false)} className="px-5 py-2.5 bg-[#374151] hover:bg-[#334155] text-white font-semibold text-sm rounded-lg transition-colors">
                         Cancelar
                       </button>
                     </div>
@@ -1488,27 +1488,27 @@ export function SettingsPage() {
               {/* ── MODAL: NUEVO DEPARTAMENTO ─── */}
               {showDeptModal && (
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                  <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+                  <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6 w-full max-w-sm shadow-2xl space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-base font-semibold text-white">Nuevo departamento</h3>
-                      <button onClick={() => setShowDeptModal(false)} className="text-[#6b7280] hover:text-white"><X className="w-4 h-4" /></button>
+                      <button onClick={() => setShowDeptModal(false)} className="text-[#475569] hover:text-white"><X className="w-4 h-4" /></button>
                     </div>
                     <div className="space-y-3">
                       <div>
-                        <label className="text-xs text-[#9ca3af] mb-1 block">Nombre *</label>
+                        <label className="text-xs text-[#64748B] mb-1 block">Nombre *</label>
                         <input
                           value={deptName}
                           onChange={e => setDeptName(e.target.value)}
-                          className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                          className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
                           placeholder="Ej: Infraestructura"
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-[#9ca3af] mb-1 block">Descripción</label>
+                        <label className="text-xs text-[#64748B] mb-1 block">Descripción</label>
                         <input
                           value={deptDesc}
                           onChange={e => setDeptDesc(e.target.value)}
-                          className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                          className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
                           placeholder="Descripción opcional"
                         />
                       </div>
@@ -1517,12 +1517,12 @@ export function SettingsPage() {
                       <button
                         onClick={handleCreateDept}
                         disabled={deptSaving || !deptName.trim()}
-                        className="flex-1 py-2.5 bg-[#00d4ff] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0f1117] font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                        className="flex-1 py-2.5 bg-[#8B5CF6] hover:bg-[#00b8e6] disabled:opacity-60 text-[#0A0C10] font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
                       >
                         {deptSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                         Crear
                       </button>
-                      <button onClick={() => setShowDeptModal(false)} className="px-5 py-2.5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold text-sm rounded-lg transition-colors">
+                      <button onClick={() => setShowDeptModal(false)} className="px-5 py-2.5 bg-[#374151] hover:bg-[#334155] text-white font-semibold text-sm rounded-lg transition-colors">
                         Cancelar
                       </button>
                     </div>
@@ -1532,11 +1532,11 @@ export function SettingsPage() {
 
               {/* Overlay si el Kill Switch está activado */}
               {killSwitchTriggered && activeTab !== 'security' && (
-                <div className="absolute inset-0 z-50 bg-[#0f1117]/80 backdrop-blur-sm flex items-center justify-center rounded-lg">
+                <div className="absolute inset-0 z-50 bg-[#0A0C10]/80 backdrop-blur-sm flex items-center justify-center rounded-lg">
                   <div className="text-center">
                     <AlertOctagon className="w-16 h-16 text-[#ff3b3b] mx-auto mb-4 animate-pulse" />
                     <h2 className="text-xl font-bold text-white mb-2">SISTEMA EN PARADA DE EMERGENCIA</h2>
-                    <p className="text-[#9ca3af] text-sm">Diríjase a la pestaña de Seguridad para gestionar el incidente.</p>
+                    <p className="text-[#64748B] text-sm">Diríjase a la pestaña de Seguridad para gestionar el incidente.</p>
                   </div>
                 </div>
               )}

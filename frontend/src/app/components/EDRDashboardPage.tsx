@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   ShieldAlert, Activity, Globe, Clock, ChevronRight,
@@ -44,7 +44,7 @@ function KpiCard({ label, value, accent, icon: Icon }: {
   const colorMap: Record<string, string> = {
     red:    'text-red-400 border-red-500/20 bg-red-500/5',
     orange: 'text-orange-400 border-orange-500/20 bg-orange-500/5',
-    cyan:   'text-[#00d4ff] border-[#00d4ff]/20 bg-[#00d4ff]/5',
+    cyan:   'text-[#8B5CF6] border-[#8B5CF6]/20 bg-[#8B5CF6]/5',
     amber:  'text-amber-400 border-amber-500/20 bg-amber-500/5',
   };
   return (
@@ -104,7 +104,7 @@ export function EDRDashboardPage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0f1117] text-[#d1d5db] overflow-hidden">
+    <div className="flex h-screen bg-[#0A0C10] text-[#d1d5db] overflow-hidden">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar />
@@ -114,10 +114,10 @@ export function EDRDashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-semibold text-white flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-[#00d4ff]" />
+                <ShieldAlert className="w-5 h-5 text-[#8B5CF6]" />
                 M3.1 EDR — Behavioral Dashboard
               </h1>
-              <p className="text-xs text-[#6b7280] mt-1">
+              <p className="text-xs text-[#475569] mt-1">
                 Detección de anomalías en tiempo real · Threat intelligence · Incident response
               </p>
             </div>
@@ -136,7 +136,7 @@ export function EDRDashboardPage() {
               </button>
               <button
                 onClick={handleRefresh}
-                className="flex items-center gap-1.5 px-3 py-2 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-[#9ca3af] hover:text-white hover:border-[#00d4ff]/40 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#111318] border border-[#1C2030] rounded-lg text-xs text-[#64748B] hover:text-white hover:border-[#8B5CF6]/40 transition-colors"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 Actualizar
@@ -169,24 +169,24 @@ export function EDRDashboardPage() {
           </div>
 
           {/* Behavioral Anomalies Table */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C2030]">
               <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Activity className="w-4 h-4 text-[#00d4ff]" />
+                <Activity className="w-4 h-4 text-[#8B5CF6]" />
                 Behavioral Anomalies
-                <span className="text-[10px] font-mono text-[#6b7280] ml-1">
+                <span className="text-[10px] font-mono text-[#475569] ml-1">
                   {findingsTotal} total
                 </span>
               </h2>
             </div>
 
             {findingsLoading ? (
-              <div className="flex items-center justify-center py-12 text-[#6b7280] text-sm gap-2">
+              <div className="flex items-center justify-center py-12 text-[#475569] text-sm gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Cargando anomalías...
               </div>
             ) : findings.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-[#6b7280] text-sm gap-2">
+              <div className="flex flex-col items-center justify-center py-12 text-[#475569] text-sm gap-2">
                 <ShieldAlert className="w-8 h-8 opacity-30" />
                 No se han detectado anomalías
               </div>
@@ -195,7 +195,7 @@ export function EDRDashboardPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-[#1e2530] text-[#6b7280]">
+                      <tr className="border-b border-[#1C2030] text-[#475569]">
                         <th className="text-left px-4 py-2 font-medium">Proceso</th>
                         <th className="text-left px-4 py-2 font-medium">Tipo de anomalía</th>
                         <th className="text-left px-4 py-2 font-medium">Severidad</th>
@@ -207,7 +207,7 @@ export function EDRDashboardPage() {
                     </thead>
                     <tbody>
                       {findings.map((f) => (
-                        <tr key={f.id} className="border-b border-[#1e2530]/50 hover:bg-[#1e2530]/40 transition-colors">
+                        <tr key={f.id} className="border-b border-[#1C2030]/50 hover:bg-[#1C2030]/40 transition-colors">
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
                               {anomalyIcon(f.anomaly_type)}
@@ -216,13 +216,13 @@ export function EDRDashboardPage() {
                               </span>
                             </div>
                             {f.indicators?.cmdline && (
-                              <div className="font-mono text-[#6b7280] text-[10px] truncate max-w-[200px] mt-0.5">
+                              <div className="font-mono text-[#475569] text-[10px] truncate max-w-[200px] mt-0.5">
                                 {String(f.indicators.cmdline).substring(0, 60)}…
                               </div>
                             )}
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className="font-mono text-[#9ca3af]">{f.anomaly_type}</span>
+                            <span className="font-mono text-[#64748B]">{f.anomaly_type}</span>
                             {f.detection_method?.includes('yara') && (
                               <span className="ml-1 px-1 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded text-[10px]">
                                 YARA
@@ -237,7 +237,7 @@ export function EDRDashboardPage() {
                           <td className="px-4 py-2.5">
                             <div className="flex flex-wrap gap-1 max-w-[120px]">
                               {(f.mitre_attack_tactics ?? []).slice(0, 2).map((t) => (
-                                <span key={t} className="px-1.5 py-0.5 bg-[#1e2530] border border-[#374151] text-[#9ca3af] rounded text-[10px] font-mono">
+                                <span key={t} className="px-1.5 py-0.5 bg-[#1C2030] border border-[#374151] text-[#64748B] rounded text-[10px] font-mono">
                                   {t}
                                 </span>
                               ))}
@@ -245,18 +245,18 @@ export function EDRDashboardPage() {
                           </td>
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-1.5">
-                              <div className="w-16 h-1.5 bg-[#1e2530] rounded-full overflow-hidden">
+                              <div className="w-16 h-1.5 bg-[#1C2030] rounded-full overflow-hidden">
                                 <div
-                                  className="h-full rounded-full bg-[#00d4ff]"
+                                  className="h-full rounded-full bg-[#8B5CF6]"
                                   style={{ width: `${f.confidence_score ?? 50}%` }}
                                 />
                               </div>
-                              <span className="font-mono text-[#9ca3af] text-[10px]">
+                              <span className="font-mono text-[#64748B] text-[10px]">
                                 {f.confidence_score ?? 50}%
                               </span>
                             </div>
                           </td>
-                          <td className="px-4 py-2.5 text-[#6b7280] font-mono">
+                          <td className="px-4 py-2.5 text-[#475569] font-mono">
                             {fmt.format(new Date(f.created_at))}
                           </td>
                           <td className="px-4 py-2.5">
@@ -276,18 +276,18 @@ export function EDRDashboardPage() {
 
                 {/* Pagination */}
                 {findingsTotal > PAGE_SIZE && (
-                  <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530] text-xs text-[#6b7280]">
+                  <div className="flex items-center justify-between px-4 py-2 border-t border-[#1C2030] text-xs text-[#475569]">
                     <span>Página {findingsPage} de {Math.ceil(findingsTotal / PAGE_SIZE)}</span>
                     <div className="flex gap-2">
                       <button
                         disabled={findingsPage <= 1}
                         onClick={() => setFindingsPage(p => Math.max(1, p - 1))}
-                        className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
+                        className="px-2 py-1 bg-[#1C2030] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
                       >‹ Anterior</button>
                       <button
                         disabled={findingsPage >= Math.ceil(findingsTotal / PAGE_SIZE)}
                         onClick={() => setFindingsPage(p => p + 1)}
-                        className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
+                        className="px-2 py-1 bg-[#1C2030] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
                       >Siguiente ›</button>
                     </div>
                   </div>
@@ -297,22 +297,22 @@ export function EDRDashboardPage() {
           </div>
 
           {/* Threat Intelligence Heatmap */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C2030]">
               <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Globe className="w-4 h-4 text-orange-400" />
                 Threat Intelligence — IOCs maliciosos
-                <span className="text-[10px] font-mono text-[#6b7280] ml-1">{tiTotal} total</span>
+                <span className="text-[10px] font-mono text-[#475569] ml-1">{tiTotal} total</span>
               </h2>
             </div>
 
             {tiLoading ? (
-              <div className="flex items-center justify-center py-8 text-[#6b7280] text-sm gap-2">
+              <div className="flex items-center justify-center py-8 text-[#475569] text-sm gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Cargando threat intel...
               </div>
             ) : entries.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-[#6b7280] text-sm gap-2">
+              <div className="flex flex-col items-center justify-center py-8 text-[#475569] text-sm gap-2">
                 <Globe className="w-6 h-6 opacity-30" />
                 No hay IOCs maliciosos en caché
               </div>
@@ -321,7 +321,7 @@ export function EDRDashboardPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="border-b border-[#1e2530] text-[#6b7280]">
+                      <tr className="border-b border-[#1C2030] text-[#475569]">
                         <th className="text-left px-4 py-2 font-medium">IOC</th>
                         <th className="text-left px-4 py-2 font-medium">Tipo</th>
                         <th className="text-left px-4 py-2 font-medium">Reputación (VT / CS / OTX)</th>
@@ -331,7 +331,7 @@ export function EDRDashboardPage() {
                     </thead>
                     <tbody>
                       {entries.map((e) => (
-                        <tr key={e.id} className="border-b border-[#1e2530]/50 hover:bg-[#1e2530]/40 transition-colors">
+                        <tr key={e.id} className="border-b border-[#1C2030]/50 hover:bg-[#1C2030]/40 transition-colors">
                           <td className="px-4 py-2.5">
                             <span className="font-mono text-white">{e.ioc_value}</span>
                           </td>
@@ -352,10 +352,10 @@ export function EDRDashboardPage() {
                                 MALICIOSO
                               </span>
                             ) : (
-                              <span className="text-[#6b7280]">limpio</span>
+                              <span className="text-[#475569]">limpio</span>
                             )}
                           </td>
-                          <td className="px-4 py-2.5 text-[#6b7280] font-mono">
+                          <td className="px-4 py-2.5 text-[#475569] font-mono">
                             {fmt.format(new Date(e.ttl_expires))}
                           </td>
                         </tr>
@@ -365,18 +365,18 @@ export function EDRDashboardPage() {
                 </div>
 
                 {tiTotal > PAGE_SIZE && (
-                  <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530] text-xs text-[#6b7280]">
+                  <div className="flex items-center justify-between px-4 py-2 border-t border-[#1C2030] text-xs text-[#475569]">
                     <span>Página {tiPage} de {Math.ceil(tiTotal / PAGE_SIZE)}</span>
                     <div className="flex gap-2">
                       <button
                         disabled={tiPage <= 1}
                         onClick={() => setTiPage(p => Math.max(1, p - 1))}
-                        className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
+                        className="px-2 py-1 bg-[#1C2030] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
                       >‹ Anterior</button>
                       <button
                         disabled={tiPage >= Math.ceil(tiTotal / PAGE_SIZE)}
                         onClick={() => setTiPage(p => p + 1)}
-                        className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
+                        className="px-2 py-1 bg-[#1C2030] rounded disabled:opacity-40 hover:bg-[#252a36] transition-colors"
                       >Siguiente ›</button>
                     </div>
                   </div>
@@ -388,13 +388,13 @@ export function EDRDashboardPage() {
           {/* Quick link to IR queue */}
           <button
             onClick={() => navigate('/incident-response')}
-            className="w-full flex items-center justify-between px-5 py-4 bg-[#1a1d27] border border-red-500/20 hover:border-red-500/40 rounded-xl text-sm text-red-400 transition-colors group"
+            className="w-full flex items-center justify-between px-5 py-4 bg-[#111318] border border-red-500/20 hover:border-red-500/40 rounded-xl text-sm text-red-400 transition-colors group"
           >
             <div className="flex items-center gap-3">
               <AlertTriangle className="w-5 h-5" />
               <div className="text-left">
                 <div className="font-semibold text-white">Incident Response Queue</div>
-                <div className="text-xs text-[#6b7280]">Gestionar aprobaciones pendientes · historial de acciones</div>
+                <div className="text-xs text-[#475569]">Gestionar aprobaciones pendientes · historial de acciones</div>
               </div>
             </div>
             <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

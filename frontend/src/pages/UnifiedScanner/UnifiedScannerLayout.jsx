@@ -31,7 +31,7 @@ function StatPill({ label, value, accent }) {
   const accentClass =
     accent === 'red'   ? 'text-red-400 border-red-500/20 bg-red-500/5' :
     accent === 'amber' ? 'text-amber-400 border-amber-500/20 bg-amber-500/5' :
-    accent === 'blue'  ? 'text-[#00d4ff] border-[#00d4ff]/20 bg-[#00d4ff]/5' :
+    accent === 'blue'  ? 'text-[#8B5CF6] border-[#8B5CF6]/20 bg-[#8B5CF6]/5' :
                          'text-green-400 border-green-500/20 bg-green-500/5';
 
   return (
@@ -94,16 +94,16 @@ function BehavioralTab() {
   }, {});
 
   if (loading) return (
-    <div className="flex items-center justify-center py-16 text-[#6b7280] gap-2">
+    <div className="flex items-center justify-center py-16 text-[#475569] gap-2">
       <RefreshCw className="w-4 h-4 animate-spin" />Cargando datos EDR...
     </div>
   );
 
   if (findings.length === 0) return (
-    <div className="flex flex-col items-center justify-center py-16 text-[#6b7280] gap-3">
+    <div className="flex flex-col items-center justify-center py-16 text-[#475569] gap-3">
       <ShieldAlert className="w-10 h-10 opacity-20" />
       <p className="text-sm">No hay behavioral findings en el sistema</p>
-      <p className="text-xs">Ejecuta un escaneo EDR desde la página <span className="text-[#00d4ff]">/edr</span></p>
+      <p className="text-xs">Ejecuta un escaneo EDR desde la página <span className="text-[#8B5CF6]">/edr</span></p>
     </div>
   );
 
@@ -116,16 +116,16 @@ function BehavioralTab() {
             {sev} {cnt}
           </span>
         ))}
-        <span className="px-3 py-1 rounded-full text-xs font-mono border border-[#1e2530] text-[#6b7280]">
+        <span className="px-3 py-1 rounded-full text-xs font-mono border border-[#1C2030] text-[#475569]">
           Total {total}
         </span>
       </div>
 
       {/* Table */}
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden">
+      <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-[#1e2530] text-[#6b7280]">
+            <tr className="border-b border-[#1C2030] text-[#475569]">
               <th className="text-left px-4 py-2 font-medium">Proceso</th>
               <th className="text-left px-4 py-2 font-medium">Anomalía</th>
               <th className="text-left px-4 py-2 font-medium">Severidad</th>
@@ -135,20 +135,20 @@ function BehavioralTab() {
           </thead>
           <tbody>
             {findings.map((f) => (
-              <tr key={f.id} className="border-b border-[#1e2530]/50 hover:bg-[#1e2530]/40 transition-colors">
+              <tr key={f.id} className="border-b border-[#1C2030]/50 hover:bg-[#1C2030]/40 transition-colors">
                 <td className="px-4 py-2.5 font-mono text-white">{f.process_name || '—'}</td>
-                <td className="px-4 py-2.5 text-[#9ca3af]">{f.anomaly_type}</td>
+                <td className="px-4 py-2.5 text-[#64748B]">{f.anomaly_type}</td>
                 <td className="px-4 py-2.5">
                   <span className={`px-2 py-0.5 rounded border text-[10px] font-mono ${sevClass(f.severity)}`}>
                     {f.severity}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-[#6b7280] font-mono">
+                <td className="px-4 py-2.5 text-[#475569] font-mono">
                   {f.detection_method?.includes('yara')
                     ? <span className="text-purple-400">YARA+behavioral</span>
                     : f.detection_method}
                 </td>
-                <td className="px-4 py-2.5 text-[#6b7280] font-mono">
+                <td className="px-4 py-2.5 text-[#475569] font-mono">
                   {fmtDate.format(new Date(f.created_at))}
                 </td>
               </tr>
@@ -156,11 +156,11 @@ function BehavioralTab() {
           </tbody>
         </table>
         {total > PAGE && (
-          <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530] text-xs text-[#6b7280]">
+          <div className="flex items-center justify-between px-4 py-2 border-t border-[#1C2030] text-xs text-[#475569]">
             <span>Pág {page}/{Math.ceil(total / PAGE)}</span>
             <div className="flex gap-2">
-              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40">‹</button>
-              <button disabled={page >= Math.ceil(total / PAGE)} onClick={() => setPage(p => p + 1)} className="px-2 py-1 bg-[#1e2530] rounded disabled:opacity-40">›</button>
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-2 py-1 bg-[#1C2030] rounded disabled:opacity-40">‹</button>
+              <button disabled={page >= Math.ceil(total / PAGE)} onClick={() => setPage(p => p + 1)} className="px-2 py-1 bg-[#1C2030] rounded disabled:opacity-40">›</button>
             </div>
           </div>
         )}
@@ -521,19 +521,19 @@ export function UnifiedScannerLayout() {
   const assetType = determineAssetType(adhocM2Result);
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar role="System Manager" />
         <main className="flex-1 overflow-auto p-6 space-y-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#00d4ff]/10 border border-[#00d4ff]/20 rounded-lg flex items-center justify-center shrink-0">
-                <ScanLine className="w-5 h-5 text-[#00d4ff]" />
+              <div className="w-10 h-10 bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 rounded-lg flex items-center justify-center shrink-0">
+                <ScanLine className="w-5 h-5 text-[#8B5CF6]" />
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-white leading-tight">Superficie y Riesgos</h1>
-                <p className="text-sm text-[#6b7280] mt-0.5">M2 Reconocimiento · M3 Escaneo — hallazgos consolidados ENS Alto</p>
+                <p className="text-sm text-[#475569] mt-0.5">M2 Reconocimiento · M3 Escaneo — hallazgos consolidados ENS Alto</p>
               </div>
             </div>
 
@@ -547,7 +547,7 @@ export function UnifiedScannerLayout() {
                   <StatPill value={findings.length} label="total" accent="green" />
                 </>
               )}
-              <button onClick={refetch} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-[#9ca3af] hover:text-white hover:border-[#00d4ff]/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
+              <button onClick={refetch} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#111318] border border-[#1C2030] rounded-lg text-xs text-[#64748B] hover:text-white hover:border-[#8B5CF6]/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
                 <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
                 {loading ? 'Cargando…' : 'Actualizar'}
               </button>
@@ -569,15 +569,15 @@ export function UnifiedScannerLayout() {
           )}
 
           <Tabs defaultValue={initialTab} className="flex-1">
-            <TabsList className="bg-[#1a1d27] border border-[#1e2530] h-10 w-full justify-start rounded-lg gap-1 p-1">
-              <TabsTrigger value="pipeline" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"><Radio className="w-3.5 h-3.5" />Live Pipeline</TabsTrigger>
-              <TabsTrigger value="findings" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8">
+            <TabsList className="bg-[#111318] border border-[#1C2030] h-10 w-full justify-start rounded-lg gap-1 p-1">
+              <TabsTrigger value="pipeline" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#8B5CF6]/10 data-[state=active]:text-[#8B5CF6] data-[state=active]:border-[#8B5CF6]/30 rounded-md px-3 h-8"><Radio className="w-3.5 h-3.5" />Live Pipeline</TabsTrigger>
+              <TabsTrigger value="findings" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#8B5CF6]/10 data-[state=active]:text-[#8B5CF6] data-[state=active]:border-[#8B5CF6]/30 rounded-md px-3 h-8">
                 <LayoutGrid className="w-3.5 h-3.5" />Matriz de Hallazgos
-                {findings.length > 0 && <span className="ml-1 px-1.5 py-0.5 bg-[#1e2530] rounded text-[10px] font-mono text-[#6b7280]">{findings.length}</span>}
+                {findings.length > 0 && <span className="ml-1 px-1.5 py-0.5 bg-[#1C2030] rounded text-[10px] font-mono text-[#475569]">{findings.length}</span>}
               </TabsTrigger>
-              <TabsTrigger value="surface" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"><Map className="w-3.5 h-3.5" />Mapa de Superficie</TabsTrigger>
+              <TabsTrigger value="surface" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#8B5CF6]/10 data-[state=active]:text-[#8B5CF6] data-[state=active]:border-[#8B5CF6]/30 rounded-md px-3 h-8"><Map className="w-3.5 h-3.5" />Mapa de Superficie</TabsTrigger>
               <TabsTrigger value="behavioral" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-red-500/10 data-[state=active]:text-red-400 data-[state=active]:border-red-500/20 rounded-md px-3 h-8"><Activity className="w-3.5 h-3.5" />EDR Behavioral</TabsTrigger>
-              <TabsTrigger value="adhoc" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#00d4ff]/10 data-[state=active]:text-[#00d4ff] data-[state=active]:border-[#00d4ff]/30 rounded-md px-3 h-8"><Search className="w-3.5 h-3.5" />Escaneo Ad-hoc</TabsTrigger>
+              <TabsTrigger value="adhoc" className="flex items-center gap-1.5 text-xs font-medium data-[state=active]:bg-[#8B5CF6]/10 data-[state=active]:text-[#8B5CF6] data-[state=active]:border-[#8B5CF6]/30 rounded-md px-3 h-8"><Search className="w-3.5 h-3.5" />Escaneo Ad-hoc</TabsTrigger>
             </TabsList>
 
             <TabsContent value="pipeline" className="mt-4"><LivePipelineTerminal /></TabsContent>
@@ -589,20 +589,20 @@ export function UnifiedScannerLayout() {
               <BehavioralTab />
             </TabsContent>
             <TabsContent value="adhoc" className="mt-4 space-y-4">
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4">
-                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Search className="w-4 h-4 text-[#00d4ff]" />Escaneo Ad-hoc — IP o Dominio externo</h3>
-                <p className="text-xs text-[#6b7280] mb-4">Analiza cualquier IP o dominio sin necesidad de registrarlo en el inventario. Ejecuta M2 (reconocimiento Nmap) + M3 (escaneo configurable) en secuencia. Incluye JS secrets analyzer, CORS checker y más.</p>
+              <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><Search className="w-4 h-4 text-[#8B5CF6]" />Escaneo Ad-hoc — IP o Dominio externo</h3>
+                <p className="text-xs text-[#475569] mb-4">Analiza cualquier IP o dominio sin necesidad de registrarlo en el inventario. Ejecuta M2 (reconocimiento Nmap) + M3 (escaneo configurable) en secuencia. Incluye JS secrets analyzer, CORS checker y más.</p>
                 <div className="mb-3">
-                  <label className="text-xs text-[#6b7280] mb-1 block">IP, Dominio o URL *</label>
-                  <input type="text" value={adhocTarget} onChange={e => setAdhocTarget(e.target.value)} placeholder="ej. 10.202.15.15, google.com o https://pruebas.unuware.com" disabled={adhocScanning} className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff] disabled:opacity-50" />
+                  <label className="text-xs text-[#475569] mb-1 block">IP, Dominio o URL *</label>
+                  <input type="text" value={adhocTarget} onChange={e => setAdhocTarget(e.target.value)} placeholder="ej. 10.202.15.15, google.com o https://pruebas.unuware.com" disabled={adhocScanning} className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-[#374151] focus:outline-none focus:border-[#8B5CF6] disabled:opacity-50" />
                   {adhocTarget.trim() && (
                     isIPAddress(normalizeTarget(adhocTarget))
-                      ? <span className="text-xs text-[#00d4ff] flex items-center gap-1 mt-1"><Server className="w-3 h-3" />Modo IP — ejecutará M2 + M3</span>
+                      ? <span className="text-xs text-[#8B5CF6] flex items-center gap-1 mt-1"><Server className="w-3 h-3" />Modo IP — ejecutará M2 + M3</span>
                       : <span className="text-xs text-[#22c55e] flex items-center gap-1 mt-1"><Globe className="w-3 h-3" />Modo Web — ejecutará Webcheck + M2 DNS</span>
                   )}
                 </div>
                 <div className="flex items-center gap-3">
-                  <select value={adhocScanTypes} onChange={e => setAdhocScanTypes(e.target.value)} disabled={adhocScanning} className="text-xs bg-[#0f1117] border border-[#2a3040] text-[#d1d5db] rounded-lg px-2 py-2 focus:outline-none focus:border-[#00d4ff] disabled:opacity-50 min-w-[220px]">
+                  <select value={adhocScanTypes} onChange={e => setAdhocScanTypes(e.target.value)} disabled={adhocScanning} className="text-xs bg-[#0A0C10] border border-[#2a3040] text-[#d1d5db] rounded-lg px-2 py-2 focus:outline-none focus:border-[#8B5CF6] disabled:opacity-50 min-w-[220px]">
                     <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl,js_analyzer,cors">Full Security (+ JS + CORS)</option>
                     <option value="nikto,nuclei,nmap,ffuf,whatweb,testssl">Full Web Scan (all)</option>
                     <option value="js_analyzer,cors">JS Secrets + CORS Check</option>
@@ -612,11 +612,11 @@ export function UnifiedScannerLayout() {
                     <option value="whatweb">whatweb — Tech Fingerprint</option>
                     <option value="testssl">testssl — TLS/SSL Analysis</option>
                   </select>
-                  <button onClick={handleAdhocScan} disabled={adhocScanning || !adhocTarget.trim()} className="flex items-center gap-2 px-5 py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                  <button onClick={handleAdhocScan} disabled={adhocScanning || !adhocTarget.trim()} className="flex items-center gap-2 px-5 py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] text-[#0A0C10] font-bold rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
                     {adhocScanning ? <><Loader2 className="w-4 h-4 animate-spin" />Escaneando...</> : <><Search className="w-4 h-4" />Iniciar Análisis</>}
                   </button>
                   {adhocPhase === 'WEB' && <span className="text-xs text-[#22c55e] font-mono animate-pulse">Webcheck activo...</span>}
-                  {adhocPhase === 'M2' && <span className="text-xs text-[#00d4ff] font-mono animate-pulse">M2 Reconocimiento activo...</span>}
+                  {adhocPhase === 'M2' && <span className="text-xs text-[#8B5CF6] font-mono animate-pulse">M2 Reconocimiento activo...</span>}
                   {adhocPhase === 'M3' && <span className="text-xs text-[#f59e0b] font-mono animate-pulse">M3 Escaneo de vulnerabilidades...</span>}
                   {adhocPhase === 'done' && <span className="text-xs text-[#22c55e] font-mono">✓ Análisis completado</span>}
                 </div>
@@ -624,18 +624,18 @@ export function UnifiedScannerLayout() {
               </div>
 
               {adhocLog.length > 0 && (
-                <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-3 font-mono text-xs space-y-0.5 max-h-40 overflow-y-auto">
+                <div className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-3 font-mono text-xs space-y-0.5 max-h-40 overflow-y-auto">
                   {adhocLog.map((l, i) => (
                     <div key={i} className="flex gap-2">
                       <span className="text-[#374151] shrink-0">{l.ts}</span>
-                      <span className={l.msg.startsWith('[✗]') ? 'text-[#ff3b3b]' : l.msg.startsWith('[✓]') ? 'text-[#22c55e]' : l.msg.startsWith('[M2]') ? 'text-[#00d4ff]' : l.msg.startsWith('[M3]') ? 'text-[#f59e0b]' : l.msg.startsWith('[WEB]') ? 'text-[#22c55e]' : 'text-[#9ca3af]'}>{l.msg}</span>
+                      <span className={l.msg.startsWith('[✗]') ? 'text-[#ff3b3b]' : l.msg.startsWith('[✓]') ? 'text-[#22c55e]' : l.msg.startsWith('[M2]') ? 'text-[#8B5CF6]' : l.msg.startsWith('[M3]') ? 'text-[#f59e0b]' : l.msg.startsWith('[WEB]') ? 'text-[#22c55e]' : 'text-[#64748B]'}>{l.msg}</span>
                     </div>
                   ))}
                 </div>
               )}
 
               {adhocWebResult && (
-                <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4 space-y-4">
+                <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-4 space-y-4">
                   <h4 className="text-sm font-semibold text-white flex items-center gap-2">
                     <Globe className="w-4 h-4 text-[#22c55e]" />
                     Análisis Web — {normalizeTarget(adhocTarget)}
@@ -643,19 +643,19 @@ export function UnifiedScannerLayout() {
 
                   {adhocWebResult.ssl && (
                     <div>
-                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">SSL / TLS</p>
+                      <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">SSL / TLS</p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        <div className="bg-[#0f1117] rounded p-2 text-center">
+                        <div className="bg-[#0A0C10] rounded p-2 text-center">
                           <div className={`text-sm font-bold ${adhocWebResult.ssl.isValid ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>{adhocWebResult.ssl.isValid ? '✓ Válido' : '✗ Inválido'}</div>
-                          <div className="text-[10px] text-[#6b7280] mt-0.5">Estado</div>
+                          <div className="text-[10px] text-[#475569] mt-0.5">Estado</div>
                         </div>
-                        <div className="bg-[#0f1117] rounded p-2 text-center">
+                        <div className="bg-[#0A0C10] rounded p-2 text-center">
                           <div className="text-sm font-bold text-white font-mono">{adhocWebResult.ssl.days_until_expiry ?? '?'}d</div>
-                          <div className="text-[10px] text-[#6b7280] mt-0.5">Días hasta expirar</div>
+                          <div className="text-[10px] text-[#475569] mt-0.5">Días hasta expirar</div>
                         </div>
-                        <div className="bg-[#0f1117] rounded p-2 text-center col-span-2">
+                        <div className="bg-[#0A0C10] rounded p-2 text-center col-span-2">
                           <div className="text-xs text-white font-mono truncate">{adhocWebResult.ssl.subject?.CN ?? adhocWebResult.ssl.subject ?? '—'}</div>
-                          <div className="text-[10px] text-[#6b7280] mt-0.5">Common Name</div>
+                          <div className="text-[10px] text-[#475569] mt-0.5">Common Name</div>
                         </div>
                       </div>
                     </div>
@@ -663,12 +663,12 @@ export function UnifiedScannerLayout() {
 
                   {adhocWebResult.headers && (
                     <div>
-                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">
+                      <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">
                         Security Headers
                         {adhocWebResult.headers.grade && (
                           <span className={`ml-2 px-2 py-0.5 rounded font-bold text-xs ${
                             adhocWebResult.headers.grade === 'A' ? 'bg-[#22c55e]/20 text-[#22c55e]' :
-                            adhocWebResult.headers.grade === 'B' ? 'bg-[#00d4ff]/20 text-[#00d4ff]' :
+                            adhocWebResult.headers.grade === 'B' ? 'bg-[#8B5CF6]/20 text-[#8B5CF6]' :
                             adhocWebResult.headers.grade === 'C' ? 'bg-[#f59e0b]/20 text-[#f59e0b]' :
                             'bg-[#ff3b3b]/20 text-[#ff3b3b]'
                           }`}>Grade {adhocWebResult.headers.grade}</span>
@@ -679,8 +679,8 @@ export function UnifiedScannerLayout() {
                           {adhocWebResult.headers.missing.map((h, i) => (
                             <div key={i} className="flex items-center gap-2 text-xs">
                               <span className="text-[#ff3b3b]">✗</span>
-                              <span className="font-mono text-[#9ca3af]">{h}</span>
-                              <span className="text-[#6b7280]">ausente</span>
+                              <span className="font-mono text-[#64748B]">{h}</span>
+                              <span className="text-[#475569]">ausente</span>
                             </div>
                           ))}
                         </div>
@@ -690,10 +690,10 @@ export function UnifiedScannerLayout() {
 
                   {adhocWebResult['tech-stack']?.technologies?.length > 0 && (
                     <div>
-                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">Tech Stack</p>
+                      <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">Tech Stack</p>
                       <div className="flex flex-wrap gap-1.5">
                         {adhocWebResult['tech-stack'].technologies.map((t, i) => (
-                          <span key={i} className="px-2 py-0.5 bg-[#1e2530] border border-[#374151] text-[#9ca3af] rounded text-xs font-mono">
+                          <span key={i} className="px-2 py-0.5 bg-[#1C2030] border border-[#374151] text-[#64748B] rounded text-xs font-mono">
                             {t.name}{t.version ? ` ${t.version}` : ''}
                           </span>
                         ))}
@@ -703,14 +703,14 @@ export function UnifiedScannerLayout() {
 
                   {adhocWebResult.dns && Object.values(adhocWebResult.dns).some(v => Array.isArray(v) && v.length > 0) && (
                     <div>
-                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">DNS Records</p>
+                      <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">DNS Records</p>
                       <div className="space-y-1">
                         {Object.entries(adhocWebResult.dns)
                           .filter(([, v]) => Array.isArray(v) && v.length > 0)
                           .map(([type, records]) => (
                             <div key={type} className="flex gap-2 text-xs">
-                              <span className="font-mono text-[#00d4ff] w-12 shrink-0">{type}</span>
-                              <span className="text-[#9ca3af] font-mono truncate">{records.slice(0, 3).join(', ')}</span>
+                              <span className="font-mono text-[#8B5CF6] w-12 shrink-0">{type}</span>
+                              <span className="text-[#64748B] font-mono truncate">{records.slice(0, 3).join(', ')}</span>
                             </div>
                           ))}
                       </div>
@@ -719,7 +719,7 @@ export function UnifiedScannerLayout() {
 
                   {adhocWebResult['mail-config'] && (
                     <div>
-                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">Mail Security</p>
+                      <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">Mail Security</p>
                       <div className="flex gap-3">
                         {['spf', 'dkim', 'dmarc'].map(k => {
                           const val = adhocWebResult['mail-config'][k];
@@ -737,9 +737,9 @@ export function UnifiedScannerLayout() {
               )}
 
               {adhocM2Result && (
-                <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4 space-y-4">
+                <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-4 space-y-4">
                   <h4 className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
-                    <Radio className="w-4 h-4 text-[#00d4ff]" />M2 — Reconocimiento
+                    <Radio className="w-4 h-4 text-[#8B5CF6]" />M2 — Reconocimiento
                   </h4>
 
                   {/* ─── [NUEVO CASILLERO] CLASIFICACIÓN DE PERFIL DEL ACTIVO EN VIVO ─── */}
@@ -753,14 +753,14 @@ export function UnifiedScannerLayout() {
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                     {[
-                      { label: 'Puertos abiertos', value: adhocM2Result.summary?.total_ports_open ?? 0, color: '#00d4ff' },
-                      { label: 'Servicios', value: adhocM2Result.summary?.total_services_detected ?? 0, color: '#00d4ff' },
-                      { label: 'SSL activo', value: adhocM2Result.summary?.ssl_active ? 'Sí' : 'No', color: adhocM2Result.summary?.ssl_active ? '#22c55e' : '#6b7280' },
-                      { label: 'Duración', value: `${adhocM2Result.summary?.scan_duration_seconds?.toFixed(1) ?? '?'}s`, color: '#9ca3af' },
+                      { label: 'Puertos abiertos', value: adhocM2Result.summary?.total_ports_open ?? 0, color: '#8B5CF6' },
+                      { label: 'Servicios', value: adhocM2Result.summary?.total_services_detected ?? 0, color: '#8B5CF6' },
+                      { label: 'SSL activo', value: adhocM2Result.summary?.ssl_active ? 'Sí' : 'No', color: adhocM2Result.summary?.ssl_active ? '#22c55e' : '#475569' },
+                      { label: 'Duración', value: `${adhocM2Result.summary?.scan_duration_seconds?.toFixed(1) ?? '?'}s`, color: '#64748B' },
                     ].map(({ label, value, color }) => (
-                      <div key={label} className="bg-[#0f1117] rounded-lg p-3 text-center">
+                      <div key={label} className="bg-[#0A0C10] rounded-lg p-3 text-center">
                         <div className="text-lg font-bold font-mono" style={{ color }}>{value}</div>
-                        <div className="text-xs text-[#6b7280] mt-0.5">{label}</div>
+                        <div className="text-xs text-[#475569] mt-0.5">{label}</div>
                       </div>
                     ))}
                   </div>
@@ -768,7 +768,7 @@ export function UnifiedScannerLayout() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="text-[#6b7280] border-b border-[#1e2530]">
+                          <tr className="text-[#475569] border-b border-[#1C2030]">
                             <th className="text-left py-2 font-medium">Puerto</th>
                             <th className="text-left py-2 font-medium">Servicio</th>
                             <th className="text-left py-2 font-medium">Versión</th>
@@ -777,10 +777,10 @@ export function UnifiedScannerLayout() {
                         </thead>
                         <tbody>
                           {adhocM2Result.reconnaissance.ports_discovered.map((p, i) => (
-                            <tr key={i} className="border-b border-[#1e2530]/50 hover:bg-[#1e2530]/30">
-                              <td className="py-2 font-mono text-[#00d4ff]">{p.port}/{p.protocol}</td>
+                            <tr key={i} className="border-b border-[#1C2030]/50 hover:bg-[#1C2030]/30">
+                              <td className="py-2 font-mono text-[#8B5CF6]">{p.port}/{p.protocol}</td>
                               <td className="py-2 text-white">{p.service}</td>
-                              <td className="py-2 text-[#9ca3af] max-w-xs truncate">{p.version || '—'}</td>
+                              <td className="py-2 text-[#64748B] max-w-xs truncate">{p.version || '—'}</td>
                               <td className="py-2"><span className="px-2 py-0.5 bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e] rounded">{p.state}</span></td>
                             </tr>
                           ))}
@@ -792,18 +792,18 @@ export function UnifiedScannerLayout() {
               )}
 
               {adhocM3Result && (
-                <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-4">
+                <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-4">
                   <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-[#f59e0b]" />M3 — Vulnerabilidades ({adhocM3Result.total_findings} hallazgos)</h4>
                   {Object.entries(adhocM3Result.findings_by_scanner ?? {}).map(([scanner, findings]) => (
                     <div key={scanner} className="mb-4">
-                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">{scanner}</p>
+                      <p className="text-xs font-semibold text-[#475569] uppercase tracking-wider mb-2">{scanner}</p>
                       <div className="space-y-1.5">
                         {findings.map((f, i) => (
-                          <div key={i} className="flex items-start gap-3 px-3 py-2 bg-[#0f1117] rounded-lg border border-[#1e2530]/50">
-                            <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border ${f.severity === 'CRITICAL' ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]' : f.severity === 'HIGH' ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' : f.severity === 'MEDIUM' ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]' : f.severity === 'LOW' ? 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]' : 'bg-[#1e2530] border-[#374151] text-[#6b7280]'}`}>{f.severity}</span>
+                          <div key={i} className="flex items-start gap-3 px-3 py-2 bg-[#0A0C10] rounded-lg border border-[#1C2030]/50">
+                            <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border ${f.severity === 'CRITICAL' ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]' : f.severity === 'HIGH' ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' : f.severity === 'MEDIUM' ? 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]' : f.severity === 'LOW' ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6]' : 'bg-[#1C2030] border-[#374151] text-[#475569]'}`}>{f.severity}</span>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs text-white">{f.title}</p>
-                              {f.cve && <p className="text-[10px] font-mono text-[#00d4ff] mt-0.5">{f.cve} · CVSS {f.cvss}</p>}
+                              {f.cve && <p className="text-[10px] font-mono text-[#8B5CF6] mt-0.5">{f.cve} · CVSS {f.cvss}</p>}
                             </div>
                           </div>
                         ))}

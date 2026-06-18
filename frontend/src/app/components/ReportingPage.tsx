@@ -44,7 +44,7 @@ const REPORT_CARDS: ReportCard[] = [
   {
     id: 'executive',
     icon: BarChart3,
-    color: '#00d4ff',
+    color: '#8B5CF6',
     title: 'Informe Ejecutivo',
     description: 'Métricas globales, score ENS, ROI y top vulnerabilidades.',
     endpoint: `${M7_BASE}/report/executive`,
@@ -172,7 +172,7 @@ export function ReportingPage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar role="Auditor" />
@@ -181,14 +181,14 @@ export function ReportingPage() {
           {/* Header */}
           <div>
             <h1 className="text-2xl font-semibold text-white mb-1">Reporting Engine (M7)</h1>
-            <p className="text-[#9ca3af] text-sm">
+            <p className="text-[#64748B] text-sm">
               Informes PDF firmados digitalmente · ENS mp.info.4 · AES-256
             </p>
           </div>
 
           {/* Generación de informes */}
           <section className="space-y-4">
-            <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">
+            <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider">
               Generación de informes
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -199,7 +199,7 @@ export function ReportingPage() {
                 return (
                   <div
                     key={card.id}
-                    className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5 flex flex-col gap-4"
+                    className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-4"
                   >
                     <div className="flex items-start gap-3">
                       <div
@@ -210,7 +210,7 @@ export function ReportingPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold text-white">{card.title}</div>
-                        <div className="text-xs text-[#9ca3af] mt-0.5">{card.description}</div>
+                        <div className="text-xs text-[#64748B] mt-0.5">{card.description}</div>
                       </div>
                     </div>
 
@@ -246,18 +246,18 @@ export function ReportingPage() {
 
           {/* Informe por Activo */}
           <section className="space-y-4">
-            <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">
+            <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider">
               Informe por Activo
             </h2>
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5 space-y-4">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 space-y-4">
 
               <div className="flex gap-3 items-center">
                 <div className="flex-1">
-                  <label className="text-xs text-[#9ca3af] mb-1.5 block">Seleccionar Activo (M1)</label>
+                  <label className="text-xs text-[#64748B] mb-1.5 block">Seleccionar Activo (M1)</label>
                   <select
                     value={selectedAssetId}
                     onChange={e => setSelectedAssetId(Number(e.target.value) || '')}
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#00d4ff] transition-colors"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#8B5CF6] transition-colors"
                   >
                     <option value="">— Selecciona un activo —</option>
                     {assets.map(a => (
@@ -278,7 +278,7 @@ export function ReportingPage() {
                 </button>
               </div>
 
-              <p className="text-xs text-[#6b7280]">
+              <p className="text-xs text-[#475569]">
                 Genera un informe PDF completo del activo seleccionado con datos de
                 M1 (ficha), M2 (reconocimiento), M3 (vulnerabilidades),
                 M8 (análisis IA), M4 (explotación) y M5 (eventos SIEM).
@@ -297,50 +297,50 @@ export function ReportingPage() {
           {/* Historial */}
           <section className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">
+              <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider">
                 Historial de ciclos
               </h2>
               <button
                 onClick={fetchHistory}
                 disabled={historyLoading}
-                className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-[#9ca3af] hover:text-white transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-1.5 bg-[#111318] border border-[#1C2030] rounded-lg text-xs text-[#64748B] hover:text-white transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
                 Actualizar
               </button>
             </div>
 
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
               {historyLoading ? (
-                <div className="flex items-center justify-center gap-2 py-10 text-[#6b7280]">
+                <div className="flex items-center justify-center gap-2 py-10 text-[#475569]">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">Cargando historial...</span>
                 </div>
               ) : historyError || history.length === 0 ? (
-                <div className="py-10 text-center text-sm text-[#6b7280] font-mono">
+                <div className="py-10 text-center text-sm text-[#475569] font-mono">
                   No hay informes históricos disponibles.
                 </div>
               ) : (
                 <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-[#6b7280] uppercase bg-[#111318] border-b border-[#1e2530]">
+                  <thead className="text-xs text-[#475569] uppercase bg-[#111318] border-b border-[#1C2030]">
                     <tr>
                       <th className="px-6 py-3 font-semibold">Archivo</th>
                       <th className="px-6 py-3 font-semibold">Fecha</th>
                       <th className="px-6 py-3 font-semibold">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#1e2530]">
+                  <tbody className="divide-y divide-[#1C2030]">
                     {history.map((filename) => (
-                      <tr key={filename} className="hover:bg-[#1e2530]/40 transition-colors">
-                        <td className="px-6 py-3 font-mono text-xs text-[#9ca3af]">{filename}</td>
-                        <td className="px-6 py-3 text-xs text-[#6b7280]">
+                      <tr key={filename} className="hover:bg-[#1C2030]/40 transition-colors">
+                        <td className="px-6 py-3 font-mono text-xs text-[#64748B]">{filename}</td>
+                        <td className="px-6 py-3 text-xs text-[#475569]">
                           {historyDateFmt(filename)}
                         </td>
                         <td className="px-6 py-3">
                           <button
                             onClick={() => handleHistoryDownload(filename)}
                             disabled={!!dlLoading[filename]}
-                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg hover:bg-[#00d4ff]/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] rounded-lg hover:bg-[#8B5CF6]/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                           >
                             {dlLoading[filename]
                               ? <Loader2 className="w-3.5 h-3.5 animate-spin" />

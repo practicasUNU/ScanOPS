@@ -160,7 +160,7 @@ function AssetResultCard({ result }: { result: HardeningResult }) {
   };
 
   return (
-    <Card className="bg-[#1a1d27] border-[#1e2530]">
+    <Card className="bg-[#111318] border-[#1C2030]">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
@@ -188,10 +188,10 @@ function AssetResultCard({ result }: { result: HardeningResult }) {
 
       {expanded && (
         <CardContent className="pt-0">
-          <div className="overflow-x-auto rounded border border-[#1e2530]">
+          <div className="overflow-x-auto rounded border border-[#1C2030]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#1e2530] text-slate-500 text-xs uppercase">
+                <tr className="border-b border-[#1C2030] text-slate-500 text-xs uppercase">
                   <th className="text-left px-3 py-2 w-8">#</th>
                   <th className="text-left px-3 py-2">Control</th>
                   <th className="text-left px-3 py-2">Resultado</th>
@@ -201,11 +201,11 @@ function AssetResultCard({ result }: { result: HardeningResult }) {
               </thead>
               <tbody>
                 {result.controles.map((ctrl, idx) => (
-                  <tr key={ctrl.id} className={`border-b border-[#1e2530]/50 ${idx % 2 === 0 ? 'bg-[#0f1117]/30' : ''}`}>
+                  <tr key={ctrl.id} className={`border-b border-[#1C2030]/50 ${idx % 2 === 0 ? 'bg-[#0A0C10]/30' : ''}`}>
                     <td className="px-3 py-2 text-slate-500 font-mono">{ctrl.id}</td>
                     <td className="px-3 py-2 text-slate-200">{ctrl.nombre}</td>
                     <td className="px-3 py-2"><ResultBadge resultado={ctrl.resultado} /></td>
-                    <td className="px-3 py-2 font-mono text-[#00d4ff] text-xs">{ctrl.medida_ens}</td>
+                    <td className="px-3 py-2 font-mono text-[#8B5CF6] text-xs">{ctrl.medida_ens}</td>
                     <td className="px-3 py-2 text-slate-400 text-xs max-w-xs truncate" title={ctrl.detalle}>{ctrl.detalle || '—'}</td>
                   </tr>
                 ))}
@@ -221,7 +221,7 @@ function AssetResultCard({ result }: { result: HardeningResult }) {
               variant="outline"
               size="sm"
               disabled={pdfLoading}
-              className="gap-2 border-[#1e2530] text-slate-300 hover:text-white hover:border-[#00d4ff]/50 disabled:opacity-50"
+              className="gap-2 border-[#1C2030] text-slate-300 hover:text-white hover:border-[#8B5CF6]/50 disabled:opacity-50"
               onClick={handlePdf}
             >
               {pdfLoading
@@ -369,7 +369,7 @@ export function BastionadoPage() {
 
   return (
     <TooltipProvider>
-      <div className="flex-1 overflow-y-auto bg-[#0f1117] min-h-screen">
+      <div className="flex-1 overflow-y-auto bg-[#0A0C10] min-h-screen">
         <div className="max-w-6xl mx-auto p-6 space-y-6">
 
           {/* Cabecera */}
@@ -379,14 +379,14 @@ export function BastionadoPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => navigate('/dashboard')}
-                className="gap-1.5 text-slate-400 hover:text-white hover:bg-[#1e2530] px-2"
+                className="gap-1.5 text-slate-400 hover:text-white hover:bg-[#1C2030] px-2"
               >
                 <ArrowLeft className="w-4 h-4" />
                 Volver
               </Button>
-              <div className="w-px h-6 bg-[#1e2530]" />
-              <div className="w-10 h-10 rounded-lg bg-[#00d4ff]/10 border border-[#00d4ff]/20 flex items-center justify-center">
-                <Shield className="w-5 h-5 text-[#00d4ff]" />
+              <div className="w-px h-6 bg-[#1C2030]" />
+              <div className="w-10 h-10 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 flex items-center justify-center">
+                <Shield className="w-5 h-5 text-[#8B5CF6]" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">Bastionado ENS</h1>
@@ -394,7 +394,7 @@ export function BastionadoPage() {
               </div>
             </div>
             {lastCycle ? (
-              <Badge variant="outline" className="border-[#00d4ff]/30 text-[#00d4ff] text-xs">
+              <Badge variant="outline" className="border-[#8B5CF6]/30 text-[#8B5CF6] text-xs">
                 Último ciclo: {new Date(lastCycle).toLocaleDateString('es-ES')}
               </Badge>
             ) : (
@@ -405,7 +405,7 @@ export function BastionadoPage() {
           </div>
 
           {/* Panel de ejecución */}
-          <Card className="bg-[#1a1d27] border-[#1e2530]">
+          <Card className="bg-[#111318] border-[#1C2030]">
             <CardHeader>
               <CardTitle className="text-white text-base">Nueva Verificación</CardTitle>
             </CardHeader>
@@ -436,12 +436,12 @@ export function BastionadoPage() {
               {assets.length > 0 && (
                 <>
                   {/* Seleccionar todos */}
-                  <div className="flex items-center gap-3 px-3 py-2 border-b border-[#1e2530]">
+                  <div className="flex items-center gap-3 px-3 py-2 border-b border-[#1C2030]">
                     <Checkbox
                       checked={allSelected}
                       disabled={eligibleIds.length === 0}
                       onCheckedChange={toggleAll}
-                      className="border-slate-600 data-[state=checked]:bg-[#00d4ff] data-[state=checked]:border-[#00d4ff]"
+                      className="border-slate-600 data-[state=checked]:bg-[#8B5CF6] data-[state=checked]:border-[#8B5CF6]"
                     />
                     <span
                       className={`text-xs font-medium select-none ${eligibleIds.length === 0 ? 'text-slate-600' : 'text-slate-400 cursor-pointer hover:text-white'}`}
@@ -450,7 +450,7 @@ export function BastionadoPage() {
                       Seleccionar todos
                     </span>
                     {selectedIds.size > 0 && (
-                      <span className="ml-auto text-xs text-[#00d4ff]">
+                      <span className="ml-auto text-xs text-[#8B5CF6]">
                         {selectedIds.size} / {eligibleIds.length} seleccionados
                       </span>
                     )}
@@ -466,10 +466,10 @@ export function BastionadoPage() {
                           key={asset.id}
                           className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
                             disabled
-                              ? 'border-[#1e2530] opacity-50 cursor-not-allowed'
+                              ? 'border-[#1C2030] opacity-50 cursor-not-allowed'
                               : checked
-                              ? 'border-[#00d4ff]/30 bg-[#00d4ff]/5'
-                              : 'border-[#1e2530] hover:border-[#1e2530]/80 hover:bg-[#0f1117]/40 cursor-pointer'
+                              ? 'border-[#8B5CF6]/30 bg-[#8B5CF6]/5'
+                              : 'border-[#1C2030] hover:border-[#1C2030]/80 hover:bg-[#0A0C10]/40 cursor-pointer'
                           }`}
                           onClick={() => !disabled && toggleAsset(asset.id)}
                         >
@@ -481,7 +481,7 @@ export function BastionadoPage() {
                                   disabled={disabled}
                                   onCheckedChange={() => !disabled && toggleAsset(asset.id)}
                                   onClick={e => e.stopPropagation()}
-                                  className="border-slate-600 data-[state=checked]:bg-[#00d4ff] data-[state=checked]:border-[#00d4ff]"
+                                  className="border-slate-600 data-[state=checked]:bg-[#8B5CF6] data-[state=checked]:border-[#8B5CF6]"
                                 />
                               </span>
                             </TooltipTrigger>
@@ -516,7 +516,7 @@ export function BastionadoPage() {
                 <Button
                   disabled={selectedIds.size === 0 || running}
                   onClick={handleRun}
-                  className="gap-2 bg-[#00d4ff] hover:bg-[#00b8d9] text-[#0f1117] font-semibold disabled:opacity-50"
+                  className="gap-2 bg-[#8B5CF6] hover:bg-[#00b8d9] text-[#0A0C10] font-semibold disabled:opacity-50"
                 >
                   {running ? (
                     <>

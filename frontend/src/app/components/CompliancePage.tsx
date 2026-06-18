@@ -444,7 +444,7 @@ export function CompliancePage() {
       compliant:      { cls: 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]', icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: 'Conforme' },
       partial:        { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]', icon: <AlertTriangle className="w-3.5 h-3.5" />, label: 'Parcial' },
       'non-compliant':{ cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]', icon: <XCircle className="w-3.5 h-3.5" />, label: 'No conforme' },
-      'not-applicable':{ cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]', icon: <Minus className="w-3.5 h-3.5" />, label: 'No aplica' },
+      'not-applicable':{ cls: 'bg-[#374151]/30 border-[#334155]/30 text-[#475569]', icon: <Minus className="w-3.5 h-3.5" />, label: 'No aplica' },
     }[status];
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${cfg.cls}`}>
@@ -463,7 +463,7 @@ export function CompliancePage() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -475,13 +475,13 @@ export function CompliancePage() {
           <div className="flex items-start justify-between gap-6 flex-wrap">
             <div>
               <h1 className="text-2xl font-semibold text-white mb-1">Cumplimiento ENS Alto</h1>
-              <p className="text-[#9ca3af] text-sm">73 medidas del Anexo II — RD 311/2022</p>
+              <p className="text-[#64748B] text-sm">73 medidas del Anexo II — RD 311/2022</p>
             </div>
             {/* Score circular */}
             <div className="flex items-center gap-3">
               <div className="relative w-20 h-20">
                 <svg viewBox="0 0 80 80" className="w-full h-full -rotate-90">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="#1e2530" strokeWidth="8" />
+                  <circle cx="40" cy="40" r="34" fill="none" stroke="#1C2030" strokeWidth="8" />
                   <circle
                     cx="40" cy="40" r="34" fill="none"
                     stroke={scoreColor} strokeWidth="8"
@@ -494,7 +494,7 @@ export function CompliancePage() {
                   <span className="text-lg font-bold" style={{ color: scoreColor }}>{compliancePct}%</span>
                 </div>
               </div>
-              <div className="text-sm text-[#9ca3af]">
+              <div className="text-sm text-[#64748B]">
                 <div className="font-semibold text-white mb-0.5">Índice de cumplimiento</div>
                 <div>Mínimo ENS Alto: <span className="text-[#22c55e]">≥80%</span></div>
                 <div className="text-xs mt-0.5">{applicable} medidas aplicables</div>
@@ -508,13 +508,13 @@ export function CompliancePage() {
               { label: 'Conformes',    value: compliantCount, color: '#22c55e' },
               { label: 'Parciales',    value: partialCount,   color: '#f59e0b' },
               { label: 'No conformes', value: nonCompliant,   color: '#ff3b3b' },
-              { label: 'No aplica',    value: notApplicable,  color: '#6b7280' },
+              { label: 'No aplica',    value: notApplicable,  color: '#475569' },
             ].map(({ label, value, color }) => (
-              <div key={label} className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4 flex items-center gap-3">
+              <div key={label} className="bg-[#111318] border border-[#1C2030] rounded-xl p-4 flex items-center gap-3">
                 <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color }} />
                 <div>
                   <div className="text-2xl font-bold text-white">{value}</div>
-                  <div className="text-xs text-[#9ca3af]">{label}</div>
+                  <div className="text-xs text-[#64748B]">{label}</div>
                 </div>
               </div>
             ))}
@@ -522,21 +522,21 @@ export function CompliancePage() {
 
           {/* ── Panel evidencias pipeline ── */}
           {pipelineStats && (
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4">
               <h3 className="text-xs font-bold text-white mb-3 flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-[#22c55e]" />
                 Evidencias del Pipeline — Datos Reales
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { label: 'Activos registrados',     value: pipelineStats.total_assets,     color: '#00d4ff', ref: 'op.exp.1' },
+                  { label: 'Activos registrados',     value: pipelineStats.total_assets,     color: '#8B5CF6', ref: 'op.exp.1' },
                   { label: 'Exploits aprobados (M4)', value: pipelineStats.approved_exploits, color: '#22c55e', ref: 'op.acc.5' },
                   { label: 'Eventos SIEM',            value: pipelineStats.siem_events,       color: '#f59e0b', ref: 'op.mon.1' },
                   { label: 'Último análisis',         value: pipelineStats.last_scan ?? '—', color: '#a78bfa', ref: 'op.exp.2' },
                 ].map(({ label, value, color, ref }) => (
-                  <div key={label} className="bg-[#0f1117] rounded-lg p-3 text-center">
+                  <div key={label} className="bg-[#0A0C10] rounded-lg p-3 text-center">
                     <div className="text-lg font-bold font-mono" style={{ color }}>{value}</div>
-                    <div className="text-[10px] text-[#6b7280] mt-0.5">{label}</div>
+                    <div className="text-[10px] text-[#475569] mt-0.5">{label}</div>
                     <div className="text-[9px] text-[#374151] mt-0.5 font-mono">{ref}</div>
                   </div>
                 ))}
@@ -545,40 +545,40 @@ export function CompliancePage() {
           )}
 
           {/* ── SECCIÓN B — Filtros + Tabla ── */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden">
             {/* Filtros */}
-            <div className="p-4 border-b border-[#1e2530] flex flex-wrap gap-3">
+            <div className="p-4 border-b border-[#1C2030] flex flex-wrap gap-3">
               <div className="relative flex-1 min-w-48">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#4b5563]" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#334155]" />
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Buscar por ID o nombre..."
-                  className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff]"
+                  className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-[#374151] focus:outline-none focus:border-[#8B5CF6]"
                 />
               </div>
               <select
                 value={catFilter}
                 onChange={e => setCatFilter(e.target.value)}
-                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
               >
                 {ALL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <select
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
-                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
               >
                 {['Todos', 'Conforme', 'Parcial', 'No conforme', 'No aplica'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <span className="text-xs text-[#6b7280] self-center">{filtered.length} medidas</span>
+              <span className="text-xs text-[#475569] self-center">{filtered.length} medidas</span>
             </div>
 
             {/* Tabla */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs text-[#6b7280] border-b border-[#1e2530] bg-[#0f1117]/50">
+                  <tr className="text-left text-xs text-[#475569] border-b border-[#1C2030] bg-[#0A0C10]/50">
                     <th className="px-4 py-3 font-medium w-24">ID</th>
                     <th className="px-4 py-3 font-medium">Nombre</th>
                     <th className="px-4 py-3 font-medium w-36">Categoría</th>
@@ -587,7 +587,7 @@ export function CompliancePage() {
                     <th className="px-4 py-3 font-medium">Evidencia</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#1e2530]">
+                <tbody className="divide-y divide-[#1C2030]">
                   {filtered.map(m => {
                     const effectiveStatus = getDynamicStatus(m.id) ?? m.status;
                     return (
@@ -595,53 +595,53 @@ export function CompliancePage() {
                       <tr
                         key={m.id}
                         onClick={() => setSelectedId(selectedId === m.id ? null : m.id)}
-                        className="cursor-pointer hover:bg-[#1e2530]/50 transition-colors"
+                        className="cursor-pointer hover:bg-[#1C2030]/50 transition-colors"
                       >
-                        <td className="px-4 py-3 font-mono text-xs text-[#00d4ff]">{m.id}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-[#8B5CF6]">{m.id}</td>
                         <td className="px-4 py-3 text-white text-sm">{m.name}</td>
-                        <td className="px-4 py-3 text-[#9ca3af] text-xs">{m.category}</td>
+                        <td className="px-4 py-3 text-[#64748B] text-xs">{m.category}</td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1">
                             {m.implementedBy.length > 0
                               ? m.implementedBy.map(mod => (
-                                  <span key={mod} className="px-1.5 py-0.5 bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20 rounded text-xs font-mono">{mod}</span>
+                                  <span key={mod} className="px-1.5 py-0.5 bg-[#8B5CF6]/10 text-[#8B5CF6] border border-[#8B5CF6]/20 rounded text-xs font-mono">{mod}</span>
                                 ))
-                              : <span className="px-1.5 py-0.5 bg-[#374151]/30 text-[#6b7280] border border-[#4b5563]/20 rounded text-xs">Sin módulo</span>
+                              : <span className="px-1.5 py-0.5 bg-[#374151]/30 text-[#475569] border border-[#334155]/20 rounded text-xs">Sin módulo</span>
                             }
                           </div>
                         </td>
                         <td className="px-4 py-3">{statusBadge(effectiveStatus)}</td>
-                        <td className="px-4 py-3 text-xs text-[#9ca3af] max-w-xs truncate" title={m.evidence}>{m.evidence}</td>
+                        <td className="px-4 py-3 text-xs text-[#64748B] max-w-xs truncate" title={m.evidence}>{m.evidence}</td>
                       </tr>
 
                       {/* Panel de detalle expandido */}
                       {selectedId === m.id && (
                         <tr key={`${m.id}-detail`}>
-                          <td colSpan={6} className="px-6 py-5 bg-[#0f1117] border-l-2 border-[#00d4ff]">
+                          <td colSpan={6} className="px-6 py-5 bg-[#0A0C10] border-l-2 border-[#8B5CF6]">
                             <div className="space-y-4">
                               <div className="flex items-start justify-between gap-4 flex-wrap">
                                 <div>
-                                  <span className="font-mono text-[#00d4ff] text-sm font-bold">{m.id}</span>
+                                  <span className="font-mono text-[#8B5CF6] text-sm font-bold">{m.id}</span>
                                   <span className="text-white font-semibold text-sm ml-2">{m.name}</span>
-                                  <div className="text-xs text-[#9ca3af] mt-0.5">{m.category} · RD 311/2022 — Anexo II — {m.categoryCode}</div>
+                                  <div className="text-xs text-[#64748B] mt-0.5">{m.category} · RD 311/2022 — Anexo II — {m.categoryCode}</div>
                                 </div>
                                 {statusBadge(effectiveStatus)}
                               </div>
 
                               <div>
-                                <div className="text-xs text-[#6b7280] uppercase tracking-wider mb-1">Evidencia técnica</div>
+                                <div className="text-xs text-[#475569] uppercase tracking-wider mb-1">Evidencia técnica</div>
                                 <div className="text-sm text-white">{m.evidence}</div>
                               </div>
 
                               {m.implementedBy.length > 0 && (
                                 <div>
-                                  <div className="text-xs text-[#6b7280] uppercase tracking-wider mb-2">Módulos que la implementan</div>
+                                  <div className="text-xs text-[#475569] uppercase tracking-wider mb-2">Módulos que la implementan</div>
                                   <div className="flex flex-wrap gap-2">
                                     {m.implementedBy.map(mod => (
                                       <button
                                         key={mod}
                                         onClick={e => { e.stopPropagation(); navigate(MODULE_ROUTES[mod] ?? '/dashboard'); }}
-                                        className="px-3 py-1.5 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 text-[#00d4ff] border border-[#00d4ff]/30 rounded-lg text-xs font-semibold transition-colors"
+                                        className="px-3 py-1.5 bg-[#8B5CF6]/10 hover:bg-[#8B5CF6]/20 text-[#8B5CF6] border border-[#8B5CF6]/30 rounded-lg text-xs font-semibold transition-colors"
                                       >
                                         Ver en {mod} →
                                       </button>
@@ -660,30 +660,30 @@ export function CompliancePage() {
               </table>
 
               {filtered.length === 0 && (
-                <div className="text-center text-[#6b7280] text-sm py-12">Sin medidas que coincidan con los filtros.</div>
+                <div className="text-center text-[#475569] text-sm py-12">Sin medidas que coincidan con los filtros.</div>
               )}
             </div>
           </div>
 
           {/* ── SECCIÓN C — Descarga de informes M7 ── */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-6">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
             <h2 className="text-lg font-semibold text-white mb-4">Informes de cumplimiento</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {REPORTS.map(r => (
-                <div key={r.key} className="flex items-center justify-between p-4 bg-[#0f1117] border border-[#1e2530] rounded-xl hover:border-[#00d4ff]/30 transition-colors">
+                <div key={r.key} className="flex items-center justify-between p-4 bg-[#0A0C10] border border-[#1C2030] rounded-xl hover:border-[#8B5CF6]/30 transition-colors">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-[#00d4ff]/10 rounded-lg flex items-center justify-center shrink-0">
-                      <FileText className="w-5 h-5 text-[#00d4ff]" />
+                    <div className="w-10 h-10 bg-[#8B5CF6]/10 rounded-lg flex items-center justify-center shrink-0">
+                      <FileText className="w-5 h-5 text-[#8B5CF6]" />
                     </div>
                     <div>
                       <div className="text-sm font-medium text-white">{r.label}</div>
-                      <div className="text-xs text-[#6b7280] font-mono">{r.filename}</div>
+                      <div className="text-xs text-[#475569] font-mono">{r.filename}</div>
                     </div>
                   </div>
                   <button
                     onClick={() => handleDownload(r.url, r.filename, r.key)}
                     disabled={dlLoading[r.key]}
-                    className="px-3 py-2 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 text-[#00d4ff] border border-[#00d4ff]/30 font-semibold rounded-lg transition-colors flex items-center gap-1.5 text-xs disabled:opacity-50 shrink-0"
+                    className="px-3 py-2 bg-[#8B5CF6]/10 hover:bg-[#8B5CF6]/20 text-[#8B5CF6] border border-[#8B5CF6]/30 font-semibold rounded-lg transition-colors flex items-center gap-1.5 text-xs disabled:opacity-50 shrink-0"
                   >
                     {dlLoading[r.key]
                       ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Descargando...</>
@@ -698,12 +698,12 @@ export function CompliancePage() {
           </div>
 
           {/* ── SECCIÓN D — Historial desde M7 ── */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-6">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
             <h2 className="text-lg font-semibold text-white mb-4">Historial de auditorías</h2>
 
             {histLoading && (
               <div className="flex justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-[#00d4ff]" />
+                <Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6]" />
               </div>
             )}
 
@@ -715,29 +715,29 @@ export function CompliancePage() {
             )}
 
             {!histLoading && !histError && history.length === 0 && (
-              <p className="text-[#6b7280] text-sm text-center py-6">Sin historial disponible.</p>
+              <p className="text-[#475569] text-sm text-center py-6">Sin historial disponible.</p>
             )}
 
             {!histLoading && !histError && history.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs text-[#6b7280] border-b border-[#1e2530]">
+                    <tr className="text-left text-xs text-[#475569] border-b border-[#1C2030]">
                       <th className="pb-3 pr-4 font-medium">Archivo</th>
                       <th className="pb-3 pr-4 font-medium">Fecha</th>
                       <th className="pb-3 font-medium">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#1e2530]">
+                  <tbody className="divide-y divide-[#1C2030]">
                     {history.map(f => (
-                      <tr key={f.name} className="hover:bg-[#1e2530]/40 transition-colors">
+                      <tr key={f.name} className="hover:bg-[#1C2030]/40 transition-colors">
                         <td className="py-3 pr-4 font-mono text-xs text-white">{f.name}</td>
-                        <td className="py-3 pr-4 text-xs text-[#9ca3af] font-mono">{f.date}</td>
+                        <td className="py-3 pr-4 text-xs text-[#64748B] font-mono">{f.date}</td>
                         <td className="py-3">
                           <button
                             onClick={() => handleHistDownload(f.name)}
                             disabled={histDlLoading[f.name]}
-                            className="px-3 py-1.5 bg-[#00d4ff]/10 hover:bg-[#00d4ff]/20 text-[#00d4ff] border border-[#00d4ff]/30 rounded-lg transition-colors flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50"
+                            className="px-3 py-1.5 bg-[#8B5CF6]/10 hover:bg-[#8B5CF6]/20 text-[#8B5CF6] border border-[#8B5CF6]/30 rounded-lg transition-colors flex items-center gap-1.5 text-xs font-semibold disabled:opacity-50"
                           >
                             {histDlLoading[f.name]
                               ? <><Loader2 className="w-3 h-3 animate-spin" /> Descargando...</>

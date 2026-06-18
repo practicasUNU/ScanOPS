@@ -96,17 +96,17 @@ export function LivePipelineTerminal() {
   const handleClear = () => setLines([]);
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0c12] border border-[#1e2530] rounded-lg overflow-hidden">
+    <div className="flex flex-col h-full bg-[#0a0c12] border border-[#1C2030] rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#1e2530] bg-[#111318]">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#1C2030] bg-[#111318]">
         <div className="flex items-center gap-2">
-          <span className="text-[#9ca3af] text-xs font-mono">pipeline@scanops:~$</span>
-          <span className="text-[#4b5563] text-xs font-mono">sse/findings</span>
+          <span className="text-[#64748B] text-xs font-mono">pipeline@scanops:~$</span>
+          <span className="text-[#334155] text-xs font-mono">sse/findings</span>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={handleClear}
-            className="text-[#4b5563] hover:text-[#9ca3af] text-xs font-mono transition-colors"
+            className="text-[#334155] hover:text-[#64748B] text-xs font-mono transition-colors"
           >
             clear
           </button>
@@ -118,8 +118,8 @@ export function LivePipelineTerminal() {
               </>
             ) : (
               <>
-                <WifiOff className="w-3 h-3 text-[#6b7280]" />
-                <span className="text-[#6b7280]">OFFLINE</span>
+                <WifiOff className="w-3 h-3 text-[#475569]" />
+                <span className="text-[#475569]">OFFLINE</span>
               </>
             )}
           </div>
@@ -131,7 +131,7 @@ export function LivePipelineTerminal() {
         <div className="p-4 font-mono text-xs space-y-0.5">
           {lines.map((line, i) => (
             <div key={i} className="flex gap-2 leading-5">
-              <span className="text-[#4b5563] shrink-0 select-none">{line.ts}</span>
+              <span className="text-[#334155] shrink-0 select-none">{line.ts}</span>
               <span className={`shrink-0 w-14 ${levelColor(line.level)}`}>{line.level}</span>
               <span className="text-[#d1d5db] break-all">{line.msg}</span>
             </div>

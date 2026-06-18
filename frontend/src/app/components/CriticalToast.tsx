@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+﻿import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { AlertTriangle, X } from 'lucide-react';
 import type { CriticalAlert } from '../../hooks/useCriticalAlerts';
@@ -27,7 +27,7 @@ export function CriticalToast({ toasts, onDismiss }: Props) {
 
   return (
     <div className="fixed bottom-6 right-6 z-[9999] w-80">
-      <div className="bg-[#1a1d27] border border-[#ff3b3b]/50 rounded-xl shadow-2xl overflow-hidden">
+      <div className="bg-[#111318] border border-[#ff3b3b]/50 rounded-xl shadow-2xl overflow-hidden">
         {/* Barra roja superior */}
         <div className="h-1 bg-gradient-to-r from-[#ff3b3b] to-[#ff6b6b]" />
 
@@ -41,18 +41,18 @@ export function CriticalToast({ toasts, onDismiss }: Props) {
                 <span className="text-[10px] font-bold text-[#ff3b3b] uppercase tracking-wider">
                   CRITICAL
                 </span>
-                <span className="text-[9px] text-[#4b5563] font-mono">
+                <span className="text-[9px] text-[#334155] font-mono">
                   {new Date(toast.timestamp).toLocaleTimeString('es-ES', {
                     hour: '2-digit', minute: '2-digit',
                   })}
                 </span>
               </div>
               <p className="text-xs font-semibold text-white truncate">{toast.title}</p>
-              <p className="text-[10px] text-[#9ca3af] mt-0.5 line-clamp-2">{toast.message}</p>
+              <p className="text-[10px] text-[#64748B] mt-0.5 line-clamp-2">{toast.message}</p>
             </div>
             <button
               onClick={() => onDismiss(toast.id)}
-              className="text-[#4b5563] hover:text-white transition-colors cursor-pointer shrink-0"
+              className="text-[#334155] hover:text-white transition-colors cursor-pointer shrink-0"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -68,14 +68,14 @@ export function CriticalToast({ toasts, onDismiss }: Props) {
             </button>
             <button
               onClick={() => onDismiss(toast.id)}
-              className="text-[10px] text-[#4b5563] hover:text-white transition-colors cursor-pointer px-2"
+              className="text-[10px] text-[#334155] hover:text-white transition-colors cursor-pointer px-2"
             >
               Ignorar
             </button>
           </div>
 
           {/* Barra de progreso auto-dismiss */}
-          <div className="mt-2 h-0.5 bg-[#1e2530] rounded-full overflow-hidden">
+          <div className="mt-2 h-0.5 bg-[#1C2030] rounded-full overflow-hidden">
             <div
               className="h-full bg-[#ff3b3b]/40 rounded-full"
               style={{ animation: `scanops-shrink ${AUTO_DISMISS_MS}ms linear forwards` }}
