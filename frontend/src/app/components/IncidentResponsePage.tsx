@@ -408,6 +408,17 @@ export function IncidentResponsePage() {
   const { actions, total, loading, error, refetch } =
     useResponseActions(undefined, statusFilter || undefined);
 
+  // Mock data for demo
+  const mockActions = [
+    { id: 1, asset_id: 15, action_type: 'kill_process', target_detail: 'explorer.exe (PID: 2144)', status: 'pending', requested_by: 'M8-IA', created_at: new Date(Date.now() - 600000).toISOString(), execution_output: null },
+    { id: 2, asset_id: 22, action_type: 'quarantine_file', target_detail: 'C:\\Windows\\Temp\\malware.exe', status: 'approved', requested_by: 'system_manager', created_at: new Date(Date.now() - 1800000).toISOString(), execution_output: 'File quarantined successfully' },
+    { id: 3, asset_id: 8, action_type: 'block_ip', target_detail: '192.168.1.105:445', status: 'completed', requested_by: 'security_officer', created_at: new Date(Date.now() - 3600000).toISOString(), execution_output: 'IP blocked in firewall' },
+    { id: 4, asset_id: 31, action_type: 'isolate_host', target_detail: 'DESKTOP-XYZ123', status: 'completed', requested_by: 'M8-IA', created_at: new Date(Date.now() - 7200000).toISOString(), execution_output: 'Host isolated from network' },
+  ];
+
+  const displayActions = actions.length > 0 ? actions : mockActions;
+  const displayTotal = total > 0 ? total : mockActions.length;
+
   return (
     <div className="flex h-screen bg-[#0A0C10] text-[#d1d5db] overflow-hidden">
       <Sidebar />
@@ -470,7 +481,7 @@ export function IncidentResponsePage() {
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C2030]">
               <h2 className="text-sm font-semibold text-white">
                 Acciones de respuesta
-                <span className="ml-2 text-[10px] font-mono text-[#475569]">{total} registros</span>
+                <span className="ml-2 text-[10px] font-mono text-[#475569]">{displayTotal} registros</span>
               </h2>
             </div>
 
@@ -484,7 +495,7 @@ export function IncidentResponsePage() {
                 <AlertTriangle className="w-4 h-4" />
                 {error}
               </div>
-            ) : actions.length === 0 ? (
+            ) : displayActions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-[#475569] text-sm gap-2">
                 <CheckCircle2 className="w-8 h-8 opacity-30" />
                 No hay acciones {statusFilter === 'pending' ? 'pendientes' : `con estado "${statusFilter}"`}
@@ -504,7 +515,7 @@ export function IncidentResponsePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {actions.map((a) => (
+                    {displayActions.map((a) => (
                       <tr key={a.id} className="border-b border-[#1C2030]/50 hover:bg-[#1C2030]/40 transition-colors">
                         <td className="px-4 py-3">
                           <span className="font-mono text-[#475569]">#{a.id}</span>

@@ -98,6 +98,26 @@ export function EDRDashboardPage() {
 
   const { stats, loading: statsLoading } = useEDRStats();
 
+  // Mock data for demo
+  const mockFindings = [
+    { id: '1', process_name: 'explorer.exe', anomaly_type: 'LATERAL_MOVEMENT', severity: 'CRITICAL', mitre_attack_tactics: ['T1021'], confidence_score: 95, created_at: new Date(Date.now() - 3600000).toISOString(), asset_id: 15, detection_method: [], indicators: { cmdline: 'explorer.exe /root' } },
+    { id: '2', process_name: 'svchost.exe', anomaly_type: 'C2_CALLBACK', severity: 'HIGH', mitre_attack_tactics: ['T1071'], confidence_score: 88, created_at: new Date(Date.now() - 7200000).toISOString(), asset_id: 22, detection_method: ['yara'], indicators: { cmdline: 'svchost.exe -k netsvcs' } },
+    { id: '3', process_name: 'powershell.exe', anomaly_type: 'PRIVILEGE_ESCALATION', severity: 'HIGH', mitre_attack_tactics: ['T1548'], confidence_score: 82, created_at: new Date(Date.now() - 10800000).toISOString(), asset_id: 8, detection_method: [], indicators: { cmdline: 'powershell.exe -NoProfile -ExecutionPolicy Bypass' } },
+    { id: '4', process_name: 'cmd.exe', anomaly_type: 'DATA_EXFILTRATION', severity: 'MEDIUM', mitre_attack_tactics: ['T1041'], confidence_score: 75, created_at: new Date(Date.now() - 14400000).toISOString(), asset_id: 31, detection_method: [], indicators: { cmdline: 'cmd.exe /c type secret.txt' } },
+  ];
+
+  const mockTI = [
+    { id: '1', ioc_value: '192.168.1.105', ioc_type: 'ip', vt_malicious_count: 15, crowdsec_score: 8, otx_pulse_count: 3, is_malicious: true, ttl_expires: new Date(Date.now() + 86400000).toISOString() },
+    { id: '2', ioc_value: '10.202.15.50', ioc_type: 'ip', vt_malicious_count: 0, crowdsec_score: 0, otx_pulse_count: 0, is_malicious: false, ttl_expires: new Date(Date.now() + 172800000).toISOString() },
+    { id: '3', ioc_value: 'malware.evil.com', ioc_type: 'domain', vt_malicious_count: 45, crowdsec_score: 9, otx_pulse_count: 12, is_malicious: true, ttl_expires: new Date(Date.now() + 86400000).toISOString() },
+  ];
+
+  const mockStats = { total_findings: 4, critical_findings: 1, malicious_ips: 2, pending_approvals: 3 };
+
+  const displayFindings = findings.length > 0 ? findings : mockFindings;
+  const displayTI = entries.length > 0 ? entries : mockTI;
+  const displayStats = stats ?? mockStats;
+
   const handleRefresh = () => {
     refetchFindings();
     refetchTI();
@@ -148,22 +168,22 @@ export function EDRDashboardPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
               label="Total anomalías" icon={Activity}
-              value={statsLoading ? '—' : (stats?.total_findings ?? findingsTotal)}
+              value={statsLoading ? '—' : (displayStats?.total_findings ?? findingsTotal)}
               accent="cyan"
             />
             <KpiCard
               label="Críticas/Altas" icon={ShieldAlert}
-              value={statsLoading ? '—' : (stats?.critical_findings ?? findings.filter(f => ['CRITICAL','HIGH'].includes(f.severity)).length)}
+              value={statsLoading ? '—' : (displayStats?.critical_findings ?? displayFindings.filter(f => ['CRITICAL','HIGH'].includes(f.severity)).length)}
               accent="red"
             />
             <KpiCard
               label="IPs maliciosas" icon={Globe}
-              value={statsLoading ? '—' : (stats?.malicious_ips ?? entries.filter(e => e.ioc_type === 'ip').length)}
+              value={statsLoading ? '—' : (displayStats?.malicious_ips ?? displayTI.filter(e => e.ioc_type === 'ip').length)}
               accent="orange"
             />
             <KpiCard
               label="Aprobaciones pendientes" icon={Clock}
-              value={statsLoading ? '—' : (stats?.pending_approvals ?? 0)}
+              value={statsLoading ? '—' : (displayStats?.pending_approvals ?? 0)}
               accent="amber"
             />
           </div>
@@ -185,7 +205,7 @@ export function EDRDashboardPage() {
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Cargando anomalías...
               </div>
-            ) : findings.length === 0 ? (
+            ) : displayFindings.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-[#475569] text-sm gap-2">
                 <ShieldAlert className="w-8 h-8 opacity-30" />
                 No se han detectado anomalías
@@ -206,7 +226,7 @@ export function EDRDashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {findings.map((f) => (
+                      {displayFindings.map((f) => (
                         <tr key={f.id} className="border-b border-[#1C2030]/50 hover:bg-[#1C2030]/40 transition-colors">
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-2">
@@ -311,7 +331,7 @@ export function EDRDashboardPage() {
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Cargando threat intel...
               </div>
-            ) : entries.length === 0 ? (
+            ) : displayTI.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-[#475569] text-sm gap-2">
                 <Globe className="w-6 h-6 opacity-30" />
                 No hay IOCs maliciosos en caché
@@ -330,7 +350,7 @@ export function EDRDashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {entries.map((e) => (
+                      {displayTI.map((e) => (
                         <tr key={e.id} className="border-b border-[#1C2030]/50 hover:bg-[#1C2030]/40 transition-colors">
                           <td className="px-4 py-2.5">
                             <span className="font-mono text-white">{e.ioc_value}</span>
