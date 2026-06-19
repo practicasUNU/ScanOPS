@@ -20,22 +20,36 @@
 body { font-family: Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.55; font-size: 10pt; margin: 0; }
 
 /* ── Portada ── */
-.cover { page-break-after: always; background: #1a0000; width: 100%; min-height: 297mm; box-sizing: border-box; }
-.cover-accent { background: #dc2626; height: 8mm; width: 100%; }
-.cover-body { padding: 30mm 25mm 20mm; }
-.cover-tag { display: inline-block; background: #1d4ed8; color: white; font-size: 8pt; font-weight: bold;
-             letter-spacing: 2px; padding: 4px 12px; border-radius: 2px; margin-bottom: 18mm; }
-.cover-title { color: #ffffff; font-size: 26pt; font-weight: bold; margin: 0 0 6px; line-height: 1.2; }
-.cover-subtitle { color: #fca5a5; font-size: 14pt; margin: 0 0 20mm; }
-.cover-divider { border: none; border-top: 1px solid #450a0a; margin: 0 0 10mm; }
+.cover { page-break-after: always; background: #ffffff; width: 100%; min-height: 297mm; box-sizing: border-box; }
+.cover-stripe-top { background: #7f1d1d; height: 18mm; width: 100%; }
+.cover-stripe-accent { background: #dc2626; height: 3mm; width: 100%; }
+.cover-body { padding: 18mm 25mm 0; }
+.cover-logo-area { border-bottom: 1px solid #e2e8f0; padding-bottom: 8mm; margin-bottom: 14mm; }
+.cover-logo-name { font-size: 14pt; font-weight: bold; color: #7f1d1d; letter-spacing: 1px; }
+.cover-logo-sub  { font-size: 9pt; color: #64748b; margin-top: 1mm; }
+.cover-classification {
+  display: inline-block;
+  border: 2px solid #7f1d1d;
+  color: #7f1d1d;
+  font-size: 8pt;
+  font-weight: bold;
+  letter-spacing: 2px;
+  padding: 3px 14px;
+  margin-bottom: 12mm;
+}
+.cover-title { color: #0f172a; font-size: 24pt; font-weight: bold; margin: 0 0 4px; line-height: 1.2; }
+.cover-subtitle { color: #dc2626; font-size: 12pt; font-weight: normal; margin: 0 0 14mm; }
+.cover-divider { border: none; border-top: 2px solid #7f1d1d; margin: 0 0 10mm; }
 .cover-meta-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+.cover-meta-table tr { border-bottom: 1px solid #f1f5f9; }
 .cover-meta-table td { padding: 5px 0; vertical-align: top; }
-.cover-meta-table td:first-child { color: #6b7280; width: 55mm; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; }
-.cover-meta-table td:last-child { color: #fef2f2; font-weight: bold; }
-.cover-footer { border-top: 1px solid #450a0a; margin: 20mm 25mm 0; padding-top: 6mm;
-                color: #6b7280; font-size: 8pt; display: table; width: calc(100% - 50mm); }
-.cover-footer-l { display: table-cell; color: #dc2626; font-weight: bold; }
-.cover-footer-r { display: table-cell; text-align: right; }
+.cover-meta-table td:first-child { color: #64748b; width: 52mm; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; }
+.cover-meta-table td:last-child { color: #0f172a; font-weight: bold; }
+.cover-seal-area { margin-top: 18mm; border: 1px solid #fecaca; background: #fff7f7; padding: 10px 14px; font-size: 8.5pt; color: #6b7280; }
+.cover-seal-title { font-weight: bold; color: #7f1d1d; margin-bottom: 3px; }
+.cover-footer-band { background: #7f1d1d; margin-top: 20mm; padding: 6mm 25mm; display: table; width: 100%; box-sizing: border-box; }
+.cover-footer-l { display: table-cell; color: #fecaca; font-size: 8pt; }
+.cover-footer-r { display: table-cell; text-align: right; color: #fca5a5; font-size: 8pt; }
 
 /* ── Headings ── */
 h1 { color: #7f1d1d; border-bottom: 3px solid #dc2626; padding-bottom: 8px; font-size: 18pt; margin-top: 0; }
@@ -97,12 +111,26 @@ tr:nth-child(even) td { background: #fef2f2; }
 
 <!-- ══════════════════════════════ PORTADA ══════════════════════════════ -->
 <div class="cover">
-  <div class="cover-accent"></div>
+  <div class="cover-stripe-top"></div>
+  <div class="cover-stripe-accent"></div>
   <div class="cover-body">
-    <div class="cover-tag">CONFIDENCIAL — ENS ALTO — USO TÉCNICO</div>
+
+    <!-- Logo / cabecera organismo -->
+    <div class="cover-logo-area">
+      <div class="cover-logo-name">UNUWARE — ScanOps</div>
+      <div class="cover-logo-sub">Plataforma de Operaciones de Seguridad · M7 Reporting Engine</div>
+    </div>
+
+    <!-- Clasificación -->
+    <div class="cover-classification">CONFIDENCIAL — ENS ALTO — TÉCNICO</div>
+
+    <!-- Título -->
     <div class="cover-title">Informe Técnico de<br>Vulnerabilidades y Remediación</div>
-    <div class="cover-subtitle">Análisis completo M3 · Plan de remediación priorizado · Historial M4</div>
+    <div class="cover-subtitle">Análisis completo M3 · Plan de remediación · Historial M4</div>
+
     <hr class="cover-divider">
+
+    <!-- Metadatos del documento -->
     <table class="cover-meta-table">
       <tr><td>Organización</td><td>UNUWARE</td></tr>
       <tr><td>Marco normativo</td><td>ENS Alto — RD 311/2022</td></tr>
@@ -111,10 +139,20 @@ tr:nth-child(even) td { background: #fef2f2; }
       <tr><td>Reconocimientos M2</td><td>{{ total_snapshots }} snapshots completados</td></tr>
       <tr><td>Clasificación</td><td>CONFIDENCIAL — Solo personal técnico autorizado</td></tr>
     </table>
+
+    <!-- Nota de integridad -->
+    <div class="cover-seal-area">
+      <div class="cover-seal-title">Integridad del documento</div>
+      Este informe ha sido generado y sellado automáticamente con cifrado AES-256 (mp.info.4 ENS Alto).
+      Cualquier modificación posterior invalida el documento. ID verificable: {{ signature_id }}
+    </div>
+
   </div>
-  <div class="cover-footer">
-    <span class="cover-footer-l">⬡ UNUWARE ScanOps — Técnico</span>
-    <span class="cover-footer-r">Documento sellado AES-256 — mp.info.4</span>
+
+  <!-- Pie de portada -->
+  <div class="cover-footer-band">
+    <div class="cover-footer-l">UNUWARE ScanOps · Análisis Técnico de Vulnerabilidades</div>
+    <div class="cover-footer-r">Sellado AES-256 · Generado: {{ fecha }}</div>
   </div>
 </div>
 
