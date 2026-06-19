@@ -486,17 +486,7 @@ export function IncidentResponsePage() {
               </h2>
             </div>
 
-            {loading ? (
-              <div className="flex items-center justify-center py-12 text-[#475569] text-sm gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Cargando acciones...
-              </div>
-            ) : error ? (
-              <div className="flex items-center justify-center py-12 text-red-400 text-sm gap-2">
-                <AlertTriangle className="w-4 h-4" />
-                {error}
-              </div>
-            ) : displayActions.length === 0 ? (
+            {displayActions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-[#475569] text-sm gap-2">
                 <CheckCircle2 className="w-8 h-8 opacity-30" />
                 No hay acciones {statusFilter === 'pending' ? 'pendientes' : `con estado "${statusFilter}"`}

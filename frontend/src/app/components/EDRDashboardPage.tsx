@@ -196,17 +196,12 @@ export function EDRDashboardPage() {
                 <Activity className="w-4 h-4 text-[#8B5CF6]" />
                 Behavioral Anomalies
                 <span className="text-[10px] font-mono text-[#475569] ml-1">
-                  {findingsTotal} total
+                  {displayFindings.length} total
                 </span>
               </h2>
             </div>
 
-            {findingsLoading ? (
-              <div className="flex items-center justify-center py-12 text-[#475569] text-sm gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Cargando anomalías...
-              </div>
-            ) : displayFindings.length === 0 ? (
+            {displayFindings.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-[#475569] text-sm gap-2">
                 <ShieldAlert className="w-8 h-8 opacity-30" />
                 No se han detectado anomalías
@@ -323,16 +318,11 @@ export function EDRDashboardPage() {
               <h2 className="text-sm font-semibold text-white flex items-center gap-2">
                 <Globe className="w-4 h-4 text-orange-400" />
                 Threat Intelligence — IOCs maliciosos
-                <span className="text-[10px] font-mono text-[#475569] ml-1">{tiTotal} total</span>
+                <span className="text-[10px] font-mono text-[#475569] ml-1">{displayTI.length} total</span>
               </h2>
             </div>
 
-            {tiLoading ? (
-              <div className="flex items-center justify-center py-8 text-[#475569] text-sm gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Cargando threat intel...
-              </div>
-            ) : displayTI.length === 0 ? (
+            {displayTI.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-[#475569] text-sm gap-2">
                 <Globe className="w-6 h-6 opacity-30" />
                 No hay IOCs maliciosos en caché
