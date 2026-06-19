@@ -136,11 +136,12 @@ def get_report_data() -> dict:
                 # ── Vulnerabilidades M3 (vuln_findings) ─────────────────
                 cur.execute("""
                     SELECT vf.asset_id, a.ip as host_ip, a.hostname,
-                           vf.cve_id,
+                           vf.vulnerability_id as cve_id,
                            vf.title as cve, vf.severity as crit,
                            vf.cvss_v3_score::text as cvss,
                            vf.description as desc,
-                           vf.port, vf.protocol,
+                           vf.affected_port as port,
+                           vf.affected_protocol as protocol,
                            vf.scanner_name,
                            vf.ens_requirement,
                            vf.created_at
@@ -637,11 +638,18 @@ async def generate_full_audit_zip():
 
         ctx_exec = {
             "fecha": fecha_actual,
+            "report_id": f"REP-FULL-{uuid.uuid4().hex[:8].upper()}",
             "total_activos": data["total_activos"],
             "ens_score": data["ens_score"],
             "roi_time_saved": data["roi_time_saved"],
             "auto_mitigated": data["auto_mitigated"],
+            "exploits_ejecutados": data["exploits_ejecutados"],
             "top_vulns": data["top_vulns"],
+            "activos_detalle": data["activos_detalle"],
+            "severity_counts": data["severity_counts"],
+            "m4_aprobaciones": data["m4_aprobaciones"][:10],
+            "siem_eventos": data["siem_eventos"][:20],
+            "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
         ctx_tech = {
@@ -649,6 +657,11 @@ async def generate_full_audit_zip():
             "signature_id": f"SIEM-FULL-{uuid.uuid4().hex[:8].upper()}",
             "vulnerabilidades": data["vulnerabilidades"],
             "tareas": data["tareas"],
+            "activos_detalle": data["activos_detalle"],
+            "severity_counts": data["severity_counts"],
+            "m4_aprobaciones": data["m4_aprobaciones"],
+            "siem_eventos": data["siem_eventos"],
+            "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
         ctx_soa = {
