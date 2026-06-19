@@ -437,8 +437,8 @@ async def generate_executive_report():
         # ─── ALERTA TELEGRAM: CICLO COMPLETADO ───
         try:
             import httpx as _httpx
-            _token = os.getenv("TELEGRAM_BOT_TOKEN", "8607611023:AAFtjXnnQFp2qxH6I3KKrq_0_R-IXBqpzNk")
-            _chat = os.getenv("TELEGRAM_CHAT_ID", "-1003918258595")
+            _token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+            _chat = os.getenv("TELEGRAM_CHAT_ID", "")
             _platform = os.getenv("PLATFORM_URL", "https://localhost:5173")
             _msg = (
                 f"📊 <b>Ciclo ScanOps completado — Informe generado</b>\n\n"

@@ -451,6 +451,7 @@ export function DashboardPage() {
                   <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M1 offline</span>
                 )}
               </div>
+              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Activos Registrados</div>
               {metricsLoading ? (
                 <>
                   <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
@@ -461,7 +462,7 @@ export function DashboardPage() {
                   <div className="text-3xl font-semibold text-white leading-none mb-1">
                     {metrics?.total_assets ?? '—'}
                   </div>
-                  <div className="text-xs text-[#64748B] mb-2">Total Assets</div>
+                  <div className="text-xs text-[#64748B] mb-2">Total de activos inventariados</div>
                 </>
               )}
               <div className="mt-auto -mx-5 -mb-5">
@@ -489,6 +490,7 @@ export function DashboardPage() {
                   <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M3 offline</span>
                 )}
               </div>
+              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Vulnerabilidades Abiertas</div>
               {metricsLoading ? (
                 <>
                   <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
@@ -499,7 +501,7 @@ export function DashboardPage() {
                   <div className="text-3xl font-semibold text-white leading-none mb-1">
                     {metrics?.open_vulnerabilities ?? '—'}
                   </div>
-                  <div className="text-xs text-[#64748B] mb-2">Open Vulnerabilities</div>
+                  <div className="text-xs text-[#64748B] mb-2">Hallazgos sin resolver</div>
                 </>
               )}
               <div className="mt-auto -mx-5 -mb-5">
@@ -527,6 +529,7 @@ export function DashboardPage() {
                   <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M3 offline</span>
                 )}
               </div>
+              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Cumplimiento ENS</div>
               {metricsLoading ? (
                 <>
                   <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
@@ -537,7 +540,7 @@ export function DashboardPage() {
                   <div className="text-3xl font-semibold text-white leading-none mb-1">
                     {metrics?.ens_compliance_score != null ? `${metrics.ens_compliance_score}%` : '—'}
                   </div>
-                  <div className="text-xs text-[#64748B] mb-2">ENS Compliance</div>
+                  <div className="text-xs text-[#64748B] mb-2">Nivel de conformidad ENS Alto</div>
                 </>
               )}
               <div className="mt-auto -mx-5 -mb-5">
@@ -562,6 +565,7 @@ export function DashboardPage() {
                   <CalendarClock className="w-4.5 h-4.5 text-[#f59e0b]" />
                 </div>
               </div>
+              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Ciclo Semanal</div>
               <div className="text-[10px] text-[#64748B] mb-1 font-mono">{cycle.weekLabel}</div>
               <div className="text-lg font-semibold text-white mb-1 leading-tight">{cycle.phase}</div>
               <div className="text-sm text-[#f59e0b] font-mono">{cycle.timeRemaining}</div>

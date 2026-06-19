@@ -504,6 +504,23 @@ services:
       - scanops
     restart: unless-stopped
 
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    container_name: scanops-telegram-bot
+    command: python services/orchestrator/telegram_bot.py
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      PLATFORM_URL: ${PLATFORM_URL:-https://localhost:5173}
+      ORCHESTRATOR_INTERNAL_URL: http://orchestrator:8009
+    depends_on:
+      - orchestrator
+    networks:
+      - scanops
+    restart: unless-stopped
+
   # US-6.4 — Honeypot SSH/Telnet (Cowrie)
   cowrie:
     image: cowrie/cowrie:latest
