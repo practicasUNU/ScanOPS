@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        /* Formato Apaisado (Landscape) para la matriz de 73 medidas */
+        @page {
+            size: A4 landscape;
+            margin: 1.5cm;
+            @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 8pt; color: #64748b; }
+            @bottom-left { content: "ScanOps - Declaración de Aplicabilidad (SoA) ENS"; font-size: 8pt; color: #64748b; }
+        }
+        body { font-family: 'Helvetica', sans-serif; font-size: 9pt; color: #1e293b; }
+        h1 { color: #0f172a; font-size: 16pt; border-bottom: 2px solid #1e3a8a; padding-bottom: 5px; }
+        .header-info { margin-bottom: 20px; font-size: 10pt; }
+        
+        /* Estilos de la Matriz (Tabla) */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background: #1e3a8a; color: white; padding: 8px; text-align: left; font-weight: bold; }
+        td { border: 1px solid #cbd5e1; padding: 6px; vertical-align: top; }
+        tr:nth-child(even) { background-color: #f8fafc; }
+        
+        /* Badges de Estado */
+        .status { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 8pt; text-align: center; display: inline-block; width: 80px; }
+        .status-cumple { background-color: #dcfce7; color: #166534; border: 1px solid #166534; }
+        .status-no-cumple { background-color: #fee2e2; color: #991b1b; border: 1px solid #991b1b; }
+        .status-na { background-color: #f1f5f9; color: #475569; border: 1px solid #475569; }
+        
+        .dominio { font-weight: bold; color: #2563eb; }
+    </style>
+</head>
+<body>
+    <h1>Declaración de Aplicabilidad (SoA) - ENS Categoría Alta</h1>
+    
+    <div class="header-info">
+        <strong>Organismo/Sistema:</strong> Infraestructura Central ScanOps <br>
+        <strong>Fecha de Evaluación:</strong> {{ fecha }} <br>
+        <strong>Total Medidas ENS (RD 311/2022):</strong> 73
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 8%;">ID ENS</th>
+                <th style="width: 15%;">Dominio</th>
+                <th style="width: 27%;">Descripción de la Medida</th>
+                <th style="width: 12%;">Estado</th>
+                <th style="width: 38%;">Justificación Técnica (ScanOps)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for medida in medidas %}
+            <tr>
+                <td><strong>{{ medida.id_ens }}</strong></td>
+                <td class="dominio">{{ medida.dominio }}</td>
+                <td>{{ medida.descripcion }}</td>
+                <td>
+                    <span class="status 
+                        {% if medida.estado == 'CUMPLE' %}status-cumple
+                        {% elif medida.estado == 'NO CUMPLE' %}status-no-cumple
+                        {% else %}status-na{% endif %}">
+                        {{ medida.estado }}
+                    </span>
+                </td>
+                <td>{{ medida.justificacion }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2 style="color: #1e3a8a; margin-top: 30px; font-size: 13pt; border-left: 4px solid #3b82f6; padding-left: 8px;">Evidencia de Cumplimiento — Pipeline ScanOps</h2>
+    <table>
+        <tr><th>Módulo</th><th>Función ENS</th><th>Estado</th><th>Evidencia</th></tr>
+        <tr><td>M1 Asset Manager</td><td>op.exp.1 — Inventario</td><td>✓ ACTIVO</td><td>{{ total_activos }} activos registrados</td></tr>
+        <tr><td>M2 Recon Engine</td><td>op.exp.2 — Reconocimiento</td><td>✓ ACTIVO</td><td>{{ total_snapshots }} snapshots</td></tr>
+        <tr><td>M3 Scanner</td><td>op.exp.2 — Vulnerabilidades</td><td>✓ ACTIVO</td><td>{{ vulnerabilidades|length }} hallazgos</td></tr>
+        <tr><td>M8 IA Reasoning</td><td>op.exp.5 — Análisis IA</td><td>✓ ACTIVO</td><td>Ollama/Mistral local</td></tr>
+        <tr><td>M4 Explotación</td><td>op.acc.5 — Control humano</td><td>✓ ACTIVO</td><td>{{ auto_mitigated }} aprobaciones TOTP+PIN</td></tr>
+        <tr><td>M5 SIEM</td><td>op.mon.1 — Monitoreo</td><td>✓ ACTIVO</td><td>Alertas en tiempo real</td></tr>
+        <tr><td>M7 Reporting</td><td>op.exp.5 — Evidencias</td><td>✓ ACTIVO</td><td>PDFs AES-256 en Google Drive</td></tr>
+    </table>
+</body>
+</html>

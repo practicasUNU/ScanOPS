@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        /* Configuración de página para WeasyPrint */
+        @page {
+            size: A4;
+            margin: 2.5cm 1.5cm;
+            @bottom-right {
+                content: "Página " counter(page) " de " counter(pages);
+                font-size: 9pt;
+                color: #64748b;
+            }
+            @bottom-left {
+                content: "ScanOps Framework - Confidencial";
+                font-size: 9pt;
+                color: #64748b;
+            }
+        }
+
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            color: #1e293b;
+            line-height: 1.5;
+        }
+
+        .header {
+            border-bottom: 3px solid #1e3a8a;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+        }
+
+        .logo-text {
+            font-size: 24pt;
+            font-weight: bold;
+            color: #1e3a8a;
+            text-transform: uppercase;
+        }
+
+        .report-title {
+            font-size: 18pt;
+            color: #334155;
+            margin-top: 5px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 10pt;
+            font-weight: bold;
+            background-color: #f1f5f9;
+            color: #475569;
+            margin-bottom: 20px;
+        }
+
+        .badge-ens {
+            background-color: #1e3a8a;
+            color: white;
+        }
+
+        .content-box {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .footer-info {
+            margin-top: 40px;
+            font-size: 10pt;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo-text">UNUWARE ScanOps</div>
+        <div class="report-title">{{ titulo }}</div>
+    </div>
+
+    <div class="badge badge-ens">CATEGORÍA: ENS ALTO</div>
+    <div class="badge">IDENTIFICADOR: {{ report_id }}</div>
+
+    <div class="content">
+        <p><strong>Fecha de emisión:</strong> {{ fecha }}</p>
+        <p><strong>Responsable:</strong> {{ auditor }}</p>
+        
+        <div class="content-box">
+            <h3>Resumen del informe</h3>
+            <p>{{ mensaje }}</p>
+        </div>
+    </div>
+
+    <div class="footer-info">
+        <p>Este documento ha sido generado automáticamente por el motor de reportes M7. 
+        Contiene información sensible sujeta a la normativa de protección de datos y el Esquema Nacional de Seguridad.</p>
+    </div>
+</body>
+</html>

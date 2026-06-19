@@ -112,6 +112,7 @@ def get_report_data() -> dict:
         "activos_detalle": [],
         "m4_aprobaciones": [],
         "siem_eventos": [],
+        "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0},
         "db_available": False,
     }
     try:
@@ -122,7 +123,8 @@ def get_report_data() -> dict:
                 # ── Activos M1 ──────────────────────────────────────────
                 cur.execute("""
                     SELECT id, ip, hostname, nombre, tipo, criticidad,
-                           status, responsable, departamento, created_at
+                           status, responsable, departamento,
+                           os_family, os_version, ubicacion, created_at
                     FROM assets
                     WHERE deleted_at IS NULL
                     ORDER BY criticidad DESC, created_at DESC
@@ -134,9 +136,11 @@ def get_report_data() -> dict:
                 # ── Vulnerabilidades M3 (vuln_findings) ─────────────────
                 cur.execute("""
                     SELECT vf.asset_id, a.ip as host_ip, a.hostname,
+                           vf.cve_id,
                            vf.title as cve, vf.severity as crit,
                            vf.cvss_v3_score::text as cvss,
                            vf.description as desc,
+                           vf.port, vf.protocol,
                            vf.scanner_name,
                            vf.ens_requirement,
                            vf.created_at
@@ -144,11 +148,19 @@ def get_report_data() -> dict:
                     LEFT JOIN assets a ON vf.asset_id = a.id
                     WHERE vf.severity IN ('CRITICAL','HIGH','MEDIUM')
                     ORDER BY vf.cvss_v3_score DESC NULLS LAST, vf.created_at DESC
-                    LIMIT 50
+                    LIMIT 200
                 """)
                 vulns = [dict(r) for r in cur.fetchall()]
                 defaults["vulnerabilidades"] = vulns
-                defaults["top_vulns"] = vulns[:10]
+                defaults["top_vulns"] = [v for v in vulns if v.get("crit") in ("CRITICAL", "HIGH")][:10]
+                from collections import Counter as _Counter
+                _sc = _Counter(v["crit"] for v in vulns)
+                defaults["severity_counts"] = {
+                    "CRITICAL": _sc.get("CRITICAL", 0),
+                    "HIGH": _sc.get("HIGH", 0),
+                    "MEDIUM": _sc.get("MEDIUM", 0),
+                    "LOW": _sc.get("LOW", 0),
+                }
 
                 # ── ENS Score ──────────────────────────────────────────
                 cur.execute("""
@@ -167,10 +179,11 @@ def get_report_data() -> dict:
                 # ── M4 Aprobaciones ────────────────────────────────────
                 cur.execute("""
                     SELECT id, cve_id, target_ip, status, requester,
-                           created_at, approved_at, executed_at
+                           created_at, approved_at, executed_at,
+                           execution_result as exploit_result
                     FROM m4_approvals
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT 50
                 """)
                 aprobaciones = [dict(r) for r in cur.fetchall()]
                 defaults["m4_aprobaciones"] = aprobaciones
@@ -185,28 +198,44 @@ def get_report_data() -> dict:
                 # ── SIEM Eventos M5 ────────────────────────────────────
                 try:
                     cur.execute("""
-                        SELECT event_type, severity, target_ip, description, timestamp
+                        SELECT event_type, severity, source, attacker_ip as source_ip,
+                               target_ip, description, timestamp
                         FROM siem_pipeline_events
                         ORDER BY timestamp DESC
-                        LIMIT 10
+                        LIMIT 50
                     """)
                     defaults["siem_eventos"] = [dict(r) for r in cur.fetchall()]
                 except Exception:
                     conn.rollback()
 
                 # ── ROI ────────────────────────────────────────────────
-                defaults["roi_time_saved"] = int(len(vulns) * 1.9)
+                # ~4h analyst time per CRITICAL, ~2h per HIGH, ~0.5h per MEDIUM
+                _roi = (
+                    defaults["severity_counts"]["CRITICAL"] * 4
+                    + defaults["severity_counts"]["HIGH"] * 2
+                    + defaults["severity_counts"]["MEDIUM"] // 2
+                )
+                defaults["roi_time_saved"] = _roi
 
                 # ── Tareas de remediación ──────────────────────────────
                 defaults["tareas"] = [
                     {
-                        "titulo": f"Remediar {v.get('cve','Vuln')[:60]} en {v.get('host_ip','activo')}",
+                        "titulo": f"Remediar en {v.get('host_ip','activo')} — {v.get('cve') or 'Vulnerabilidad'}",
                         "crit": v.get("crit", "HIGH"),
                         "activos": v.get("host_ip", "N/A"),
-                        "accion": f"Aplicar parche para {v.get('cve','vulnerabilidad')[:50]}. {(v.get('desc') or '')[:80]}",
+                        "cve_id": v.get("cve_id", ""),
+                        "port": v.get("port", ""),
+                        "protocol": v.get("protocol", ""),
+                        "cvss": v.get("cvss", ""),
+                        "accion": (
+                            f"Aplicar parche para {v.get('cve_id') or v.get('cve','esta vulnerabilidad')}. "
+                            f"Servicio en puerto {v.get('port','desconocido') or 'desconocido'} debe ser parcheado "
+                            f"o deshabilitado temporalmente hasta su remediación."
+                        ),
+                        "desc": v.get("desc") or "",
                     }
                     for v in vulns if v.get("crit") in ("CRITICAL", "HIGH")
-                ][:10]
+                ][:20]
 
                 defaults["medidas_soa"] = _get_soa_measures(cur)
                 defaults["db_available"] = True
@@ -235,7 +264,7 @@ def seal_pdf(pdf_bytes: bytes) -> bytes:
     permisos = fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ACCESSIBILITY
     out_bytes = doc.write(
         encryption=fitz.PDF_ENCRYPT_AES_256,
-        owner_pw="ScanOps_MasterKey_2026!",
+        owner_pw=os.getenv("PDF_MASTER_KEY", "ScanOps_MasterKey_2026!"),
         user_pw="",
         permissions=permisos,
     )
@@ -407,6 +436,7 @@ async def generate_executive_report():
         data = get_report_data()
         context = {
             "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "report_id": f"REP-{uuid.uuid4().hex[:8].upper()}",
             "total_activos": data["total_activos"],
             "ens_score": data["ens_score"],
             "roi_time_saved": data["roi_time_saved"],
@@ -414,8 +444,9 @@ async def generate_executive_report():
             "exploits_ejecutados": data["exploits_ejecutados"],
             "top_vulns": data["top_vulns"],
             "activos_detalle": data["activos_detalle"],
-            "m4_aprobaciones": data["m4_aprobaciones"][:5],
-            "siem_eventos": data["siem_eventos"][:5],
+            "severity_counts": data["severity_counts"],
+            "m4_aprobaciones": data["m4_aprobaciones"][:10],
+            "siem_eventos": data["siem_eventos"][:20],
             "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
@@ -481,6 +512,7 @@ async def generate_technical_report():
             "vulnerabilidades": data["vulnerabilidades"],
             "tareas": data["tareas"],
             "activos_detalle": data["activos_detalle"],
+            "severity_counts": data["severity_counts"],
             "m4_aprobaciones": data["m4_aprobaciones"],
             "siem_eventos": data["siem_eventos"],
             "total_snapshots": data["total_snapshots"],

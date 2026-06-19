@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { size: A4; margin: 2cm;
+  @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 9pt; color: #64748b; }
+  @bottom-left { content: "ScanOps — Informe de Bastionado ENS — CONFIDENCIAL"; font-size: 9pt; color: #64748b; }
+}
+body { font-family: Helvetica, sans-serif; color: #334155; line-height: 1.6; font-size: 10pt; }
+h1 { color: #0f172a; border-bottom: 3px solid #3b82f6; padding-bottom: 8px; font-size: 20pt; margin-bottom: 4px; }
+h2 { color: #1e3a8a; margin-top: 25px; font-size: 13pt; border-left: 4px solid #3b82f6; padding-left: 8px; }
+.header-meta { color: #64748b; font-size: 9pt; margin-bottom: 6px; }
+.header-subtitle { color: #334155; font-size: 13pt; font-weight: bold; margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9pt; }
+th { background: #1e3a8a; color: white; padding: 8px; text-align: left; }
+td { border-bottom: 1px solid #e2e8f0; padding: 7px; vertical-align: top; }
+tr:nth-child(even) td { background: #f8fafc; }
+.two-col { display: grid; grid-template-columns: 140px 1fr; }
+.two-col td:first-child { font-weight: bold; color: #1e3a8a; background: #f1f5f9; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 8pt; font-weight: bold; }
+.badge-si    { background: #dcfce7; color: #16a34a; }
+.badge-no    { background: #fee2e2; color: #dc2626; }
+.badge-rev   { background: #fef9c3; color: #ca8a04; }
+.badge-cumple    { background: #dcfce7; color: #16a34a; }
+.badge-nocumple  { background: #fee2e2; color: #dc2626; }
+.badge-critical  { background: #fee2e2; color: #dc2626; }
+.badge-medium    { background: #fef9c3; color: #ca8a04; }
+.badge-low       { background: #dcfce7; color: #16a34a; }
+.kpi-row { display: flex; gap: 12px; margin: 12px 0; }
+.kpi { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; text-align: center; flex: 1; }
+.kpi-value { font-size: 22pt; font-weight: bold; }
+.kpi-label { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 2px; }
+.kpi-si    .kpi-value { color: #16a34a; }
+.kpi-no    .kpi-value { color: #dc2626; }
+.kpi-rev   .kpi-value { color: #ca8a04; }
+.compliance-row { display: flex; align-items: center; gap: 16px; margin: 10px 0; font-size: 10pt; }
+.empty-notice { color: #94a3b8; font-style: italic; font-size: 9pt; padding: 12px 0; }
+.warning-box { background: #fef9c3; border-left: 4px solid #ca8a04; padding: 12px 16px; border-radius: 4px; margin: 16px 0; font-size: 10pt; color: #78350f; }
+.footer-block { margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 8px; font-size: 8pt; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- CABECERA -->
+<h1>ScanOps — Informe de Bastionado ENS</h1>
+<div class="header-subtitle">Verificación trimestral RD 311/2022</div>
+<div class="header-meta">
+  <strong>Fecha:</strong> {{ fecha }} &nbsp;|&nbsp;
+  <strong>ID Informe:</strong> {{ report_id }} &nbsp;|&nbsp;
+  <strong>Sellado:</strong> AES-256
+</div>
+<div class="header-meta">
+  Generado por: <strong>UNUWARE ScanOps M7 Reporting Engine</strong> &nbsp;|&nbsp;
+  Medidas ENS: op.exp.2, mp.com.1, mp.si.5, op.exp.3, op.exp.5, op.acc.6, mp.info.3, mp.com.2, op.cont.2
+</div>
+
+<!-- SECCIÓN 1: DATOS DEL ACTIVO -->
+<h2>1. Datos del Activo</h2>
+<table class="two-col">
+  <tr><td>ID</td><td>{{ activo.id }}</td></tr>
+  <tr><td>IP</td><td>{{ activo.ip }}</td></tr>
+  <tr><td>Hostname</td><td>{{ activo.hostname or '—' }}</td></tr>
+  <tr><td>Nombre</td><td>{{ activo.nombre or '—' }}</td></tr>
+  <tr>
+    <td>Criticidad</td>
+    <td>
+      {% set crit = (activo.criticidad or '') | upper %}
+      {% if crit in ('ALTA', 'CRITICA', 'CRÍTICA') %}
+        <span class="badge badge-critical">{{ activo.criticidad }}</span>
+      {% elif crit == 'MEDIA' %}
+        <span class="badge badge-medium">{{ activo.criticidad }}</span>
+      {% else %}
+        <span class="badge badge-low">{{ activo.criticidad or '—' }}</span>
+      {% endif %}
+    </td>
+  </tr>
+  <tr><td>Tipo</td><td>{{ activo.tipo or '—' }}</td></tr>
+</table>
+
+{% if sin_datos %}
+<!-- SIN DATOS -->
+<div class="warning-box">
+  No se han registrado verificaciones de bastionado para este activo.<br>
+  Ejecute una verificación desde el módulo M3 — Bastionado ENS para obtener resultados.
+</div>
+
+{% else %}
+
+<!-- SECCIÓN 2: RESUMEN DE CUMPLIMIENTO -->
+<h2>2. Resumen de Cumplimiento</h2>
+<div class="kpi-row">
+  <div class="kpi kpi-si">
+    <div class="kpi-value">{{ resultado.si_count }}</div>
+    <div class="kpi-label">Controles SI</div>
+  </div>
+  <div class="kpi kpi-no">
+    <div class="kpi-value">{{ resultado.no_count }}</div>
+    <div class="kpi-label">Controles NO</div>
+  </div>
+  <div class="kpi kpi-rev">
+    <div class="kpi-value">{{ resultado.revisar_count }}</div>
+    <div class="kpi-label">A Revisar</div>
+  </div>
+</div>
+<div class="compliance-row">
+  <strong>Porcentaje de cumplimiento:</strong>
+  {% set pct = (resultado.si_count / 13 * 100) | round(1) %}
+  <span style="font-size: 13pt; font-weight: bold; color: {% if pct >= 80 %}#16a34a{% elif pct >= 50 %}#ca8a04{% else %}#dc2626{% endif %};">{{ pct }}%</span>
+  &nbsp;|&nbsp;
+  <strong>Estado ENS:</strong>
+  {% if resultado.cumple_ens %}
+    <span class="badge badge-cumple">CUMPLE</span>
+  {% else %}
+    <span class="badge badge-nocumple">NO CUMPLE</span>
+  {% endif %}
+  &nbsp;|&nbsp;
+  <span style="color:#64748b; font-size:9pt;">Última verificación: {{ resultado.verified_at }}</span>
+</div>
+
+<!-- SECCIÓN 3: TABLA DE 13 CONTROLES -->
+<h2>3. Controles de Bastionado ({{ resultado.controles | length }})</h2>
+{% if resultado.controles %}
+<table>
+  <thead>
+    <tr>
+      <th style="width:30px;">#</th>
+      <th>Control</th>
+      <th style="width:80px;">Resultado</th>
+      <th style="width:90px;">Medida ENS</th>
+      <th>Detalle</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ctrl in resultado.controles %}
+    <tr>
+      <td>{{ ctrl.id }}</td>
+      <td>{{ ctrl.nombre }}</td>
+      <td>
+        {% set res = (ctrl.resultado or '') | upper %}
+        {% if res == 'SI' %}
+          <span class="badge badge-si">SI</span>
+        {% elif res == 'NO' %}
+          <span class="badge badge-no">NO</span>
+        {% else %}
+          <span class="badge badge-rev">REVISAR</span>
+        {% endif %}
+      </td>
+      <td style="font-family: monospace; font-size: 8pt;">{{ ctrl.medida_ens or '—' }}</td>
+      <td style="font-size: 8.5pt;">{{ ctrl.detalle or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-notice">No se encontraron datos de controles en este resultado.</p>
+{% endif %}
+
+{% if historial | length > 1 %}
+<!-- SECCIÓN 4: HISTORIAL DE VERIFICACIONES -->
+<h2>4. Historial de Verificaciones</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Fecha</th>
+      <th style="width:60px; text-align:center;">SI</th>
+      <th style="width:60px; text-align:center;">NO</th>
+      <th style="width:80px; text-align:center;">REVISAR</th>
+      <th style="width:100px; text-align:center;">Cumple ENS</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for h in historial %}
+    <tr>
+      <td>{{ h.verified_at }}</td>
+      <td style="text-align:center; color:#16a34a; font-weight:bold;">{{ h.si_count }}</td>
+      <td style="text-align:center; color:#dc2626; font-weight:bold;">{{ h.no_count }}</td>
+      <td style="text-align:center; color:#ca8a04; font-weight:bold;">{{ h.revisar_count }}</td>
+      <td style="text-align:center;">
+        {% if h.cumple_ens %}
+          <span class="badge badge-cumple">SÍ</span>
+        {% else %}
+          <span class="badge badge-nocumple">NO</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% endif %}
+
+<!-- NOTA LEGAL -->
+<div class="footer-block">
+  <div>Documento generado automáticamente por ScanOps M7. Evidencia de verificación trimestral ENS Alto — RD 311/2022.</div>
+  <div>Sellado criptográficamente AES-256. No editable. &nbsp;|&nbsp; ID: {{ report_id }}</div>
+</div>
+
+</body>
+</html>

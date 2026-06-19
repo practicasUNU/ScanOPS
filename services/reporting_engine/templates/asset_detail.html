@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { size: A4; margin: 2cm;
+  @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 9pt; color: #64748b; }
+  @bottom-left { content: "ScanOps — Informe Detallado de Activo — CONFIDENCIAL"; font-size: 9pt; color: #64748b; }
+}
+body { font-family: Helvetica, sans-serif; color: #334155; line-height: 1.6; font-size: 10pt; }
+h1 { color: #0f172a; border-bottom: 3px solid #3b82f6; padding-bottom: 8px; font-size: 20pt; margin-bottom: 4px; }
+h2 { color: #1e3a8a; margin-top: 25px; font-size: 13pt; border-left: 4px solid #3b82f6; padding-left: 8px; }
+.header-meta { color: #64748b; font-size: 9pt; margin-bottom: 6px; }
+.header-subtitle { color: #334155; font-size: 13pt; font-weight: bold; margin-bottom: 4px; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9pt; }
+th { background: #1e3a8a; color: white; padding: 8px; text-align: left; }
+td { border-bottom: 1px solid #e2e8f0; padding: 7px; vertical-align: top; }
+tr:nth-child(even) td { background: #f8fafc; }
+.two-col { display: grid; grid-template-columns: 140px 1fr; }
+.two-col td:first-child { font-weight: bold; color: #1e3a8a; background: #f1f5f9; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 8pt; font-weight: bold; }
+.badge-critical { background: #fee2e2; color: #dc2626; }
+.badge-high { background: #ffedd5; color: #ea580c; }
+.badge-medium { background: #fef9c3; color: #ca8a04; }
+.badge-low { background: #dcfce7; color: #16a34a; }
+.badge-approved { background: #dcfce7; color: #16a34a; }
+.badge-executed { background: #ede9fe; color: #7c3aed; }
+.badge-info { background: #dbeafe; color: #1d4ed8; }
+.kpi-row { display: flex; gap: 12px; margin: 10px 0; }
+.kpi { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 16px; text-align: center; flex: 1; }
+.kpi-value { font-size: 18pt; font-weight: bold; color: #1e3a8a; }
+.kpi-label { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 2px; }
+.section-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 10px 0; font-size: 9pt; }
+.field-row { margin-bottom: 6px; }
+.field-label { font-weight: bold; color: #1e3a8a; display: inline; }
+.field-value { display: inline; }
+.empty-notice { color: #94a3b8; font-style: italic; font-size: 9pt; padding: 12px 0; }
+.footer-block { margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 8px; font-size: 8pt; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- CABECERA -->
+<h1>Informe Detallado de Activo</h1>
+<div class="header-subtitle">{{ activo.ip }} — {{ activo.hostname or '—' }}</div>
+<div class="header-meta">
+  <strong>Fecha:</strong> {{ fecha }} &nbsp;|&nbsp;
+  <strong>ID Informe:</strong> {{ report_id }} &nbsp;|&nbsp;
+  <strong>Marco:</strong> ENS Alto (RD 311/2022)
+</div>
+<div class="header-meta">
+  Generado por: <strong>UNUWARE ScanOps M7 Reporting Engine</strong>
+</div>
+
+<!-- SECCIÓN 1: Ficha del Activo (M1) -->
+<h2>1. Ficha del Activo (M1)</h2>
+<table class="two-col">
+  <tr><td>IP</td><td>{{ activo.ip }}</td></tr>
+  <tr><td>Hostname</td><td>{{ activo.hostname or '—' }}</td></tr>
+  <tr><td>Nombre</td><td>{{ activo.nombre or '—' }}</td></tr>
+  <tr><td>Tipo</td><td>{{ activo.tipo or '—' }}</td></tr>
+  <tr>
+    <td>Criticidad</td>
+    <td>
+      {% set crit = (activo.criticidad or '') | upper %}
+      {% if crit in ('ALTA', 'CRITICA', 'CRÍTICA') %}
+        <span class="badge badge-critical">{{ activo.criticidad }}</span>
+      {% elif crit == 'MEDIA' %}
+        <span class="badge badge-medium">{{ activo.criticidad }}</span>
+      {% else %}
+        <span class="badge badge-low">{{ activo.criticidad or '—' }}</span>
+      {% endif %}
+    </td>
+  </tr>
+  <tr><td>Estado</td><td>{{ activo.status or '—' }}</td></tr>
+  <tr><td>Responsable</td><td>{{ activo.responsable or '—' }}</td></tr>
+  <tr><td>Departamento</td><td>{{ activo.departamento or '—' }}</td></tr>
+  <tr><td>Sistema Operativo</td><td>{{ activo.os_family or '—' }}{% if activo.os_version %} {{ activo.os_version }}{% endif %}</td></tr>
+  <tr><td>Ubicación</td><td>{{ activo.ubicacion or '—' }}</td></tr>
+  <tr><td>Tags ENS</td><td>{{ activo.tags_ens or '—' }}</td></tr>
+  <tr><td>Notas</td><td>{{ activo.notas or '—' }}</td></tr>
+  <tr><td>Registrado</td><td>{{ activo.created_at }}</td></tr>
+</table>
+
+<!-- SECCIÓN 2: Superficie de Ataque (M2) -->
+<h2>2. Superficie de Ataque (M2)</h2>
+{% if recon_data %}
+  <table>
+    <tr><th>Campo</th><th>Valor</th></tr>
+    <tr><td>Ciclo</td><td>{{ recon_data.cycle_id }}</td></tr>
+    <tr><td>OS</td><td>{{ recon_data.os_family or '—' }} {{ recon_data.os_version or '' }}</td></tr>
+    <tr><td>MAC</td><td>{{ recon_data.mac_address or '—' }} ({{ recon_data.mac_vendor or '—' }})</td></tr>
+    <tr><td>Latencia</td><td>{{ recon_data.latency_ms or '—' }} ms</td></tr>
+    <tr><td>Estado</td><td>{{ recon_data.status or '—' }}</td></tr>
+    <tr><td>Snapshot fecha</td><td>{{ recon_data.started_at }}</td></tr>
+  </table>
+
+  {% if recon_findings %}
+  <h3>Puertos Abiertos ({{ recon_findings|length }})</h3>
+  <table>
+    <tr><th>Puerto</th><th>Servicio</th><th>Versión</th><th>Estado</th><th>Fuente</th></tr>
+    {% for f in recon_findings %}
+    <tr>
+      <td><strong>{{ f.port }}</strong></td>
+      <td>{{ f.service or '—' }}</td>
+      <td>{{ f.version or '—' }}</td>
+      <td>{{ f.state }}</td>
+      <td>{{ f.source or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p class="empty-notice">Sin puertos abiertos registrados en este snapshot.</p>
+  {% endif %}
+
+  {% if recon_subdomains %}
+  <h3>Subdominios Descubiertos ({{ recon_subdomains|length }})</h3>
+  <table>
+    <tr><th>Subdominio</th><th>Fuente</th></tr>
+    {% for s in recon_subdomains %}
+    <tr>
+      <td>{{ s.subdomain }}</td>
+      <td>{{ s.source or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+{% else %}
+<p class="empty-notice">Sin reconocimiento registrado para este activo en el ciclo actual.</p>
+{% endif %}
+
+<!-- SECCIÓN 3: Vulnerabilidades Detectadas (M3) -->
+<h2>3. Vulnerabilidades Detectadas (M3)</h2>
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-value">{{ total_vulns }}</div>
+    <div class="kpi-label">Total</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-value" style="color:#dc2626;">{{ critical_count }}</div>
+    <div class="kpi-label">Críticas</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-value" style="color:#ea580c;">{{ high_count }}</div>
+    <div class="kpi-label">Altas</div>
+  </div>
+</div>
+{% if vulnerabilidades %}
+<table>
+  <thead>
+    <tr>
+      <th>Severidad</th>
+      <th>CVE / Título</th>
+      <th>CVSS</th>
+      <th>Puerto</th>
+      <th>Protocolo</th>
+      <th>Scanner</th>
+      <th>Requisito ENS</th>
+      <th>Fecha</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in vulnerabilidades %}
+    <tr>
+      <td>
+        {% set sev = (v.severity or '') | upper %}
+        {% if sev == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+        {% elif sev == 'HIGH' %}<span class="badge badge-high">HIGH</span>
+        {% elif sev == 'MEDIUM' %}<span class="badge badge-medium">MEDIUM</span>
+        {% else %}<span class="badge badge-low">{{ v.severity or '—' }}</span>
+        {% endif %}
+      </td>
+      <td>{{ v.cve_id or '' }}{% if v.cve_id and v.title %} — {% endif %}{{ v.title or '—' }}</td>
+      <td>{{ v.cvss_v3_score or '—' }}</td>
+      <td>{{ v.port or '—' }}</td>
+      <td>{{ v.protocol or '—' }}</td>
+      <td>{{ v.scanner_name or '—' }}</td>
+      <td>{{ v.ens_requirement or '—' }}</td>
+      <td style="white-space:nowrap;">{{ v.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-notice">Sin vulnerabilidades registradas para este activo.</p>
+{% endif %}
+
+<!-- SECCIÓN 4: Análisis de IA (M8) -->
+<h2>4. Análisis de IA (M8)</h2>
+{% if ai_result %}
+<div class="section-box">
+  <div class="field-row"><span class="field-label">MITRE Tactic: </span><span class="field-value">{{ ai_result.mitre_tactic or '—' }}</span></div>
+  <div class="field-row">
+    <span class="field-label">Risk Level: </span>
+    {% set rl = (ai_result.risk_level or '') | upper %}
+    {% if rl == 'CRITICAL' %}<span class="badge badge-critical">{{ ai_result.risk_level }}</span>
+    {% elif rl == 'HIGH' %}<span class="badge badge-high">{{ ai_result.risk_level }}</span>
+    {% elif rl == 'MEDIUM' %}<span class="badge badge-medium">{{ ai_result.risk_level }}</span>
+    {% else %}<span class="badge badge-low">{{ ai_result.risk_level or '—' }}</span>
+    {% endif %}
+  </div>
+  <div class="field-row"><span class="field-label">Herramienta sugerida: </span><span class="field-value">{{ ai_result.suggested_tool or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Parámetros: </span><span class="field-value">{{ ai_result.tool_params or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Rationale: </span><span class="field-value">{{ ai_result.attack_rationale or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Estado: </span><span class="field-value">{{ ai_result.status or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Fecha análisis: </span><span class="field-value">{{ ai_result.created_at }}</span></div>
+</div>
+{% else %}
+<p class="empty-notice">Sin análisis de IA registrado para este activo.</p>
+{% endif %}
+
+<!-- SECCIÓN 5: Explotación (M4) -->
+<h2>5. Explotación (M4)</h2>
+{% if m4_result %}
+<div class="section-box">
+  <div class="field-row"><span class="field-label">ID Aprobación: </span><span class="field-value">{{ m4_result.id }}</span></div>
+  <div class="field-row"><span class="field-label">CVE / Vector: </span><span class="field-value">{{ m4_result.cve_id or '—' }}</span></div>
+  <div class="field-row">
+    <span class="field-label">Estado: </span>
+    {% if m4_result.status == 'EXECUTED' %}<span class="badge badge-executed">EXECUTED</span>
+    {% else %}<span class="badge badge-approved">{{ m4_result.status }}</span>
+    {% endif %}
+  </div>
+  <div class="field-row"><span class="field-label">Operador: </span><span class="field-value">{{ m4_result.requester or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Creado: </span><span class="field-value">{{ m4_result.created_at }}</span></div>
+  <div class="field-row"><span class="field-label">Aprobado: </span><span class="field-value">{{ m4_result.approved_at or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Ejecutado: </span><span class="field-value">{{ m4_result.executed_at or '—' }}</span></div>
+  <div class="field-row"><span class="field-label">Resultado exploit: </span><span class="field-value">{{ m4_result.exploit_result or '—' }}</span></div>
+</div>
+{% else %}
+<p class="empty-notice">Sin explotación registrada para este activo en el ciclo actual.</p>
+{% endif %}
+
+<!-- SECCIÓN 6: Eventos SIEM (M5) -->
+<h2>6. Eventos SIEM (M5)</h2>
+{% if siem_eventos %}
+<table>
+  <thead>
+    <tr>
+      <th>Timestamp</th>
+      <th>Fuente</th>
+      <th>Severidad</th>
+      <th>Target IP</th>
+      <th>Descripción</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ev in siem_eventos %}
+    <tr>
+      <td style="white-space:nowrap;">{{ ev.timestamp }}</td>
+      <td>{{ ev.source or '—' }}</td>
+      <td>
+        {% set esev = (ev.severity or '') | upper %}
+        {% if esev == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+        {% elif esev == 'HIGH' %}<span class="badge badge-high">HIGH</span>
+        {% elif esev == 'MEDIUM' %}<span class="badge badge-medium">MEDIUM</span>
+        {% else %}<span class="badge badge-info">{{ ev.severity or '—' }}</span>
+        {% endif %}
+      </td>
+      <td>{{ ev.target_ip or '—' }}</td>
+      <td>{{ ev.description or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-notice">Sin eventos SIEM registrados para este activo.</p>
+{% endif %}
+
+<!-- PIE DE PÁGINA -->
+<div class="footer-block">
+  <div>Informe generado automáticamente — Sellado AES-256 — mp.info.4</div>
+  <div>ID: {{ report_id }} — ScanOps M7 Reporting Engine — CONFIDENCIAL</div>
+</div>
+
+</body>
+</html>
