@@ -36,3 +36,8 @@ pytest-cov>=4.0.0
 python-gvm>=24.1.0
 gvm-tools>=20.8.0
 msgpack>=1.0.0
+
+# EDR Module (M3.1)
+psutil>=5.9.0
+yara-python>=4.3.0
+pybreaker>=1.2.0

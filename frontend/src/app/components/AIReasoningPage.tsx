@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -34,19 +34,19 @@ interface Step {
 
 const STEPS: Step[] = [
   {
-    id: 1, label: 'Filtro Falsos Positivos', us: 'US-4.3', icon: Filter, activeColor: '#00d4ff',
+    id: 1, label: 'Filtro Falsos Positivos', us: 'US-4.3', icon: Filter, activeColor: '#8B5CF6',
     description: 'Filtrado automático de falsos positivos usando modelos de ML entrenados con el histórico de la organización. Reduce el ruido antes de la priorización.',
   },
   {
-    id: 2, label: 'Priorizador CVSS', us: 'US-4.4', icon: ArrowUpDown, activeColor: '#00d4ff',
+    id: 2, label: 'Priorizador CVSS', us: 'US-4.4', icon: ArrowUpDown, activeColor: '#8B5CF6',
     description: 'Priorización de vulnerabilidades según score CVSS v3.1, contexto de red y criticidad del activo. Genera ranking ajustado al entorno ENS.',
   },
   {
-    id: 3, label: 'ENS Mapper (RAG)', us: 'US-4.5', icon: BookOpen, activeColor: '#00d4ff',
+    id: 3, label: 'ENS Mapper (RAG)', us: 'US-4.5', icon: BookOpen, activeColor: '#8B5CF6',
     description: 'Mapeo de vulnerabilidades a controles ENS mediante Retrieval-Augmented Generation sobre la base de conocimiento local. Genera referencias normativas automáticas.',
   },
   {
-    id: 4, label: 'Informe Preliminar', us: 'US-4.6', icon: FileText, activeColor: '#00d4ff',
+    id: 4, label: 'Informe Preliminar', us: 'US-4.6', icon: FileText, activeColor: '#8B5CF6',
     description: 'Generación automática del informe preliminar con hallazgos priorizados, referencias ENS y recomendaciones de mitigación.',
   },
   {
@@ -59,8 +59,8 @@ const STEPS: Step[] = [
   },
 ];
 
-const M1_ASSETS_URL = 'http://localhost:8001/api/v1/assets?page_size=100';
-const M3_BASE = 'http://localhost:8002';
+const M1_ASSETS_URL = '/api/m1/api/v1/assets?page_size=100';
+const M3_BASE = '/api/m3';
 
 function OllamaWidget() {
   const [status, setStatus] = useState<'online' | 'offline' | 'checking'>('checking');
@@ -81,7 +81,7 @@ function OllamaWidget() {
   }, []);
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-[#9ca3af]">
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-[#111318] border border-[#1C2030] rounded-lg text-xs text-[#64748B]">
       <div className={`w-2 h-2 rounded-full shrink-0 ${status === 'online' ? 'bg-[#22c55e]' : status === 'offline' ? 'bg-[#ff3b3b]' : 'bg-[#f59e0b] animate-pulse'}`} />
       <span className="font-mono">Ollama · mistral:7b</span>
       <span className={status === 'online' ? 'text-[#22c55e]' : status === 'offline' ? 'text-[#ff3b3b]' : 'text-[#f59e0b]'}>
@@ -114,10 +114,10 @@ function statusLabel(status: StepStatus): string {
 function statusBadgeClass(status: StepStatus): string {
   switch (status) {
     case 'completed': return 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30';
-    case 'active': return 'bg-[#00d4ff]/10 text-[#00d4ff] border-[#00d4ff]/30';
+    case 'active': return 'bg-[#8B5CF6]/10 text-[#8B5CF6] border-[#8B5CF6]/30';
     case 'requires_review': return 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30';
     case 'rejected': return 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30';
-    case 'pending': return 'bg-[#374151]/30 text-[#6b7280] border-[#374151]';
+    case 'pending': return 'bg-[#374151]/30 text-[#475569] border-[#374151]';
   }
 }
 
@@ -306,7 +306,7 @@ export function AIReasoningPage() {
       const token = getToken();
       const cveId = displayResult?.attack_module?.split('/').pop()?.toUpperCase()
         ?? `VECTOR-${currentAsset?.ip}`;
-      const res = await fetch('http://localhost:8004/api/m4/request-approval', {
+      const res = await fetch('/api/m4/api/m4/request-approval', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -347,7 +347,7 @@ export function AIReasoningPage() {
     setAuthTotpError('');
     try {
       const token = getToken();
-      const res = await fetch('http://localhost:8004/api/m4/approve', {
+      const res = await fetch('/api/m4/api/m4/approve', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -386,7 +386,7 @@ export function AIReasoningPage() {
   const isAssetSpecificStep = selectedStep === 4 || selectedStep === 5;
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar role="System Manager" />
@@ -396,7 +396,7 @@ export function AIReasoningPage() {
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
               <h1 className="text-2xl font-semibold text-white mb-1">IA Reasoning (M8)</h1>
-              <p className="text-[#9ca3af] text-sm">Cadena de razonamiento local — Ollama/Mistral · ENS op.exp.5</p>
+              <p className="text-[#64748B] text-sm">Cadena de razonamiento local — Ollama/Mistral · ENS op.exp.5</p>
             </div>
             
             <div className="flex items-center gap-3">
@@ -407,7 +407,7 @@ export function AIReasoningPage() {
                   setLiveResults({});
                   setAssetStatuses({});
                 }}
-                className="text-[10px] text-[#4b5563] hover:text-[#9ca3af] font-mono underline"
+                className="text-[10px] text-[#334155] hover:text-[#64748B] font-mono underline"
               >
                 Limpiar caché
               </button>
@@ -417,7 +417,7 @@ export function AIReasoningPage() {
                 <button
                   onClick={handleRegenerate}
                   disabled={regenerating}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs font-semibold hover:bg-[#00d4ff]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all font-mono"
+                  className="flex items-center gap-2 px-4 py-1.5 bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] rounded-lg text-xs font-semibold hover:bg-[#8B5CF6]/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all font-mono"
                 >
                   {regenerating ? (
                     <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando [{pollingAttempt}/90]...</>
@@ -437,7 +437,7 @@ export function AIReasoningPage() {
           </div>
 
           {/* Stepper */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-6">
             <div className="flex items-start">
               {STEPS.map((s, idx) => {
                 const status = selectedStep === idx ? 'active' : (idx < 4 ? 'completed' : 'pending');
@@ -448,7 +448,7 @@ export function AIReasoningPage() {
                 return (
                   <div key={s.id} className="flex items-start flex-1">
                     {idx > 0 && (
-                      <div className="flex-1 h-px mt-5 shrink" style={{ background: idx <= selectedStep ? '#22c55e' : '#1e2530' }} />
+                      <div className="flex-1 h-px mt-5 shrink" style={{ background: idx <= selectedStep ? '#22c55e' : '#1C2030' }} />
                     )}
                     <div className="flex flex-col items-center" style={{ minWidth: 72 }}>
                       <button
@@ -456,16 +456,16 @@ export function AIReasoningPage() {
                         className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer hover:opacity-80 shrink-0"
                         style={{
                           borderColor: color,
-                          backgroundColor: isSelected ? color + '20' : '#0f1117',
+                          backgroundColor: isSelected ? color + '20' : '#0A0C10',
                         }}
                       >
                         {idx < selectedStep ? <Check className="w-4 h-4" style={{ color: '#22c55e' }} /> : <Icon className="w-4 h-4" style={{ color }} />}
                       </button>
                       <div className="mt-2 text-center px-1">
-                        <div className={`text-xs font-medium leading-tight ${isSelected ? 'text-white' : 'text-[#9ca3af]'}`}>
+                        <div className={`text-xs font-medium leading-tight ${isSelected ? 'text-white' : 'text-[#64748B]'}`}>
                           {s.label}
                         </div>
-                        <div className="text-[10px] text-[#6b7280] mt-0.5">{s.us}</div>
+                        <div className="text-[10px] text-[#475569] mt-0.5">{s.us}</div>
                       </div>
                     </div>
                   </div>
@@ -475,7 +475,7 @@ export function AIReasoningPage() {
           </div>
 
           {/* Ventana Principal de Razonamiento */}
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-6 space-y-4">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="text-white font-semibold text-lg">{step.label}</span>
@@ -483,56 +483,56 @@ export function AIReasoningPage() {
                   {statusLabel(isAssetSpecificStep ? currentAssetStatus : 'completed')}
                 </span>
               </div>
-              <span className="text-xs font-mono text-[#6b7280] bg-[#0f1117] border border-[#1e2530] px-2 py-1 rounded">{step.us}</span>
+              <span className="text-xs font-mono text-[#475569] bg-[#0A0C10] border border-[#1C2030] px-2 py-1 rounded">{step.us}</span>
             </div>
 
-            <p className="text-sm text-[#9ca3af] border-b border-[#1e2530] pb-4">{step.description}</p>
+            <p className="text-sm text-[#64748B] border-b border-[#1C2030] pb-4">{step.description}</p>
 
             {/* ─── CASO A: INFERENCIAS GLOBALES EXPLICATIVAS (PASOS 1 A 4) ─── */}
             {!isAssetSpecificStep && (
               <div className="pt-2">
                 {selectedStep === 0 && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs animate-fadeIn">
-                    <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 space-y-2">
-                      <div className="text-[#00d4ff] font-semibold flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Correlación del Estado del Puerto</div>
-                      <p className="text-[#6b7280] leading-relaxed">Cruza los banners recogidos por Nmap (M2) con los vectores de escaneo de Nuclei (M3). Si el banner del servicio indica un puerto cerrado o filtrado perimetralmente, M8 realiza un descarte inmediato de la vulnerabilidad.</p>
+                    <div className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-4 space-y-2">
+                      <div className="text-[#8B5CF6] font-semibold flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Correlación del Estado del Puerto</div>
+                      <p className="text-[#475569] leading-relaxed">Cruza los banners recogidos por Nmap (M2) con los vectores de escaneo de Nuclei (M3). Si el banner del servicio indica un puerto cerrado o filtrado perimetralmente, M8 realiza un descarte inmediato de la vulnerabilidad.</p>
                     </div>
-                    <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 space-y-2">
-                      <div className="text-[#00d4ff] font-semibold flex items-center gap-1.5"><Cpu className="w-3.5 h-3.5" /> Verificación de Arquitectura del S.O.</div>
-                      <p className="text-[#6b7280] leading-relaxed">Valida la correspondencia del exploit contra el Kernel detectado. Descarta automáticamente firmas de Linux que intenten saltar contra plataformas Windows corporativas, minimizando alertas inútiles en el SOC.</p>
+                    <div className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-4 space-y-2">
+                      <div className="text-[#8B5CF6] font-semibold flex items-center gap-1.5"><Cpu className="w-3.5 h-3.5" /> Verificación de Arquitectura del S.O.</div>
+                      <p className="text-[#475569] leading-relaxed">Valida la correspondencia del exploit contra el Kernel detectado. Descarta automáticamente firmas de Linux que intenten saltar contra plataformas Windows corporativas, minimizando alertas inútiles en el SOC.</p>
                     </div>
-                    <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 space-y-2">
+                    <div className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-4 space-y-2">
                       <div className="text-[#22c55e] font-semibold flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" /> Directiva ENS de Salvaguarda</div>
-                      <p className="text-[#6b7280] leading-relaxed">Principio de Máxima Cobertura: Ante la falta de evidencias concluyentes en el banner de red, M8 asume de manera proactiva que el hallazgo es VERDADERO para no ignorar brechas potenciales en el perímetro de auditoría.</p>
+                      <p className="text-[#475569] leading-relaxed">Principio de Máxima Cobertura: Ante la falta de evidencias concluyentes en el banner de red, M8 asume de manera proactiva que el hallazgo es VERDADERO para no ignorar brechas potenciales en el perímetro de auditoría.</p>
                     </div>
                   </div>
                 )}
 
                 {selectedStep === 1 && (
                   <div className="space-y-4 font-mono text-xs animate-fadeIn">
-                    <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4">
+                    <div className="bg-[#0A0C10] border border-[#8B5CF6]/20 rounded-lg p-4">
                       <div className="text-white font-semibold mb-2">Fórmula de Cálculo Dinámico de Riesgo Real:</div>
-                      <div className="text-[#00d4ff] text-center p-3 bg-[#1a1d27] rounded border border-[#1e2530] text-sm my-2 font-mono">
+                      <div className="text-[#8B5CF6] text-center p-3 bg-[#111318] rounded border border-[#1C2030] text-sm my-2 font-mono">
                         Score_Ajustado = CVSS_Base × Coeficiente_CMDB × Coeficiente_Red
                       </div>
-                      <p className="text-[#6b7280] mt-2 leading-relaxed">Modifica el score estático de la vulnerabilidad cruzando la gravedad base de la CVE con la criticidad real que tiene asignada ese activo dentro de la base de datos de ScanOps.</p>
+                      <p className="text-[#475569] mt-2 leading-relaxed">Modifica el score estático de la vulnerabilidad cruzando la gravedad base de la CVE con la criticidad real que tiene asignada ese activo dentro de la base de datos de ScanOps.</p>
                     </div>
                   </div>
                 )}
 
                 {selectedStep === 2 && (
                   <div className="space-y-3 font-mono text-xs animate-fadeIn">
-                    <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4">
+                    <div className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-4">
                       <div className="text-white font-semibold mb-1">Mapeo Semántico Local mediante Embeddings:</div>
-                      <p className="text-[#6b7280] leading-relaxed">M8 indexa el contenido del fichero normativo <span className="text-white">rd_311_2022.txt</span> de forma estrictamente local para buscar qué artículos del Anexo II se ven vulnerados por el hallazgo técnico, garantizando la confidencialidad de la infraestructura.</p>
+                      <p className="text-[#475569] leading-relaxed">M8 indexa el contenido del fichero normativo <span className="text-white">rd_311_2022.txt</span> de forma estrictamente local para buscar qué artículos del Anexo II se ven vulnerados por el hallazgo técnico, garantizando la confidencialidad de la infraestructura.</p>
                     </div>
                   </div>
                 )}
 
                 {selectedStep === 3 && (
-                  <div className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-4 font-mono text-xs space-y-3 animate-fadeIn">
-                    <div className="text-white font-semibold flex items-center gap-1.5"><ShieldAlert className="w-4 h-4 text-[#00d4ff]" /> Esqueleto Estructural del Reporte Semanal Consolidado (M7)</div>
-                    <div className="space-y-2 p-3 bg-[#16171d] rounded border border-[#1e2530] text-[#6b7280] text-[11px]">
+                  <div className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-4 font-mono text-xs space-y-3 animate-fadeIn">
+                    <div className="text-white font-semibold flex items-center gap-1.5"><ShieldAlert className="w-4 h-4 text-[#8B5CF6]" /> Esqueleto Estructural del Reporte Semanal Consolidado (M7)</div>
+                    <div className="space-y-2 p-3 bg-[#16171d] rounded border border-[#1C2030] text-[#475569] text-[11px]">
                       <div>📊 <span className="text-white font-bold">SECCIÓN 1:</span> Resumen General Cuantitativo del Ciclo de Vigilancia Activo.</div>
                       <div>🚨 <span className="text-white font-bold">SECCIÓN 2:</span> Hallazgos Críticos Filtrados que califican para Explotación Inmediata.</div>
                     </div>
@@ -546,23 +546,23 @@ export function AIReasoningPage() {
               <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 pt-2 animate-fadeIn">
                 
                 {/* COLUMNA IZQUIERDA: BUSCADOR + LISTA DE ACTIVOS REALES M1 */}
-                <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-3 flex flex-col h-[340px]">
+                <div className="bg-[#0A0C10] border border-[#1C2030] rounded-xl p-3 flex flex-col h-[340px]">
                   <div className="relative mb-3 shrink-0">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#6b7280]" />
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#475569]" />
                     <input
                       type="text"
                       value={assetSearchQuery}
                       onChange={e => setAssetSearchQuery(e.target.value)}
                       placeholder="Filtrar IP real..."
-                      className="w-full pl-8 pr-3 py-1.5 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-xs text-white placeholder:text-[#4b5563] focus:outline-none focus:border-[#00d4ff]/40 transition-colors font-mono"
+                      className="w-full pl-8 pr-3 py-1.5 bg-[#111318] border border-[#1C2030] rounded-lg text-xs text-white placeholder:text-[#334155] focus:outline-none focus:border-[#8B5CF6]/40 transition-colors font-mono"
                     />
                   </div>
 
-                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin scrollbar-thumb-[#1e2530] scrollbar-track-transparent">
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin scrollbar-thumb-[#1C2030] scrollbar-track-transparent">
                     {loadingAssets ? (
-                      <div className="text-center text-[#6b7280] text-xs pt-8 font-mono animate-pulse">Sincronizando M1...</div>
+                      <div className="text-center text-[#475569] text-xs pt-8 font-mono animate-pulse">Sincronizando M1...</div>
                     ) : filteredAssets.length === 0 ? (
-                      <div className="text-center text-[#4b5563] text-xs pt-8 font-mono">Ningún host activo</div>
+                      <div className="text-center text-[#334155] text-xs pt-8 font-mono">Ningún host activo</div>
                     ) : (
                       filteredAssets.map((asset) => {
                         const isSelected = selectedAssetId === asset.id;
@@ -573,8 +573,8 @@ export function AIReasoningPage() {
                             onClick={() => setSelectedAssetId(asset.id)}
                             className={`w-full text-left p-2.5 rounded-lg border transition-all font-mono flex flex-col gap-1 cursor-pointer ${
                               isSelected
-                                ? 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-white shadow-md shadow-[#00d4ff]/5'
-                                : 'bg-[#16171d]/50 border-[#1e2530] text-[#9ca3af] hover:bg-[#1a1d27] hover:text-white'
+                                ? 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-white shadow-md shadow-[#8B5CF6]/5'
+                                : 'bg-[#16171d]/50 border-[#1C2030] text-[#64748B] hover:bg-[#111318] hover:text-white'
                             }`}
                           >
                             <div className="flex items-center justify-between w-full">
@@ -585,12 +585,12 @@ export function AIReasoningPage() {
                                 status === 'requires_review' ? 'bg-[#f59e0b]' : 'bg-[#374151]'
                               }`} />
                             </div>
-                            <div className="text-[10px] text-[#6b7280] flex items-center gap-1">
+                            <div className="text-[10px] text-[#475569] flex items-center gap-1">
                               <Server className="w-2.5 h-2.5 shrink-0" />
                               {asset.hostname || 'srv-host'}
                             </div>
                             {liveResults[asset.id]?.generated_at && (
-                              <span className="text-[9px] text-[#4b5563] font-mono block mt-0.5">
+                              <span className="text-[9px] text-[#334155] font-mono block mt-0.5">
                                 {fmtDate(liveResults[asset.id].generated_at)}
                               </span>
                             )}
@@ -605,18 +605,18 @@ export function AIReasoningPage() {
                 <div className="space-y-4 flex flex-col justify-between min-h-[340px]">
                   
                   {!displayResult ? (
-                    <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-6 text-center flex flex-col items-center justify-center space-y-4 flex-1 font-mono py-12">
-                      <Crosshair className="w-8 h-8 text-[#4b5563]" />
+                    <div className="bg-[#0A0C10] border border-[#1C2030] rounded-xl p-6 text-center flex flex-col items-center justify-center space-y-4 flex-1 font-mono py-12">
+                      <Crosshair className="w-8 h-8 text-[#334155]" />
                       <div className="space-y-1">
                         <div className="text-white text-sm font-semibold">Sin vector de ataque para {currentAsset?.ip}</div>
-                        <p className="text-xs text-[#6b7280] max-w-sm mx-auto leading-relaxed">
+                        <p className="text-xs text-[#475569] max-w-sm mx-auto leading-relaxed">
                           M8 requiere interrogar las trazas del Scanner Engine para consolidar debilidades perimetrales antes de calcular el exploit idóneo.
                         </p>
                       </div>
                       <button
                         onClick={handleRegenerate}
                         disabled={regenerating}
-                        className="px-4 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-xs font-mono font-bold rounded-lg hover:bg-[#00d4ff]/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+                        className="px-4 py-1.5 bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] text-xs font-mono font-bold rounded-lg hover:bg-[#8B5CF6]/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
                       >
                         {regenerating ? `Invocando Ollama [${pollingAttempt}/90]...` : '⚡ Disparar Inferencia M8'}
                       </button>
@@ -643,9 +643,9 @@ export function AIReasoningPage() {
                           <div className="space-y-4 flex-1 flex flex-col">
 
                             {/* ── CABECERA: técnica + táctica MITRE ── */}
-                            <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-2">
+                            <div className="bg-[#0A0C10] border border-[#1C2030] rounded-xl p-4 space-y-2">
                               <div className="flex items-center justify-between flex-wrap gap-2">
-                                <span className="text-xs font-mono text-[#6b7280] uppercase tracking-widest">Técnica de Ataque</span>
+                                <span className="text-xs font-mono text-[#475569] uppercase tracking-widest">Técnica de Ataque</span>
                                 <div className="flex items-center gap-2">
                                   <span
                                     className="px-2 py-0.5 rounded text-xs font-bold font-mono"
@@ -653,35 +653,35 @@ export function AIReasoningPage() {
                                   >
                                     {risk}
                                   </span>
-                                  <span className="px-2 py-0.5 rounded text-xs font-bold font-mono bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/30">
+                                  <span className="px-2 py-0.5 rounded text-xs font-bold font-mono bg-[#8B5CF6]/10 text-[#8B5CF6] border border-[#8B5CF6]/30">
                                     {confPct} confianza
                                   </span>
                                 </div>
                               </div>
                               <p className="text-white font-semibold text-sm font-mono">{displayResult.attack_technique ?? '—'}</p>
-                              <p className="text-[#9ca3af] text-xs">{displayResult.attack_vector ?? '—'}</p>
+                              <p className="text-[#64748B] text-xs">{displayResult.attack_vector ?? '—'}</p>
                               <div className="flex items-center gap-1.5 pt-1">
-                                <span className="text-[#6b7280] text-xs">Táctica MITRE:</span>
+                                <span className="text-[#475569] text-xs">Táctica MITRE:</span>
                                 <span className="text-[#a78bfa] text-xs font-mono font-semibold">{displayResult.mitre_tactic ?? '—'}</span>
-                                <span className="ml-auto text-[#6b7280] text-xs">ENS:</span>
-                                <span className="text-[#00d4ff] text-xs font-mono">{displayResult.ens_article ?? 'op.exp.2'}</span>
+                                <span className="ml-auto text-[#475569] text-xs">ENS:</span>
+                                <span className="text-[#8B5CF6] text-xs font-mono">{displayResult.ens_article ?? 'op.exp.2'}</span>
                               </div>
                             </div>
 
                             {/* ── HERRAMIENTA + PARÁMETROS ── */}
-                            <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-3">
-                              <div className="flex items-center gap-2 text-sm font-semibold text-[#00d4ff]">
+                            <div className="bg-[#0A0C10] border border-[#1C2030] rounded-xl p-4 space-y-3">
+                              <div className="flex items-center gap-2 text-sm font-semibold text-[#8B5CF6]">
                                 <Terminal className="w-4 h-4" />
                                 Herramienta de Validación
                               </div>
-                              <div className="bg-[#16171d] border border-[#1e2530] rounded-lg p-3 font-mono text-xs text-white break-all">
+                              <div className="bg-[#16171d] border border-[#1C2030] rounded-lg p-3 font-mono text-xs text-white break-all">
                                 {displayResult.attack_module ?? '—'}
                               </div>
                               {Object.keys(params).length > 0 && (
                                 <div className="grid grid-cols-2 gap-2">
                                   {Object.entries(params).map(([k, v]) => v && (
-                                    <div key={k} className="bg-[#16171d] border border-[#1e2530] rounded-lg p-2.5">
-                                      <span className="text-[#6b7280] text-xs block mb-0.5 uppercase tracking-wide">{k}</span>
+                                    <div key={k} className="bg-[#16171d] border border-[#1C2030] rounded-lg p-2.5">
+                                      <span className="text-[#475569] text-xs block mb-0.5 uppercase tracking-wide">{k}</span>
                                       <span className="text-white font-mono text-xs font-bold break-all">{String(v)}</span>
                                     </div>
                                   ))}
@@ -689,7 +689,7 @@ export function AIReasoningPage() {
                               )}
                               {displayResult.alternative && (
                                 <div className="flex items-start gap-2 pt-1">
-                                  <span className="text-[#6b7280] text-xs shrink-0 mt-0.5">Alternativa:</span>
+                                  <span className="text-[#475569] text-xs shrink-0 mt-0.5">Alternativa:</span>
                                   <span className="text-[#f59e0b] text-xs font-mono">{displayResult.alternative}</span>
                                 </div>
                               )}
@@ -697,13 +697,13 @@ export function AIReasoningPage() {
 
                             {/* ── PASOS TÉCNICOS ── */}
                             {steps.length > 0 && (
-                              <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-2">
-                                <div className="text-xs font-semibold text-[#6b7280] uppercase tracking-widest mb-1">
+                              <div className="bg-[#0A0C10] border border-[#1C2030] rounded-xl p-4 space-y-2">
+                                <div className="text-xs font-semibold text-[#475569] uppercase tracking-widest mb-1">
                                   Secuencia Operativa
                                 </div>
                                 {steps.map((step, i) => (
                                   <div key={i} className="flex items-start gap-3">
-                                    <span className="w-5 h-5 rounded-full bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                                    <span className="w-5 h-5 rounded-full bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                                       {i + 1}
                                     </span>
                                     <p className="text-[#d1d5db] text-xs leading-relaxed">{step}</p>
@@ -717,10 +717,10 @@ export function AIReasoningPage() {
                               const raw: string = displayResult.attack_rationale;
 
                               const SECTION_LABELS: { regex: RegExp; label: string; color: string }[] = [
-                                { regex: /An[aá]lisis\s+de\s+Superficie\s*:/i,  label: 'Análisis de Superficie', color: '#00d4ff' },
+                                { regex: /An[aá]lisis\s+de\s+Superficie\s*:/i,  label: 'Análisis de Superficie', color: '#8B5CF6' },
                                 { regex: /Vector\s+Cr[ií]tico\s*:/i,             label: 'Vector Crítico',         color: '#a78bfa' },
                                 { regex: /Evaluaci[oó]n\s+de\s+Riesgo\s*:/i,     label: 'Evaluación de Riesgo',   color: '#f59e0b' },
-                                { regex: /Analysis\s+of\s+Surface\s*:/i,          label: 'Análisis de Superficie', color: '#00d4ff' },
+                                { regex: /Analysis\s+of\s+Surface\s*:/i,          label: 'Análisis de Superficie', color: '#8B5CF6' },
                                 { regex: /Critical\s+Vector\s*:/i,                label: 'Vector Crítico',         color: '#a78bfa' },
                                 { regex: /Risk\s+Evaluation\s*:/i,                label: 'Evaluación de Riesgo',   color: '#f59e0b' },
                               ];
@@ -752,7 +752,7 @@ export function AIReasoningPage() {
 
                               if (sections.length === 0) {
                                 const fallbackLabels = ['Análisis de Superficie', 'Vector Crítico', 'Evaluación de Riesgo'];
-                                const fallbackColors = ['#00d4ff', '#a78bfa', '#f59e0b'];
+                                const fallbackColors = ['#8B5CF6', '#a78bfa', '#f59e0b'];
                                 const sentences = raw.match(/[^.!?]+[.!?]+/g) ?? [raw];
                                 const chunkSize = Math.ceil(sentences.length / 3);
                                 for (let i = 0; i < 3; i++) {
@@ -764,8 +764,8 @@ export function AIReasoningPage() {
                               }
 
                               return (
-                                <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-4 space-y-4 flex-1">
-                                  <div className="text-xs font-semibold text-[#6b7280] uppercase tracking-widest">
+                                <div className="bg-[#0A0C10] border border-[#1C2030] rounded-xl p-4 space-y-4 flex-1">
+                                  <div className="text-xs font-semibold text-[#475569] uppercase tracking-widest">
                                     Análisis Técnico Red Team
                                   </div>
                                   {sections.map((sec, i) => (
@@ -780,11 +780,11 @@ export function AIReasoningPage() {
                                       >
                                         {i + 1}
                                       </div>
-                                      <div className="flex-1 space-y-1 border-b border-[#1e2530] pb-3 last:border-0 last:pb-0">
+                                      <div className="flex-1 space-y-1 border-b border-[#1C2030] pb-3 last:border-0 last:pb-0">
                                         <span className="text-xs font-semibold block" style={{ color: sec.color }}>
                                           {sec.label}
                                         </span>
-                                        <p className="text-[#9ca3af] text-xs leading-relaxed">{sec.body}</p>
+                                        <p className="text-[#64748B] text-xs leading-relaxed">{sec.body}</p>
                                       </div>
                                     </div>
                                   ))}
@@ -798,7 +798,7 @@ export function AIReasoningPage() {
                               <span className="text-[#f59e0b] text-xs font-mono font-semibold">
                                 {displayResult.status ?? 'pending_human_approval'}
                               </span>
-                              <span className="text-[#6b7280] text-xs ml-auto">op.pl.1 — Requiere TOTP+PIN</span>
+                              <span className="text-[#475569] text-xs ml-auto">op.pl.1 — Requiere TOTP+PIN</span>
                             </div>
 
                           </div>
@@ -807,12 +807,12 @@ export function AIReasoningPage() {
 
                       {/* SUB-PASO 5: Panel de Decisión Corporativa */}
                       {selectedStep === 5 && (
-                        <div className="bg-[#0f1117] border border-[#1e2530] rounded-xl p-5 space-y-4 flex-1 flex flex-col justify-between">
+                        <div className="bg-[#0A0C10] border border-[#1C2030] rounded-xl p-5 space-y-4 flex-1 flex flex-col justify-between">
                           <div className="space-y-3">
                             <div className="text-sm text-white font-semibold flex items-center gap-1.5">
                               <UserCheck className="w-4 h-4 text-[#22c55e]" /> Firma de Dictamen sobre {currentAsset?.ip}
                             </div>
-                            <p className="text-xs text-[#6b7280] font-mono leading-relaxed">
+                            <p className="text-xs text-[#475569] font-mono leading-relaxed">
                               De acuerdo con el ENS, el operador debe validar de forma explícita el lanzamiento seguro del exploit.
                             </p>
                           </div>
@@ -822,7 +822,7 @@ export function AIReasoningPage() {
                               <div className="text-xs text-[#ff3b3b] font-bold flex items-center gap-1.5"><XCircle className="w-3.5 h-3.5" /> Explotación denegada de forma inmutable</div>
                               <button
                                 onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'requires_review' }))}
-                                className="text-[11px] text-[#6b7280] hover:text-white underline cursor-pointer font-mono"
+                                className="text-[11px] text-[#475569] hover:text-white underline cursor-pointer font-mono"
                               >
                                 Revertir y volver a evaluar
                               </button>
@@ -832,7 +832,7 @@ export function AIReasoningPage() {
                               <div className="text-xs text-[#22c55e] font-bold flex items-center gap-1.5"><Check className="w-3.5 h-3.5" /> Explotación autorizada y firmada</div>
                               <button
                                 onClick={() => setAssetStatuses(p => ({ ...p, [selectedAssetId]: 'requires_review' }))}
-                                className="text-[11px] text-[#6b7280] hover:text-white underline cursor-pointer font-mono"
+                                className="text-[11px] text-[#475569] hover:text-white underline cursor-pointer font-mono"
                               >
                                 Cancelar autorización
                               </button>
@@ -865,11 +865,11 @@ export function AIReasoningPage() {
                                   <input
                                     value={msfInput}
                                     onChange={e => setMsfInput(e.target.value)}
-                                    className="flex-1 bg-[#1a1d27] border border-[#1e2530] rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-[#00d4ff]/40"
+                                    className="flex-1 bg-[#111318] border border-[#1C2030] rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-[#8B5CF6]/40"
                                     placeholder="exploit/multi/handler"
                                   />
                                   <button
-                                    className="px-3 py-1.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg text-xs hover:bg-[#00d4ff]/20 cursor-pointer"
+                                    className="px-3 py-1.5 bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] rounded-lg text-xs hover:bg-[#8B5CF6]/20 cursor-pointer"
                                     onClick={() => {
                                       if (liveResults[selectedAssetId]) {
                                         setLiveResults(prev => ({
@@ -887,7 +887,7 @@ export function AIReasoningPage() {
                             </div>
                           )}
 
-                          <span className="text-[10px] text-[#4b5563] font-mono block border-t border-[#1e2530] pt-2">
+                          <span className="text-[10px] text-[#334155] font-mono block border-t border-[#1C2030] pt-2">
                             Norma op.pl.1 — La huella criptográfica del operador se adjuntará inmutable al dictamen.
                           </span>
                         </div>
@@ -907,18 +907,16 @@ export function AIReasoningPage() {
       {/* ── Modal de autorización M8→M4 ── */}
       {authModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-2xl p-6 w-full max-w-md shadow-2xl">
 
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-[#00d4ff]"/>
+                <ShieldCheck className="w-5 h-5 text-[#8B5CF6]"/>
                 <h3 className="text-sm font-bold text-white">Autorizar Vector de Ataque</h3>
               </div>
-              {authStep !== 'done' && (
-                <button onClick={() => { setAuthModalOpen(false); setAuthTotpSecret(''); setAuthLiveCode(''); setAuthCodeTimer(30); }}
-                  className="text-[#6b7280] hover:text-white text-lg leading-none">×</button>
-              )}
+              <button onClick={() => { setAuthModalOpen(false); setAuthTotpSecret(''); setAuthLiveCode(''); setAuthCodeTimer(30); setAuthStep('pin'); }}
+                className="text-[#475569] hover:text-white text-lg leading-none">×</button>
             </div>
 
             {/* Indicador de pasos */}
@@ -927,13 +925,13 @@ export function AIReasoningPage() {
                 const stepIdx = authStep === 'pin' ? 0 : 1;
                 return (
                   <React.Fragment key={label}>
-                    <div className={`flex items-center gap-1.5 text-xs font-mono ${stepIdx >= i ? 'text-[#00d4ff]' : 'text-[#374151]'}`}>
-                      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border ${stepIdx > i ? 'bg-[#22c55e] border-[#22c55e] text-white' : stepIdx === i ? 'border-[#00d4ff] text-[#00d4ff]' : 'border-[#374151] text-[#374151]'}`}>
+                    <div className={`flex items-center gap-1.5 text-xs font-mono ${stepIdx >= i ? 'text-[#8B5CF6]' : 'text-[#374151]'}`}>
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border ${stepIdx > i ? 'bg-[#22c55e] border-[#22c55e] text-white' : stepIdx === i ? 'border-[#8B5CF6] text-[#8B5CF6]' : 'border-[#374151] text-[#374151]'}`}>
                         {stepIdx > i ? '✓' : i + 1}
                       </div>
                       {label}
                     </div>
-                    {i < 1 && <div className={`flex-1 h-px ${stepIdx > i ? 'bg-[#22c55e]' : 'bg-[#1e2530]'}`}/>}
+                    {i < 1 && <div className={`flex-1 h-px ${stepIdx > i ? 'bg-[#22c55e]' : 'bg-[#1C2030]'}`}/>}
                   </React.Fragment>
                 );
               })}
@@ -942,19 +940,19 @@ export function AIReasoningPage() {
             {/* PASO 1: PIN */}
             {authStep === 'pin' && (
               <div className="space-y-4">
-                <p className="text-xs text-[#9ca3af]">
+                <p className="text-xs text-[#64748B]">
                   Introduce un PIN de seguridad. Lo necesitarás junto al código TOTP para autorizar.
                 </p>
                 <div>
-                  <label className="text-xs text-[#6b7280] mb-1.5 block">PIN de autorización *</label>
+                  <label className="text-xs text-[#475569] mb-1.5 block">PIN de autorización *</label>
                   <input
                     type="password"
                     value={authPin}
                     onChange={e => setAuthPin(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleRequestApproval()}
                     placeholder="Mínimo 4 caracteres"
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg px-3 py-2
-                               text-sm text-white focus:outline-none focus:border-[#00d4ff]"
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-3 py-2
+                               text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
                   />
                   {authPinError && (
                     <p className="text-xs text-[#ff3b3b] mt-1 flex items-center gap-1">
@@ -962,12 +960,12 @@ export function AIReasoningPage() {
                     </p>
                   )}
                 </div>
-                <div className="bg-[#0f1117] rounded-lg p-3 text-xs text-[#6b7280]">
-                  <p className="font-semibold text-[#9ca3af] mb-1">Activo objetivo</p>
+                <div className="bg-[#0A0C10] rounded-lg p-3 text-xs text-[#475569]">
+                  <p className="font-semibold text-[#64748B] mb-1">Activo objetivo</p>
                   <p className="font-mono">{currentAsset?.ip} — {currentAsset?.hostname ?? 'Sin hostname'}</p>
                 </div>
                 <button onClick={handleRequestApproval} disabled={authLoading || !authPin}
-                  className="w-full py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold
+                  className="w-full py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] text-[#0A0C10] font-bold
                              rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed
                              flex items-center justify-center gap-2">
                   {authLoading
@@ -980,7 +978,7 @@ export function AIReasoningPage() {
             {/* PASO 2: QR */}
             {authStep === 'qr' && (
               <div className="space-y-4">
-                <p className="text-xs text-[#9ca3af]">
+                <p className="text-xs text-[#64748B]">
                   Guarda este código QR en tu app autenticadora (<strong className="text-white">Google Authenticator</strong>, <strong className="text-white">Authy</strong>).
                   El Security Officer lo necesitará para aprobar en M4 Explotación.
                   La solicitud expira en <strong className="text-[#f59e0b]">30 minutos</strong>.
@@ -989,14 +987,14 @@ export function AIReasoningPage() {
                   <img
                     src={`data:image/png;base64,${authQrBase64}`}
                     alt="QR TOTP"
-                    className="w-48 h-48 rounded-lg border border-[#1e2530]"
+                    className="w-64 h-64 rounded-lg border border-[#1C2030]"
                   />
                 </div>
-                <p className="text-xs text-[#6b7280] text-center">
-                  Aprobación ID: <span className="font-mono text-[#00d4ff]">#{authApprovalId}</span>
+                <p className="text-xs text-[#475569] text-center">
+                  Aprobación ID: <span className="font-mono text-[#8B5CF6]">#{authApprovalId}</span>
                 </p>
                 <button onClick={() => setAuthStep('done')}
-                  className="w-full py-2 bg-[#00d4ff] hover:bg-[#00b8e6] text-[#0f1117] font-bold
+                  className="w-full py-2 bg-[#8B5CF6] hover:bg-[#00b8e6] text-[#0A0C10] font-bold
                              rounded-lg text-sm transition-colors">
                   Solicitud enviada a M4 ✓
                 </button>
@@ -1012,7 +1010,7 @@ export function AIReasoningPage() {
                   <Check className="w-6 h-6 text-[#22c55e]"/>
                 </div>
                 <p className="text-sm font-bold text-[#22c55e]">Vector autorizado y firmado</p>
-                <p className="text-xs text-[#6b7280]">
+                <p className="text-xs text-[#475569]">
                   La solicitud está PENDING en M4 Explotación. El Security Officer debe aprobarla con su código TOTP.
                 </p>
               </div>

@@ -2,13 +2,52 @@
 US-6.4 -- Honeypots Cowrie + Beelzebub
 ENS Alto: op.exp.4 (deteccion de intrusiones via honeypots)
 """
+import http.client
 import json
+import socket
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
+
+
+_DOCKER_SOCKET = "/var/run/docker.sock"
+
+
+class _UnixHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection over a Unix domain socket (used to call the Docker API)."""
+    def __init__(self, socket_path: str) -> None:
+        super().__init__("localhost")
+        self._socket_path = socket_path
+
+    def connect(self) -> None:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(self._socket_path)
+        self.sock = sock
+
+
+def _docker_logs_via_socket(container: str, tail: int = 300) -> list[str]:
+    """Read container stdout+stderr logs via Docker Unix socket without the docker CLI."""
+    try:
+        conn = _UnixHTTPConnection(_DOCKER_SOCKET)
+        conn.request("GET", f"/containers/{container}/logs?stdout=1&stderr=1&tail={tail}")
+        resp = conn.getresponse()
+        if resp.status != 200:
+            return []
+        raw = resp.read()
+        # Docker multiplexed log format: 8-byte header [type(1), 0,0,0, size(4 BE)] + payload
+        lines: list[str] = []
+        i = 0
+        while i + 8 <= len(raw):
+            size = int.from_bytes(raw[i + 4: i + 8], "big")
+            payload = raw[i + 8: i + 8 + size]
+            lines.append(payload.decode("utf-8", errors="replace").rstrip("\n"))
+            i += 8 + size
+        return lines
+    except Exception:
+        return []
 
 router = APIRouter(tags=["US-6.4 Honeypots"])
 
@@ -45,17 +84,21 @@ def _read_log_tail(path: Path, lines: int = 100) -> list[str]:
             return content.splitlines()[-lines:]
         except OSError:
             pass
-    # Fallback: docker exec tail
+    # Fallback: docker exec tail (works for containers with shell/coreutils)
     container = _COWRIE_CONTAINER if "cowrie" in str(path) else _BEELZEBUB_CONTAINER
     try:
         result = subprocess.run(
             ["docker", "exec", container, "tail", "-n", str(lines), str(path)],
             capture_output=True, text=True, timeout=15,
         )
-        if result.returncode == 0:
+        if result.returncode == 0 and result.stdout.strip():
             return result.stdout.splitlines()
     except Exception:
         pass
+    # Last resort: Docker socket API (works for distroless containers without shell/CLI)
+    socket_lines = _docker_logs_via_socket(container, tail=lines * 3)
+    if socket_lines:
+        return socket_lines[-lines:]
     return []
 
 
@@ -106,18 +149,40 @@ async def honeypots_events() -> dict[str, Any]:
         except (json.JSONDecodeError, KeyError):
             continue
 
-    # Parse Beelzebub events
+    # Parse Beelzebub events — logs use a nested {"event": {...}, "msg": "New Event"} structure
     for line in _read_log_tail(_BEELZEBUB_LOG, 100):
         if not line.strip():
             continue
         try:
-            entry = json.loads(line)
+            outer = json.loads(line)
+            # Skip startup lines (no nested event object)
+            if outer.get("msg") != "New Event":
+                continue
+            ev = outer.get("event", {})
+            src_ip = ev.get("SourceIp") or ev.get("sourceIP") or ""
+            # Normalize "ip:port" → just ip
+            if src_ip and ":" in src_ip:
+                src_ip = src_ip.rsplit(":", 1)[0]
+            protocol = ev.get("Protocol", "HTTP")
+            uri = ev.get("RequestURI", "")
+            method = ev.get("HTTPMethod", "")
+            desc = ev.get("Description", "")
+            event_type = f"{protocol} {method} {uri}".strip() if uri else f"{protocol} {ev.get('Msg', 'connection')}"
+            detail_parts = []
+            if uri:
+                detail_parts.append(f"{method} {uri}")
+            if ev.get("Body"):
+                detail_parts.append(f"Body: {ev['Body']}")
+            if ev.get("UserAgent"):
+                detail_parts.append(f"UA: {ev['UserAgent']}")
+            if desc and not uri:
+                detail_parts.append(desc)
             events.append({
                 "source": "beelzebub",
-                "timestamp": entry.get("timestamp", entry.get("time")),
-                "src_ip": entry.get("src_ip", entry.get("sourceIP", entry.get("remoteAddr"))),
-                "event_type": entry.get("event_type", entry.get("type", "connection")),
-                "detail": entry.get("detail", entry.get("message", entry.get("request", ""))),
+                "timestamp": ev.get("DateTime", outer.get("time")),
+                "src_ip": src_ip or None,
+                "event_type": event_type,
+                "detail": " | ".join(detail_parts) if detail_parts else ev.get("Msg", ""),
             })
         except (json.JSONDecodeError, KeyError):
             continue

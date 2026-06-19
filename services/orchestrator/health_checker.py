@@ -2,14 +2,16 @@ import asyncio
 
 import httpx
 
+import os
+
 SERVICE_URLS: dict[str, str] = {
-    "M1": "http://localhost:8001/health",
-    "M2": "http://localhost:8003/health",
-    "M3": "http://localhost:8002/health",
-    "M4": "http://localhost:8004/health",
-    "M5": "http://localhost:8006/health",
-    "M7": "http://localhost:8008/health",
-    "M8": "http://localhost:8005/health",
+    "M1": os.getenv("M1_URL", "http://m1:8001") + "/health",
+    "M2": os.getenv("M2_URL", "http://m2:8003") + "/health",
+    "M3": os.getenv("M3_URL", "http://scanner-engine:8002") + "/health",
+    "M4": os.getenv("M4_URL", "http://m4:8004") + "/health",
+    "M5": os.getenv("M5_URL", "http://m5:8006") + "/health",
+    "M7": os.getenv("M7_URL", "http://m7:8000") + "/health",
+    "M8": os.getenv("M8_URL", "http://m8:8005") + "/health",
 }
 
 

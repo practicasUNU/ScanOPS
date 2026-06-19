@@ -376,6 +376,4 @@ def extract_http_ports(nmap_findings: List[Dict]) -> List[int]:
             continue
         if service.lower() in HTTP_SERVICE_NAMES or port in HTTP_PORTS_ALWAYS:
             ports.add(port)
-    # Always include port 80 as baseline
-    ports.add(80)
     return sorted(ports)

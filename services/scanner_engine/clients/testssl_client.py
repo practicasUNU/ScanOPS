@@ -57,7 +57,7 @@ def run_testssl_scan(asset_id: int, target_url: str) -> List[Dict]:
             f"{target_host}:{port}",
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
         findings = []
         if os.path.exists(output_file):

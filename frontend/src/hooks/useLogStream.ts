@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
+import { ENDPOINTS } from '../config/api';
 
 export interface LogEntry {
   timestamp: string;
@@ -7,7 +8,6 @@ export interface LogEntry {
   message: string;
 }
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
 const MAX_ENTRIES = 50;
 
 export function useLogStream() {
@@ -17,9 +17,7 @@ export function useLogStream() {
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    // EventSource doesn't support custom headers — pass token as query param
-    // TODO: implement token-in-query-param validation in orchestrator for SSE
-    const url = `${ORCHESTRATOR_BASE}/orchestrator/logs/stream`;
+    const url = ENDPOINTS.logStream;
     const es = new EventSource(url);
     esRef.current = es;
 

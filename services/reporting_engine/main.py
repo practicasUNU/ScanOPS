@@ -18,7 +18,12 @@ from weasyprint import HTML
 # CORRECCIÓN EN services/reporting_engine/main.py
 from google_drive_service import drive_uploader
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
 logger = logging.getLogger("m7.reporting")
+logging.getLogger("m7.google_drive").setLevel(logging.INFO)
 
 app = FastAPI(title="ScanOps M7 - Reporting Engine")
 
@@ -107,6 +112,7 @@ def get_report_data() -> dict:
         "activos_detalle": [],
         "m4_aprobaciones": [],
         "siem_eventos": [],
+        "severity_counts": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0},
         "db_available": False,
     }
     try:
@@ -117,7 +123,8 @@ def get_report_data() -> dict:
                 # ── Activos M1 ──────────────────────────────────────────
                 cur.execute("""
                     SELECT id, ip, hostname, nombre, tipo, criticidad,
-                           status, responsable, departamento, created_at
+                           status, responsable, departamento,
+                           os_family, os_version, ubicacion, created_at
                     FROM assets
                     WHERE deleted_at IS NULL
                     ORDER BY criticidad DESC, created_at DESC
@@ -129,9 +136,12 @@ def get_report_data() -> dict:
                 # ── Vulnerabilidades M3 (vuln_findings) ─────────────────
                 cur.execute("""
                     SELECT vf.asset_id, a.ip as host_ip, a.hostname,
+                           vf.vulnerability_id as cve_id,
                            vf.title as cve, vf.severity as crit,
                            vf.cvss_v3_score::text as cvss,
                            vf.description as desc,
+                           vf.affected_port as port,
+                           vf.affected_protocol as protocol,
                            vf.scanner_name,
                            vf.ens_requirement,
                            vf.created_at
@@ -139,11 +149,19 @@ def get_report_data() -> dict:
                     LEFT JOIN assets a ON vf.asset_id = a.id
                     WHERE vf.severity IN ('CRITICAL','HIGH','MEDIUM')
                     ORDER BY vf.cvss_v3_score DESC NULLS LAST, vf.created_at DESC
-                    LIMIT 50
+                    LIMIT 200
                 """)
                 vulns = [dict(r) for r in cur.fetchall()]
                 defaults["vulnerabilidades"] = vulns
-                defaults["top_vulns"] = vulns[:10]
+                defaults["top_vulns"] = [v for v in vulns if v.get("crit") in ("CRITICAL", "HIGH")][:10]
+                from collections import Counter as _Counter
+                _sc = _Counter(v["crit"] for v in vulns)
+                defaults["severity_counts"] = {
+                    "CRITICAL": _sc.get("CRITICAL", 0),
+                    "HIGH": _sc.get("HIGH", 0),
+                    "MEDIUM": _sc.get("MEDIUM", 0),
+                    "LOW": _sc.get("LOW", 0),
+                }
 
                 # ── ENS Score ──────────────────────────────────────────
                 cur.execute("""
@@ -162,10 +180,11 @@ def get_report_data() -> dict:
                 # ── M4 Aprobaciones ────────────────────────────────────
                 cur.execute("""
                     SELECT id, cve_id, target_ip, status, requester,
-                           created_at, approved_at, executed_at
+                           created_at, approved_at, executed_at,
+                           execution_result as exploit_result
                     FROM m4_approvals
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT 50
                 """)
                 aprobaciones = [dict(r) for r in cur.fetchall()]
                 defaults["m4_aprobaciones"] = aprobaciones
@@ -180,28 +199,44 @@ def get_report_data() -> dict:
                 # ── SIEM Eventos M5 ────────────────────────────────────
                 try:
                     cur.execute("""
-                        SELECT event_type, severity, target_ip, description, timestamp
+                        SELECT event_type, severity, source, attacker_ip as source_ip,
+                               target_ip, description, timestamp
                         FROM siem_pipeline_events
                         ORDER BY timestamp DESC
-                        LIMIT 10
+                        LIMIT 50
                     """)
                     defaults["siem_eventos"] = [dict(r) for r in cur.fetchall()]
                 except Exception:
                     conn.rollback()
 
                 # ── ROI ────────────────────────────────────────────────
-                defaults["roi_time_saved"] = int(len(vulns) * 1.9)
+                # ~4h analyst time per CRITICAL, ~2h per HIGH, ~0.5h per MEDIUM
+                _roi = (
+                    defaults["severity_counts"]["CRITICAL"] * 4
+                    + defaults["severity_counts"]["HIGH"] * 2
+                    + defaults["severity_counts"]["MEDIUM"] // 2
+                )
+                defaults["roi_time_saved"] = _roi
 
                 # ── Tareas de remediación ──────────────────────────────
                 defaults["tareas"] = [
                     {
-                        "titulo": f"Remediar {v.get('cve','Vuln')[:60]} en {v.get('host_ip','activo')}",
+                        "titulo": f"Remediar en {v.get('host_ip','activo')} — {v.get('cve') or 'Vulnerabilidad'}",
                         "crit": v.get("crit", "HIGH"),
                         "activos": v.get("host_ip", "N/A"),
-                        "accion": f"Aplicar parche para {v.get('cve','vulnerabilidad')[:50]}. {(v.get('desc') or '')[:80]}",
+                        "cve_id": v.get("cve_id", ""),
+                        "port": v.get("port", ""),
+                        "protocol": v.get("protocol", ""),
+                        "cvss": v.get("cvss", ""),
+                        "accion": (
+                            f"Aplicar parche para {v.get('cve_id') or v.get('cve','esta vulnerabilidad')}. "
+                            f"Servicio en puerto {v.get('port','desconocido') or 'desconocido'} debe ser parcheado "
+                            f"o deshabilitado temporalmente hasta su remediación."
+                        ),
+                        "desc": v.get("desc") or "",
                     }
                     for v in vulns if v.get("crit") in ("CRITICAL", "HIGH")
-                ][:10]
+                ][:20]
 
                 defaults["medidas_soa"] = _get_soa_measures(cur)
                 defaults["db_available"] = True
@@ -230,7 +265,7 @@ def seal_pdf(pdf_bytes: bytes) -> bytes:
     permisos = fitz.PDF_PERM_PRINT | fitz.PDF_PERM_ACCESSIBILITY
     out_bytes = doc.write(
         encryption=fitz.PDF_ENCRYPT_AES_256,
-        owner_pw="ScanOps_MasterKey_2026!",
+        owner_pw=os.getenv("PDF_MASTER_KEY", "ScanOps_MasterKey_2026!"),
         user_pw="",
         permissions=permisos,
     )
@@ -238,44 +273,114 @@ def seal_pdf(pdf_bytes: bytes) -> bytes:
     return out_bytes
 
 
+NOMBRES_PDF = {
+    'executive.html':  '01_Informe_Ejecutivo_ScanOps.pdf',
+    'technical.html':  '02_Informe_Tecnico_ScanOps.pdf',
+    'soa.html':        '03_Declaracion_Aplicabilidad_SoA.pdf',
+    'certificate.html': '04_Certificado_Activo_Critico.pdf',
+    'access_log.html': '06_Evidencia_Accesos_ENS.pdf',
+}
+
+
 def render_and_seal_sync(template_name: str, context: dict) -> tuple[str, bytes]:
-    """
-    Renderiza el HTML, genera el PDF, lo sella criptográficamente
-    y lo envía de forma tolerante a fallos hacia Google Drive.
-    """
+    """Renderiza HTML → PDF sellado AES-256. Sin llamadas a Drive (no es thread-safe)."""
     template = template_env.get_template(template_name)
     html_content = template.render(context)
-    
     pdf_file = io.BytesIO()
     HTML(string=html_content).write_pdf(target=pdf_file)
     raw_pdf_bytes = pdf_file.getvalue()
     pdf_file.close()
-    
-    # Sellado del PDF (Cifrado de ScanOps)
     sealed_bytes = seal_pdf(raw_pdf_bytes)
-    
-    nombres = {
-        'executive.html': '01_Informe_Ejecutivo_ScanOps.pdf',
-        'technical.html': '02_Informe_Tecnico_ScanOps.pdf',
-        'soa.html': '03_Declaracion_Aplicabilidad_SoA.pdf',
-        'certificate.html': '04_Certificado_Activo_Critico.pdf',
-    }
-    filename = nombres.get(template_name, 'informe.pdf')
-    
-    # ─── [NUEVO] SUBIDA EN SEGUNDO PLANO TOLERANTE A FALLOS ───
-    try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        drive_filename = f"{timestamp}_{filename}"
-        
-        # Intentar subir el archivo sin bloquear el retorno principal
-        drive_uploader.upload_pdf(drive_filename, sealed_bytes)
-        
-    except Exception as drive_err:
-        # Si Google Drive falla, se captura el error aquí para que NO tire el endpoint
-        logger.error(f"[M7_DRIVE_SHIELD] Falló la subida de respaldo a la nube: {drive_err}. Prosiguiendo con la entrega local.")
-    
-    # El return queda fuera del bloque de Drive, asegurando la descarga pase lo que pase
+    filename = NOMBRES_PDF.get(template_name, 'informe.pdf')
     return filename, sealed_bytes
+
+
+# --- Access Log helpers ---
+
+def _get_internal_token() -> str:
+    """Genera JWT interno para llamadas inter-servicio de M7."""
+    import jwt as _jwt
+    from datetime import datetime, timezone, timedelta
+    secret = os.getenv("JWT_SECRET_KEY", "scanops-secret-ens-alto-2026")
+    payload = {
+        "sub": "m7-reporting",
+        "role": "service",
+        "token_type": "access",
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+    return _jwt.encode(payload, secret, algorithm="HS256")
+
+
+async def get_access_log_data() -> dict:
+    """
+    Consolida logs de acceso de dos fuentes:
+    1. Login events de la plataforma ScanOps (JWT sessions) — desde Orchestrator
+    2. Auth events SSH de servidores — desde M5 vía paramiko
+    ENS: op.exp.5, op.acc.1
+    """
+    import httpx
+    platform_events = []
+    server_events = []
+    server_stats = []
+    brute_force_alerts = []
+
+    # Fuente 1: sesiones ScanOps (JWT logins)
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=8) as client:
+            r = await client.get(
+                "http://orchestrator:8009/auth/login-events?limit=200",
+                headers={"Authorization": f"Bearer {_get_internal_token()}"}
+            )
+            if r.status_code == 200:
+                data = r.json()
+                platform_events = data.get("events", [])
+    except Exception as e:
+        logger.warning(f"[M7] No se pudieron obtener login-events: {e}")
+
+    # Detección de fuerza bruta: ≥5 fallos en 10 min desde misma IP
+    from collections import defaultdict
+    failures_by_ip: dict = defaultdict(list)
+    for ev in platform_events:
+        if not ev.get("success") and ev.get("ip_origin"):
+            failures_by_ip[ev["ip_origin"]].append(ev.get("timestamp", ""))
+    for ip, timestamps in failures_by_ip.items():
+        if len(timestamps) >= 5:
+            brute_force_alerts.append({
+                "ip": ip,
+                "count": len(timestamps),
+                "first": min(timestamps),
+                "last": max(timestamps),
+            })
+
+    # Fuente 2: auth.log SSH de servidores
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15) as client:
+            r = await client.get("http://m5:8006/siem/auth-events?limit=200")
+            if r.status_code == 200:
+                data = r.json()
+                server_events = data.get("events", [])
+                server_stats = data.get("server_stats", [])
+    except Exception as e:
+        logger.warning(f"[M7] No se pudieron obtener auth-events M5: {e}")
+
+    total_platform = len(platform_events)
+    total_server = len(server_events)
+    failed_platform = sum(1 for e in platform_events if not e.get("success"))
+    failed_server = sum(1 for e in server_events if not e.get("success"))
+
+    return {
+        "platform_events": platform_events[:100],
+        "server_events": server_events[:100],
+        "server_stats": server_stats,
+        "brute_force_alerts": brute_force_alerts,
+        "total_platform": total_platform,
+        "total_server": total_server,
+        "failed_platform": failed_platform,
+        "failed_server": failed_server,
+        "success_platform": total_platform - failed_platform,
+        "success_server": total_server - failed_server,
+    }
 
 
 # --- Endpoints ---
@@ -332,6 +437,7 @@ async def generate_executive_report():
         data = get_report_data()
         context = {
             "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "report_id": f"REP-{uuid.uuid4().hex[:8].upper()}",
             "total_activos": data["total_activos"],
             "ens_score": data["ens_score"],
             "roi_time_saved": data["roi_time_saved"],
@@ -339,8 +445,9 @@ async def generate_executive_report():
             "exploits_ejecutados": data["exploits_ejecutados"],
             "top_vulns": data["top_vulns"],
             "activos_detalle": data["activos_detalle"],
-            "m4_aprobaciones": data["m4_aprobaciones"][:5],
-            "siem_eventos": data["siem_eventos"][:5],
+            "severity_counts": data["severity_counts"],
+            "m4_aprobaciones": data["m4_aprobaciones"][:10],
+            "siem_eventos": data["siem_eventos"][:20],
             "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
@@ -362,8 +469,8 @@ async def generate_executive_report():
         # ─── ALERTA TELEGRAM: CICLO COMPLETADO ───
         try:
             import httpx as _httpx
-            _token = os.getenv("TELEGRAM_BOT_TOKEN", "8607611023:AAFtjXnnQFp2qxH6I3KKrq_0_R-IXBqpzNk")
-            _chat = os.getenv("TELEGRAM_CHAT_ID", "-1003918258595")
+            _token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+            _chat = os.getenv("TELEGRAM_CHAT_ID", "")
             _platform = os.getenv("PLATFORM_URL", "https://localhost:5173")
             _msg = (
                 f"📊 <b>Ciclo ScanOps completado — Informe generado</b>\n\n"
@@ -406,6 +513,7 @@ async def generate_technical_report():
             "vulnerabilidades": data["vulnerabilidades"],
             "tareas": data["tareas"],
             "activos_detalle": data["activos_detalle"],
+            "severity_counts": data["severity_counts"],
             "m4_aprobaciones": data["m4_aprobaciones"],
             "siem_eventos": data["siem_eventos"],
             "total_snapshots": data["total_snapshots"],
@@ -530,11 +638,18 @@ async def generate_full_audit_zip():
 
         ctx_exec = {
             "fecha": fecha_actual,
+            "report_id": f"REP-FULL-{uuid.uuid4().hex[:8].upper()}",
             "total_activos": data["total_activos"],
             "ens_score": data["ens_score"],
             "roi_time_saved": data["roi_time_saved"],
             "auto_mitigated": data["auto_mitigated"],
+            "exploits_ejecutados": data["exploits_ejecutados"],
             "top_vulns": data["top_vulns"],
+            "activos_detalle": data["activos_detalle"],
+            "severity_counts": data["severity_counts"],
+            "m4_aprobaciones": data["m4_aprobaciones"][:10],
+            "siem_eventos": data["siem_eventos"][:20],
+            "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
         ctx_tech = {
@@ -542,6 +657,11 @@ async def generate_full_audit_zip():
             "signature_id": f"SIEM-FULL-{uuid.uuid4().hex[:8].upper()}",
             "vulnerabilidades": data["vulnerabilidades"],
             "tareas": data["tareas"],
+            "activos_detalle": data["activos_detalle"],
+            "severity_counts": data["severity_counts"],
+            "m4_aprobaciones": data["m4_aprobaciones"],
+            "siem_eventos": data["siem_eventos"],
+            "total_snapshots": data["total_snapshots"],
             "db_available": data["db_available"],
         }
         ctx_soa = {
@@ -558,25 +678,50 @@ async def generate_full_audit_zip():
             "cert_uuid": str(uuid.uuid4()).upper(),
         }
 
-        resultados = await asyncio.gather(
-            asyncio.to_thread(render_and_seal_sync, 'executive.html', ctx_exec),
-            asyncio.to_thread(render_and_seal_sync, 'technical.html', ctx_tech),
-            asyncio.to_thread(render_and_seal_sync, 'soa.html', ctx_soa),
-            asyncio.to_thread(render_and_seal_sync, 'certificate.html', ctx_cert),
-        )
+        # Accesos ENS — fuente asíncrona, se obtiene antes del gather
+        access_data = await get_access_log_data()
+        ctx_access = {
+            "fecha": fecha_actual,
+            "report_id": f"ACC-FULL-{uuid.uuid4().hex[:8].upper()}",
+            "periodo": f"{datetime.now().strftime('%B %Y')}",
+            **access_data,
+        }
 
+        # WeasyPrint (Cairo/Pango) no es thread-safe — renderizar secuencialmente
+        resultados = []
+        for tmpl, ctx in [
+            ('executive.html',  ctx_exec),
+            ('technical.html',  ctx_tech),
+            ('soa.html',        ctx_soa),
+            ('certificate.html', ctx_cert),
+            ('access_log.html', ctx_access),
+        ]:
+            resultados.append(await asyncio.to_thread(render_and_seal_sync, tmpl, ctx))
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             for filename, pdf_bytes in resultados:
                 zip_file.writestr(filename, pdf_bytes)
 
-        timestamp_name = f"ScanOps_Audit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        zip_bytes = zip_buffer.getvalue()
+        timestamp_name = f"ScanOps_Audit_{timestamp}.zip"
         file_path = os.path.join(HISTORY_DIR, timestamp_name)
         with open(file_path, "wb") as f:
-            f.write(zip_buffer.getvalue())
+            f.write(zip_bytes)
+
+        # ─── SUBIDA A GOOGLE DRIVE (hilo principal, httplib2 thread-safe aquí) ───
+        try:
+            drive_id = drive_uploader.upload_zip(timestamp_name, zip_bytes)
+            if drive_id:
+                logger.info(f"[M7_DRIVE] ZIP subido a Drive OK — ID: {drive_id} — {timestamp_name}")
+            else:
+                logger.warning("[M7_DRIVE] upload_zip devolvió None — credenciales o permisos")
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló subida ZIP a Drive: {drive_err}")
 
         return Response(
-            content=zip_buffer.getvalue(),
+            content=zip_bytes,
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=ScanOps_Auditoria_Completa.zip"},
         )
@@ -759,6 +904,163 @@ async def generate_asset_report(asset_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando informe de activo: {str(e)}")
+
+
+@app.get("/report/access-log")
+async def generate_access_log_report():
+    """
+    Nuevo endpoint: PDF de evidencia de control de acceso ENS.
+    Consolida sesiones ScanOps + auth.log SSH de servidores.
+    ENS: op.exp.5 (Registro de actividad), op.acc.1 (Control de acceso)
+    Firmado AES-256 — mp.info.4
+    """
+    try:
+        data = await get_access_log_data()
+        context = {
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "report_id": f"ACC-{uuid.uuid4().hex[:8].upper()}",
+            "periodo": f"{datetime.now().strftime('%B %Y')}",
+            **data,
+        }
+        template = template_env.get_template("access_log.html")
+        html_content = template.render(context)
+
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_bytes)
+
+        # Backup Google Drive
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_06_Evidencia_Accesos_ENS.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup access-log: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=ScanOps_Evidencia_Accesos_ENS.pdf"
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generando informe de accesos: {str(e)}"
+        )
+
+
+@app.get("/report/hardening/{asset_id}")
+async def generate_hardening_report(asset_id: int):
+    """
+    Informe PDF de bastionado ENS para un activo específico.
+    Consolida los resultados de hardening_results con datos del activo (M1).
+    ENS: op.exp.2, mp.info.3, op.acc.6, op.cont.2, mp.com.1
+    Firmado AES-256 — mp.info.4
+    """
+    try:
+        conn = get_db_connection()
+
+        # Activo (assets siempre existe)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, ip, hostname, nombre, tipo, criticidad,
+                       status, responsable
+                FROM assets
+                WHERE id = %s AND deleted_at IS NULL
+            """, (asset_id,))
+            activo_row = cur.fetchone()
+        if not activo_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Activo no encontrado")
+
+        # hardening_results puede no existir todavía (la crea M3 en primer uso)
+        resultado_row = None
+        historial_rows = []
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, asset_id, target_ip, hostname, controles,
+                           si_count, no_count, revisar_count, cumple_ens, verified_at
+                    FROM hardening_results
+                    WHERE asset_id = %s
+                    ORDER BY verified_at DESC
+                    LIMIT 1
+                """, (asset_id,))
+                resultado_row = cur.fetchone()
+                cur.execute("""
+                    SELECT si_count, no_count, revisar_count, cumple_ens, verified_at
+                    FROM hardening_results
+                    WHERE asset_id = %s
+                    ORDER BY verified_at DESC
+                    LIMIT 5
+                """, (asset_id,))
+                historial_rows = cur.fetchall()
+        except Exception:
+            conn.rollback()
+
+        conn.close()
+
+        resultado = None
+        if resultado_row:
+            resultado = dict(resultado_row)
+            import json as _json
+            if isinstance(resultado.get("controles"), str):
+                resultado["controles"] = _json.loads(resultado["controles"])
+            if resultado.get("verified_at"):
+                resultado["verified_at"] = resultado["verified_at"].strftime("%d/%m/%Y %H:%M")
+
+        historial = []
+        for r in historial_rows:
+            row = dict(r)
+            if row.get("verified_at"):
+                row["verified_at"] = row["verified_at"].strftime("%d/%m/%Y %H:%M")
+            historial.append(row)
+
+        context = {
+            "fecha":      datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "report_id":  f"HARD-{asset_id}-{uuid.uuid4().hex[:8].upper()}",
+            "activo":     dict(activo_row),
+            "resultado":  resultado,
+            "historial":  historial,
+            "sin_datos":  resultado is None,
+        }
+
+        template = template_env.get_template("hardening.html")
+        html_content = template.render(context)
+        pdf_file = io.BytesIO()
+        HTML(string=html_content).write_pdf(target=pdf_file)
+        raw_bytes = pdf_file.getvalue()
+        pdf_file.close()
+        sealed_bytes = seal_pdf(raw_bytes)
+
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            drive_uploader.upload_pdf(
+                f"{timestamp}_07_Bastionado_{asset_id}.pdf", sealed_bytes
+            )
+        except Exception as drive_err:
+            logger.error(f"[M7_DRIVE_SHIELD] Falló backup hardening {asset_id}: {drive_err}")
+
+        return Response(
+            content=sealed_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition":
+                    f"attachment; filename=ScanOps_Bastionado_{asset_id}.pdf"
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generando informe de bastionado: {str(e)}"
+        )
 
 
 if __name__ == "__main__":

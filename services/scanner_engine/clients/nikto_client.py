@@ -1,13 +1,10 @@
 import subprocess
-import json
-import os
 import re
 from typing import List, Dict
 from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nikto_client")
 
-# Mapa de IDs Nikto conocidos a títulos descriptivos y severidad
 NIKTO_ID_MAP = {
     "013587": ("Missing Security Header", "MEDIUM"),
     "600050": ("Outdated Software Version Detected", "HIGH"),
@@ -24,7 +21,6 @@ NIKTO_ID_MAP = {
 NIKTO_CVSS_MAP = {
     "CVE-2017-9798": 7.5,
     "CVE-2019-0211": 7.8,
-    # Specific header keywords before the generic "missing security header"
     "strict-transport-security": 7.4,
     "content-security-policy": 6.1,
     "x-frame-options": 6.1,
@@ -49,7 +45,6 @@ NIKTO_CVSS_MAP = {
 
 
 def _resolve_nikto_cvss(cve_id: str, title: str, severity: str) -> float:
-    """Resuelve CVSS: primero CVE, luego keyword en título, luego fallback severidad."""
     if cve_id and cve_id in NIKTO_CVSS_MAP:
         return NIKTO_CVSS_MAP[cve_id]
     title_lower = title.lower()
@@ -62,7 +57,6 @@ def _resolve_nikto_cvss(cve_id: str, title: str, severity: str) -> float:
 
 
 def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
-    """Determina título y severidad a partir del ID y mensaje."""
     if nikto_id in NIKTO_ID_MAP:
         base_title, base_severity = NIKTO_ID_MAP[nikto_id]
     else:
@@ -88,17 +82,16 @@ def _classify_nikto_finding(nikto_id: str, msg: str) -> tuple:
 
     return base_title, base_severity
 
-def _extract_cve(msg: str, references: str) -> str:
-    """Extrae CVE del mensaje o referencias."""
-    combined = f"{msg} {references}"
-    cve_match = re.search(r"CVE-\d{4}-\d+", combined, re.IGNORECASE)
+
+def _extract_cve(msg: str) -> str:
+    cve_match = re.search(r"CVE-\d{4}-\d+", msg, re.IGNORECASE)
     return cve_match.group(0).upper() if cve_match else ""
 
+
 def _get_remediation(nikto_id: str, msg: str) -> str:
-    """Genera remediación específica basada en el tipo de finding."""
     msg_upper = msg.upper()
     if "STRICT-TRANSPORT-SECURITY" in msg_upper or "HSTS" in msg_upper:
-        return "Add 'Strict-Transport-Security: max-age=31536000; includeSubDomains' header. Enforces HTTPS connections."
+        return "Add 'Strict-Transport-Security: max-age=31536000; includeSubDomains' header."
     if "CONTENT-SECURITY-POLICY" in msg_upper or "CSP" in msg_upper:
         return "Implement Content-Security-Policy header to prevent XSS and data injection attacks."
     if "X-FRAME-OPTIONS" in msg_upper:
@@ -106,107 +99,122 @@ def _get_remediation(nikto_id: str, msg: str) -> str:
     if "X-CONTENT-TYPE" in msg_upper:
         return "Add 'X-Content-Type-Options: nosniff' header to prevent MIME type sniffing."
     if "REFERRER-POLICY" in msg_upper:
-        return "Add 'Referrer-Policy: strict-origin-when-cross-origin' header to control referrer information."
+        return "Add 'Referrer-Policy: strict-origin-when-cross-origin' header."
     if "PERMISSIONS-POLICY" in msg_upper:
         return "Add Permissions-Policy header to control browser features and APIs."
     if "OUTDATED" in msg_upper or "OLD VERSION" in msg_upper:
-        return "Update server software to the latest stable version. Outdated versions may contain known vulnerabilities."
+        return "Update server software to the latest stable version."
     if "DIRECTORY" in msg_upper and "INDEX" in msg_upper:
         return "Disable directory listing in web server configuration (Apache: Options -Indexes)."
     if "METHOD" in msg_upper and ("PUT" in msg_upper or "DELETE" in msg_upper or "TRACE" in msg_upper):
         return "Disable dangerous HTTP methods (PUT, DELETE, TRACE) in web server configuration."
     return "Review and remediate this finding according to OWASP security best practices."
 
+
+# Parses nikto plain-text stdout lines like:
+#   + [013587] /path: message text
+#   + message without id
+_NIKTO_LINE_RE = re.compile(r"^\+\s+(?:\[(\d+)\]\s+)?(/[^\s:]*)?\s*:?\s*(.*)")
+
+
+def _parse_nikto_stdout(stdout: str, target_url: str) -> List[Dict]:
+    findings = []
+    seen = set()
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line.startswith("+"):
+            continue
+        # skip header/separator lines
+        if line.startswith("+ -") or "Start Time" in line or "Target" in line:
+            continue
+        if "No CGI" in line or "Nikto" in line or line == "+":
+            continue
+
+        m = _NIKTO_LINE_RE.match(line)
+        if not m:
+            continue
+
+        nikto_id = m.group(1) or "UNKNOWN"
+        url_path = m.group(2) or "/"
+        msg = m.group(3).strip()
+        if not msg:
+            continue
+
+        dedup_key = (nikto_id, msg[:100])
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
+        title, severity = _classify_nikto_finding(nikto_id, msg)
+        cve_id = _extract_cve(msg)
+        if cve_id:
+            severity = "HIGH"
+        remediation = _get_remediation(nikto_id, msg)
+
+        findings.append({
+            "title": title,
+            "severity": severity,
+            "description": msg,
+            "cve_id": cve_id if cve_id else None,
+            "cvss_score": _resolve_nikto_cvss(cve_id, title, severity),
+            "evidence": {
+                "nikto_id": nikto_id,
+                "url": url_path,
+                "method": "GET",
+                "target": target_url,
+                "references": "",
+            },
+            "remediation": remediation,
+            "scanner": "Nikto",
+            "ens_measure": "op.exp.2",
+        })
+    return findings
+
+
 def run_nikto_scan(asset_id: int, target_url: str) -> List[Dict]:
     logger.info("NIKTO_START", target=target_url)
 
-    output_file = f"/tmp/nikto_{asset_id}.json"
-
+    # -maxtime hace que nikto se auto-termine de forma limpia y vuelque a stdout
+    # los hallazgos parciales. A diferencia del modo -Format json (que solo
+    # escribe el fichero al completar), el texto plano de stdout sí se captura
+    # aunque el escaneo se corte por tiempo, evitando el resultado vacío.
     cmd = [
         "nikto",
         "-h", target_url,
-        "-Format", "json",
-        "-output", output_file,
         "-Tuning", "1234578",
-        "-timeout", "30",
-        "-maxtime", "90s"
+        "-timeout", "10",
+        "-maxtime", "40s",
+        "-nointeractive",
     ]
 
     try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=55,
+        )
 
-        findings = []
-        if os.path.exists(output_file):
-            with open(output_file, "r") as f:
-                try:
-                    raw = f.read().strip()
-                    if not raw:
-                        logger.warning("NIKTO_EMPTY_OUTPUT", target=target_url)
-                        os.remove(output_file)
-                        return []
-                    data = json.loads(raw)
+        findings = _parse_nikto_stdout(result.stdout or "", target_url)
 
-                    vulns = []
-                    if isinstance(data, list) and len(data) > 0:
-                        vulns = data[0].get("vulnerabilities", [])
-                    elif isinstance(data, dict):
-                        vulns = data.get("vulnerabilities", [])
-
-                    seen = set()
-                    for v in vulns:
-                        nikto_id = str(v.get("id", "Unknown"))
-                        msg = v.get("msg", "")
-                        url = v.get("url", "/")
-                        method = v.get("method", "GET")
-                        references = v.get("references", "") or ""
-
-                        dedup_key = (nikto_id, msg[:100])
-                        if dedup_key in seen:
-                            continue
-                        seen.add(dedup_key)
-
-                        title, severity = _classify_nikto_finding(nikto_id, msg)
-                        cve_id = _extract_cve(msg, references)
-                        if cve_id:
-                            severity = "HIGH"
-                        remediation = _get_remediation(nikto_id, msg)
-
-                        findings.append({
-                            "title": title,
-                            "severity": severity,
-                            "description": msg,
-                            "cve_id": cve_id if cve_id else None,
-                            "cvss_score": _resolve_nikto_cvss(cve_id, title, severity),
-                            "evidence": {
-                                "nikto_id": nikto_id,
-                                "url": url,
-                                "method": method,
-                                "target": target_url,
-                                "references": references
-                            },
-                            "remediation": remediation,
-                            "scanner": "Nikto",
-                            "ens_measure": "op.exp.2"
-                        })
-
-                except json.JSONDecodeError:
-                    logger.error("NIKTO_JSON_ERROR", target=target_url)
-
-            os.remove(output_file)
+        if not findings:
+            logger.warning("NIKTO_EMPTY_OUTPUT", target=target_url)
 
         logger.info("NIKTO_FINISH", target=target_url, count=len(findings))
         return findings
 
-    except subprocess.TimeoutExpired:
-        logger.error("NIKTO_TIMEOUT", target=target_url)
-        if os.path.exists(output_file):
-            os.remove(output_file)
-        return []
+    except subprocess.TimeoutExpired as e:
+        # nikto excedió el timeout del wrapper: rescatamos los hallazgos
+        # parciales ya volcados a stdout en lugar de descartarlos.
+        partial = e.stdout
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", errors="replace")
+        findings = _parse_nikto_stdout(partial or "", target_url)
+        logger.error("NIKTO_TIMEOUT", target=target_url, partial_findings=len(findings))
+        return findings
     except FileNotFoundError:
         logger.error("NIKTO_NOT_FOUND", target=target_url)
         return []
     except Exception as e:
         logger.error("NIKTO_ERROR", target=target_url, error=str(e))
-        if os.path.exists(output_file):
-            os.remove(output_file)
         return []

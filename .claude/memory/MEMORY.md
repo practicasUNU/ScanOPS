@@ -1,0 +1,1 @@
+- [ScanOPS deployment status](project_scanops_deployment.md) — Production readiness: frontend not dockerized, orchestrator manual launch, missing Nginx reverse proxy & HTTPS

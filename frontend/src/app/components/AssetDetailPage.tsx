@@ -1,18 +1,18 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { Badge } from './ui/badge';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  ChevronLeft, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap,
+  ChevronLeft, ChevronRight, Pencil, Save, Trash2, Play, Loader2, AlertCircle, Zap,
   CheckCircle2, ShieldAlert, Shield, Monitor, Search, Download,
-  RefreshCw, XCircle,
+  RefreshCw, XCircle, Boxes,
 } from 'lucide-react';
 import { useAssets, type VulnResult } from '../../hooks/useAssets';
 import { getStoredToken } from '../../hooks/useAuth';
 
-const M1_BASE = 'http://localhost:8001/api/v1';
+const M1_BASE = '/api/m1/api/v1';
 const SCAN_TOOLS = ['nikto', 'nuclei', 'nmap'] as const;
 
 function authHeader(): HeadersInit {
@@ -48,6 +48,8 @@ interface AssetDetail {
   os_version?: string | null;
   departamento?: string | null;
   ubicacion?: string | null;
+  ssh_user?: string | null;
+  ssh_password?: string | null;
 }
 
 type EditForm = {
@@ -65,6 +67,8 @@ type EditForm = {
   ubicacion: string;
   mac_address: string;
   notas: string;
+  ssh_user: string;
+  ssh_password: string;
 };
 
 function toEditForm(a: AssetDetail): EditForm {
@@ -83,6 +87,8 @@ function toEditForm(a: AssetDetail): EditForm {
     ubicacion: a.ubicacion ?? '',
     mac_address: a.mac_address ?? '',
     notas: a.notas ?? '',
+    ssh_user: a.ssh_user ?? '',
+    ssh_password: a.ssh_password ?? '',
   };
 }
 
@@ -90,8 +96,8 @@ const criticidadClass = (c: string) => {
   switch (c) {
     case 'CRITICA': return 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10';
     case 'ALTA':    return 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10';
-    case 'MEDIA':   return 'text-[#00d4ff] border-[#00d4ff]/30 bg-[#00d4ff]/10';
-    default:        return 'text-[#6b7280] border-[#374151] bg-[#374151]/20';
+    case 'MEDIA':   return 'text-[#8B5CF6] border-[#8B5CF6]/30 bg-[#8B5CF6]/10';
+    default:        return 'text-[#475569] border-[#374151] bg-[#374151]/20';
   }
 };
 
@@ -100,8 +106,8 @@ const vulnSeverityClass = (sev: string) => {
     case 'CRITICAL': return 'text-[#ff3b3b] border-[#ff3b3b]/30 bg-[#ff3b3b]/10';
     case 'HIGH':     return 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10';
     case 'MEDIUM':   return 'text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10';
-    case 'LOW':      return 'text-[#00d4ff] border-[#00d4ff]/30 bg-[#00d4ff]/10';
-    default:         return 'text-[#6b7280] border-[#374151] bg-[#374151]/20';
+    case 'LOW':      return 'text-[#8B5CF6] border-[#8B5CF6]/30 bg-[#8B5CF6]/10';
+    default:         return 'text-[#475569] border-[#374151] bg-[#374151]/20';
   }
 };
 
@@ -109,13 +115,13 @@ function statusDotClass(status: string) {
   switch (status) {
     case 'ACTIVO':         return 'bg-[#22c55e]';
     case 'MANTENIMIENTO':  return 'bg-[#f59e0b]';
-    case 'PENDIENTE_ALTA': return 'bg-[#00d4ff]';
-    default:               return 'bg-[#6b7280]';
+    case 'PENDIENTE_ALTA': return 'bg-[#8B5CF6]';
+    default:               return 'bg-[#475569]';
   }
 }
 
 const inputClass =
-  'w-full bg-[#0f1117] border border-[#1e2530] rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#00d4ff] transition-colors';
+  'w-full bg-[#0A0C10] border border-[#1C2030] rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6] transition-colors';
 
 // ── Interfaces logs ──────────────────────────────────────────────
 interface SIEMAlertAsset {
@@ -175,8 +181,8 @@ function actionBadgeAsset(action: string | undefined) {
     SSH_LOGIN_FAIL:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SSH FAIL' },
     SSH_INVALID_USER: { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ INVÁLIDO' },
     SSH_ABORT:        { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',  label: '⚡ ABORT' },
-    SESSION_OPEN:     { cls: 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',  label: '▶ SESIÓN' },
-    SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',  label: '■ FIN SESIÓN' },
+    SESSION_OPEN:     { cls: 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6]',  label: '▶ SESIÓN' },
+    SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#334155]/30 text-[#64748B]',  label: '■ FIN SESIÓN' },
     SUDO_COMMAND:     { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',  label: '⚡ SUDO' },
     SUDO_FAIL:        { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ SUDO FAIL' },
     SU_OK:            { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',  label: '▲ SU OK' },
@@ -190,7 +196,7 @@ function actionBadgeAsset(action: string | undefined) {
     ACCOUNT_LOCKOUT:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '🔒 LOCKOUT' },
     AUTH_FAILURE:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '✗ AUTH FAIL' },
     PRIV_ESCALATION:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',  label: '⚠ ESCALADA' },
-    OTHER:            { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]',  label: 'OTRO' },
+    OTHER:            { cls: 'bg-[#374151]/30 border-[#334155]/30 text-[#475569]',  label: 'OTRO' },
   };
   const c = cfg[action ?? 'OTHER'] ?? cfg['OTHER'];
   return (
@@ -220,6 +226,7 @@ export function AssetDetailPage() {
     hostname: '', nombre: '', tipo: 'SERVER', criticidad: 'MEDIA', responsable: '',
     status: 'ACTIVO', os_family: '', os_version: '', dominio: '',
     network_range: '', departamento: '', ubicacion: '', mac_address: '', notas: '',
+    ssh_user: '', ssh_password: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -286,8 +293,8 @@ export function AssetDetailPage() {
       const token = getStoredToken();
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await fetch(
-        'http://localhost:8006/siem/auth-events?limit=500',
-        { headers, signal: AbortSignal.timeout(15000) }
+        '/api/m5/siem/auth-events?limit=500',
+        { headers, signal: AbortSignal.timeout(45000) }
       );
       if (!res.ok) throw new Error();
       const data = await res.json() as {
@@ -347,6 +354,8 @@ export function AssetDetailPage() {
         ubicacion:     editForm.ubicacion     || null,
         mac_address:   editForm.mac_address   || null,
         notas:         editForm.notas         || null,
+        ssh_user:      editForm.ssh_user      || null,
+        ssh_password:  editForm.ssh_password  || null,
       };
       const res = await fetch(`${M1_BASE}/assets/${asset.id}`, {
         method: 'PUT',
@@ -502,7 +511,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m2');
       plog(`[M2] Iniciando reconocimiento sobre ${asset.ip}...`);
       const m2Res = await fetch(
-        `http://localhost:8003/api/v1/scan?target=${encodeURIComponent(asset.ip)}`,
+        `/api/m2/api/v1/scan?target=${encodeURIComponent(asset.ip)}`,
         { method: 'POST', headers: authHeader(), signal: AbortSignal.timeout(120000) }
       );
       if (!m2Res.ok) throw new Error(`M2 falló: HTTP ${m2Res.status}`);
@@ -517,7 +526,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m3');
       plog(`[M3] Lanzando Nmap + Nuclei + Nikto + ffuf + whatweb + testssl sobre ${asset.ip}...`);
       const m3Launch = await fetch(
-        `http://localhost:8002/api/v1/scan/asset/${asset.id}`,
+        `/api/m3/api/v1/scan/asset/${asset.id}`,
         { method: 'POST', headers: authHeader(),
           body: JSON.stringify({ scan_types: ['nmap','nuclei','nikto','ffuf','whatweb','testssl'],
             description: `Pipeline completo: ${asset.ip}` }),
@@ -531,7 +540,7 @@ export function AssetDetailPage() {
       for (let i = 0; i < 40; i++) {
         await new Promise(r => setTimeout(r, 5000));
         try {
-          const rRes = await fetch(`http://localhost:8002/api/v1/scan/results/${asset.id}`,
+          const rRes = await fetch(`/api/m3/api/v1/scan/results/${asset.id}`,
             { headers: authHeader(), signal: AbortSignal.timeout(8000) });
           if (rRes.ok) {
             const rData = await rRes.json();
@@ -554,7 +563,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m8');
       plog(`[M8] Invocando Ollama/Mistral para análisis de vectores...`);
       const m8Launch = await fetch(
-        `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector`,
+        `/api/m3/api/v1/scan/assets/${asset.id}/attack-vector`,
         { method: 'POST', headers: authHeader(), signal: AbortSignal.timeout(15000) }
       );
       if (!m8Launch.ok) throw new Error(`M8 falló: HTTP ${m8Launch.status}`);
@@ -566,7 +575,7 @@ export function AssetDetailPage() {
         await new Promise(r => setTimeout(r, 4000));
         try {
           const rRes = await fetch(
-            `http://localhost:8002/api/v1/scan/assets/${asset.id}/attack-vector/result/${m8TaskId}`,
+            `/api/m3/api/v1/scan/assets/${asset.id}/attack-vector/result/${m8TaskId}`,
             { headers: authHeader(), signal: AbortSignal.timeout(8000) }
           );
           if (rRes.ok) {
@@ -597,7 +606,7 @@ export function AssetDetailPage() {
       setPipelinePhase('m4');
       plog(`[M4] Creando solicitud de aprobación en la cola...`);
       const cveId = m8Result.msf_module?.split('/').pop()?.toUpperCase() ?? `VECTOR-${asset.ip}`;
-      const m4Res = await fetch('http://localhost:8004/api/m4/request-approval', {
+      const m4Res = await fetch('/api/m4/api/m4/request-approval', {
         method: 'POST',
         headers: authHeader(),
         body: JSON.stringify({ cve: cveId, ip: asset.ip, user_email: 'admin@scanops.local', pin: '1234' }),
@@ -696,12 +705,12 @@ export function AssetDetailPage() {
 
   if (pageLoading) {
     return (
-      <div className="flex h-screen bg-[#0f1117]">
+      <div className="flex h-screen bg-[#0A0C10]">
         <Sidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
           <TopBar role="System Manager" />
           <main className="flex-1 flex items-center justify-center">
-            <div className="flex items-center gap-3 text-[#6b7280]">
+            <div className="flex items-center gap-3 text-[#475569]">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>Cargando activo...</span>
             </div>
@@ -713,7 +722,7 @@ export function AssetDetailPage() {
 
   if (pageError || !asset) {
     return (
-      <div className="flex h-screen bg-[#0f1117]">
+      <div className="flex h-screen bg-[#0A0C10]">
         <Sidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
           <TopBar role="System Manager" />
@@ -723,7 +732,7 @@ export function AssetDetailPage() {
               <p className="text-white text-lg">{pageError ?? 'Activo no encontrado'}</p>
               <button
                 onClick={() => navigate('/assets')}
-                className="flex items-center gap-2 px-4 py-2 bg-[#1a1d27] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors mx-auto"
+                className="flex items-center gap-2 px-4 py-2 bg-[#111318] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white transition-colors mx-auto"
               >
                 <ChevronLeft className="w-4 h-4" />
                 Volver al inventario
@@ -736,7 +745,7 @@ export function AssetDetailPage() {
   }
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar role="System Manager" />
@@ -753,24 +762,31 @@ export function AssetDetailPage() {
             </div>
           )}
 
-          {/* Header row 1: back + breadcrumb + badges */}
+          {/* Header row 1: breadcrumb + badges */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <nav className="flex items-center gap-1">
               <button
                 onClick={() => navigate('/assets')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#1a1d27] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white hover:bg-[#1e2530] transition-colors"
+                className="flex items-center gap-1.5 text-[#64748B] hover:text-[#8B5CF6] transition-colors cursor-pointer px-1 py-0.5 rounded"
+                title="Volver al inventario"
               >
-                <ChevronLeft className="w-4 h-4" />
-                Inventario
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <Boxes className="w-3.5 h-3.5" />
+                <span className="text-xs font-medium">Asset Manager</span>
               </button>
-              <span className="text-[#6b7280] text-sm">
-                M1 · Asset Manager / <span className="text-white font-mono">{asset.ip}</span>
-              </span>
-            </div>
+              <ChevronRight className="w-3.5 h-3.5 text-[#334155] shrink-0" />
+              <span className="text-xs font-mono text-[#94A3B8] max-w-[160px] truncate">{asset.ip}</span>
+              {asset.hostname && asset.hostname !== asset.ip && (
+                <>
+                  <ChevronRight className="w-3 h-3 text-[#1C2030] shrink-0" />
+                  <span className="text-xs text-[#64748B] max-w-[140px] truncate">{asset.hostname}</span>
+                </>
+              )}
+            </nav>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${statusDotClass(asset.status)}`} />
-                <span className="text-xs text-[#9ca3af]">{asset.status}</span>
+                <span className="text-xs text-[#64748B]">{asset.status}</span>
               </div>
               <Badge variant="outline" className={`border text-xs ${criticidadClass(asset.criticidad)}`}>
                 {asset.criticidad}
@@ -785,16 +801,16 @@ export function AssetDetailPage() {
                 {asset.nombre || asset.hostname || asset.ip}
               </h1>
               {asset.nombre && asset.hostname && (
-                <p className="text-xs text-[#6b7280] font-mono mt-0.5">{asset.hostname}</p>
+                <p className="text-xs text-[#475569] font-mono mt-0.5">{asset.hostname}</p>
               )}
               {!asset.nombre && (
-                <p className="text-sm text-[#9ca3af] font-mono mt-0.5">{asset.ip}</p>
+                <p className="text-sm text-[#64748B] font-mono mt-0.5">{asset.ip}</p>
               )}
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => { setEditing(true); setEditForm(toEditForm(asset)); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] rounded-lg hover:bg-[#00d4ff]/20 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] rounded-lg hover:bg-[#8B5CF6]/20 transition-colors"
               >
                 <Pencil className="w-3.5 h-3.5" />
                 Editar
@@ -827,7 +843,7 @@ export function AssetDetailPage() {
           </div>
 
           {/* ── Tab bar ── */}
-          <div className="border-b border-[#1e2530] flex gap-0">
+          <div className="border-b border-[#1C2030] flex gap-0">
             {([
               { id: 'info',     label: 'Información' },
               { id: 'vulns',    label: 'Vulnerabilidades' },
@@ -839,8 +855,8 @@ export function AssetDetailPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id
-                    ? 'border-[#00d4ff] text-[#00d4ff]'
-                    : 'border-transparent text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                    ? 'border-[#8B5CF6] text-[#8B5CF6]'
+                    : 'border-transparent text-[#64748B] hover:text-white hover:border-[#374151]'
                 }`}
               >
                 {tab.label}
@@ -855,9 +871,9 @@ export function AssetDetailPage() {
             <div className="col-span-7 space-y-5">
 
               {/* Card 1: Asset Info */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
+              <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">Información del activo</h2>
+                  <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider">Información del activo</h2>
                   {editing && (
                     <div className="flex items-center gap-2">
                       <button
@@ -870,7 +886,7 @@ export function AssetDetailPage() {
                       </button>
                       <button
                         onClick={() => { setEditing(false); setEditForm(toEditForm(asset)); }}
-                        className="px-3 py-1.5 text-xs bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] rounded-lg hover:text-white transition-colors"
+                        className="px-3 py-1.5 text-xs bg-[#1C2030] border border-[#1C2030] text-[#64748B] rounded-lg hover:text-white transition-colors"
                       >
                         Cancelar
                       </button>
@@ -881,16 +897,16 @@ export function AssetDetailPage() {
                 <div className="grid grid-cols-3 gap-4">
                   {/* IP */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1 flex items-center gap-1.5">
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1 flex items-center gap-1.5">
                       IP
-                      <span className="text-[10px] text-[#6b7280] bg-[#0f1117] border border-[#1e2530] px-1.5 py-0.5 rounded font-mono normal-case tracking-normal">Inmutable</span>
+                      <span className="text-[10px] text-[#475569] bg-[#0A0C10] border border-[#1C2030] px-1.5 py-0.5 rounded font-mono normal-case tracking-normal">Inmutable</span>
                     </div>
                     <div className="text-white font-mono text-sm">{asset.ip}</div>
                   </div>
 
                   {/* Hostname */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Hostname</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Hostname</div>
                     {editing
                       ? <input value={editForm.hostname} onChange={e => setEditForm(p => ({ ...p, hostname: e.target.value }))} className={inputClass} placeholder="servidor-01.local" />
                       : <div className="text-white font-mono text-sm">{asset.hostname ?? '—'}</div>}
@@ -898,7 +914,7 @@ export function AssetDetailPage() {
 
                   {/* Nombre personalizado */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Nombre personalizado</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Nombre personalizado</div>
                     {editing
                       ? <input value={editForm.nombre} onChange={e => setEditForm(p => ({ ...p, nombre: e.target.value }))} className={inputClass} placeholder="ej. Servidor Principal BBDD" />
                       : <div className="text-white text-sm">{asset.nombre ?? '—'}</div>}
@@ -906,7 +922,7 @@ export function AssetDetailPage() {
 
                   {/* Tipo */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Tipo</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Tipo</div>
                     {editing
                       ? (
                         <select value={editForm.tipo} onChange={e => setEditForm(p => ({ ...p, tipo: e.target.value }))} className={inputClass}>
@@ -923,7 +939,7 @@ export function AssetDetailPage() {
 
                   {/* Criticidad */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Criticidad</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Criticidad</div>
                     {editing
                       ? (
                         <select value={editForm.criticidad} onChange={e => setEditForm(p => ({ ...p, criticidad: e.target.value }))} className={inputClass}>
@@ -938,7 +954,7 @@ export function AssetDetailPage() {
 
                   {/* Responsable */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Responsable</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Responsable</div>
                     {editing
                       ? <input value={editForm.responsable} onChange={e => setEditForm(p => ({ ...p, responsable: e.target.value }))} className={inputClass} placeholder="admin@empresa.es" />
                       : <div className="text-white text-sm">{asset.responsable ?? '—'}</div>}
@@ -946,7 +962,7 @@ export function AssetDetailPage() {
 
                   {/* Estado */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Estado</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Estado</div>
                     {editing
                       ? (
                         <select value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))} className={inputClass}>
@@ -966,7 +982,7 @@ export function AssetDetailPage() {
 
                   {/* OS Family */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">OS Family</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">OS Family</div>
                     {editing
                       ? (
                         <select value={editForm.os_family} onChange={e => setEditForm(p => ({ ...p, os_family: e.target.value }))} className={inputClass}>
@@ -983,7 +999,7 @@ export function AssetDetailPage() {
 
                   {/* OS Version */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">OS Version</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">OS Version</div>
                     {editing
                       ? <input value={editForm.os_version} onChange={e => setEditForm(p => ({ ...p, os_version: e.target.value }))} className={inputClass} placeholder="ej. Ubuntu 22.04 LTS" />
                       : <div className="text-white text-sm">{asset.os_version ?? '—'}</div>}
@@ -991,7 +1007,7 @@ export function AssetDetailPage() {
 
                   {/* Dominio */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Dominio</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Dominio</div>
                     {editing
                       ? <input value={editForm.dominio} onChange={e => setEditForm(p => ({ ...p, dominio: e.target.value }))} className={inputClass} placeholder="ej. corp.scanops.local" />
                       : <div className="text-white font-mono text-sm">{asset.dominio ?? '—'}</div>}
@@ -999,7 +1015,7 @@ export function AssetDetailPage() {
 
                   {/* Network Range */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Network Range</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Network Range</div>
                     {editing
                       ? <input value={editForm.network_range} onChange={e => setEditForm(p => ({ ...p, network_range: e.target.value }))} className={inputClass} placeholder="ej. 10.202.15.0/24" />
                       : <div className="text-white font-mono text-sm">{asset.network_range ?? '—'}</div>}
@@ -1007,7 +1023,7 @@ export function AssetDetailPage() {
 
                   {/* Departamento */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Departamento</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Departamento</div>
                     {editing
                       ? <input value={editForm.departamento} onChange={e => setEditForm(p => ({ ...p, departamento: e.target.value }))} className={inputClass} placeholder="ej. Sistemas" />
                       : <div className="text-white text-sm">{asset.departamento ?? '—'}</div>}
@@ -1015,7 +1031,7 @@ export function AssetDetailPage() {
 
                   {/* Ubicación */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Ubicación</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Ubicación</div>
                     {editing
                       ? <input value={editForm.ubicacion} onChange={e => setEditForm(p => ({ ...p, ubicacion: e.target.value }))} className={inputClass} placeholder="ej. Rack A-01" />
                       : <div className="text-white text-sm">{asset.ubicacion ?? '—'}</div>}
@@ -1023,7 +1039,7 @@ export function AssetDetailPage() {
 
                   {/* MAC Address */}
                   <div>
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">MAC Address</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">MAC Address</div>
                     {editing
                       ? <input value={editForm.mac_address} onChange={e => setEditForm(p => ({ ...p, mac_address: e.target.value }))} className={inputClass} placeholder="AA:BB:CC:DD:EE:FF" />
                       : <div className="text-white font-mono text-sm">{asset.mac_address ?? '—'}</div>}
@@ -1031,20 +1047,74 @@ export function AssetDetailPage() {
 
                   {/* Notas — full width */}
                   <div className="col-span-3">
-                    <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-1">Notas</div>
+                    <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-1">Notas</div>
                     {editing
                       ? <textarea value={editForm.notas} onChange={e => setEditForm(p => ({ ...p, notas: e.target.value }))} rows={3} className={`${inputClass} resize-none`} placeholder="Observaciones adicionales..." />
-                      : <div className="text-sm text-[#9ca3af]">{asset.notas ?? '—'}</div>}
+                      : <div className="text-sm text-[#64748B]">{asset.notas ?? '—'}</div>}
                   </div>
+                </div>
+
+                {/* ── Credenciales SSH ── */}
+                <div className="mt-5 bg-[#111318] border border-[#1C2030] rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Shield className="w-4 h-4 text-[#f59e0b]" />
+                    <h3 className="text-sm font-semibold text-white">Credenciales SSH</h3>
+                    <span className="text-xs text-[#334155]">· ENS op.acc.1 · Acceso a logs del activo</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-[#64748B]">Usuario SSH</label>
+                      {editing ? (
+                        <input
+                          value={editForm.ssh_user}
+                          onChange={e => setEditForm(p => ({ ...p, ssh_user: e.target.value }))}
+                          placeholder="admin"
+                          className={inputClass}
+                        />
+                      ) : (
+                        <span className="text-sm font-mono text-white">
+                          {asset.ssh_user || <span className="text-[#334155]">No configurado</span>}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs text-[#64748B]">Contraseña SSH</label>
+                      {editing ? (
+                        <input
+                          type="password"
+                          value={editForm.ssh_password}
+                          onChange={e => setEditForm(p => ({ ...p, ssh_password: e.target.value }))}
+                          placeholder="••••••••"
+                          className={inputClass}
+                        />
+                      ) : (
+                        <span className="text-sm font-mono text-white">
+                          {asset.ssh_password ? '••••••••' : <span className="text-[#334155]">No configurada</span>}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {!editing && asset.ssh_user && (
+                    <div className="mt-3 flex items-center gap-1.5 text-xs text-[#22c55e]">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Credenciales configuradas — los logs de acceso usarán estas credenciales
+                    </div>
+                  )}
+                  {!editing && !asset.ssh_user && (
+                    <div className="mt-3 flex items-center gap-1.5 text-xs text-[#f59e0b]">
+                      <AlertCircle className="w-3 h-3" />
+                      Sin credenciales — se usará el fallback <code className="font-mono">admin:test123</code>
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Card 2: Scan Results */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
+              <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">Resultados de escaneo</h2>
+                  <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider">Resultados de escaneo</h2>
                   {vulns.length > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-[#1e2530] text-xs text-[#9ca3af] font-mono">{filteredVulns.length}/{vulns.length}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-[#1C2030] text-xs text-[#64748B] font-mono">{filteredVulns.length}/{vulns.length}</span>
                   )}
                 </div>
 
@@ -1053,7 +1123,7 @@ export function AssetDetailPage() {
                     <select
                       value={filterDate}
                       onChange={e => setFilterDate(e.target.value)}
-                      className="bg-[#0f1117] border border-[#1e2530] text-sm text-[#9ca3af] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#00d4ff] transition-colors"
+                      className="bg-[#0A0C10] border border-[#1C2030] text-sm text-[#64748B] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#8B5CF6] transition-colors"
                     >
                       <option value="all">Todos los días</option>
                       {scanDates.map(d => <option key={d} value={d}>{d}</option>)}
@@ -1061,7 +1131,7 @@ export function AssetDetailPage() {
                     <select
                       value={filterTool}
                       onChange={e => setFilterTool(e.target.value)}
-                      className="bg-[#0f1117] border border-[#1e2530] text-sm text-[#9ca3af] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#00d4ff] transition-colors"
+                      className="bg-[#0A0C10] border border-[#1C2030] text-sm text-[#64748B] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#8B5CF6] transition-colors"
                     >
                       <option value="all">Todas las herramientas</option>
                       {scanTools.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1070,30 +1140,30 @@ export function AssetDetailPage() {
                 )}
 
                 {vulnsLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-[#6b7280] py-4">
+                  <div className="flex items-center gap-2 text-xs text-[#475569] py-4">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Cargando resultados...
                   </div>
                 ) : vulns.length === 0 ? (
                   <div className="text-center py-6 space-y-3">
-                    <p className="text-sm text-[#6b7280]">Sin resultados de escaneo.</p>
+                    <p className="text-sm text-[#475569]">Sin resultados de escaneo.</p>
                     <button
                       onClick={handleFullScan}
                       disabled={fullScanState.status === 'scanning'}
-                      className="flex items-center gap-2 px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] hover:text-white rounded-lg text-sm transition-colors mx-auto disabled:opacity-60"
+                      className="flex items-center gap-2 px-4 py-2 bg-[#1C2030] border border-[#1C2030] text-[#64748B] hover:text-white rounded-lg text-sm transition-colors mx-auto disabled:opacity-60"
                     >
                       {fullScanState.status === 'scanning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                       Lanzar escaneo completo
                     </button>
                   </div>
                 ) : filteredVulns.length === 0 ? (
-                  <p className="text-sm text-[#6b7280] py-4 text-center">Sin resultados para los filtros seleccionados.</p>
+                  <p className="text-sm text-[#475569] py-4 text-center">Sin resultados para los filtros seleccionados.</p>
                 ) : (
                   <div className="space-y-2">
                     {filteredVulns.map((v) => (
                       <div
                         key={v.id}
-                        className="bg-[#0f1117] border border-[#1e2530] rounded-lg p-3 space-y-1.5 cursor-pointer hover:border-[#374151] transition-colors"
+                        className="bg-[#0A0C10] border border-[#1C2030] rounded-lg p-3 space-y-1.5 cursor-pointer hover:border-[#374151] transition-colors"
                         onClick={() => setExpandedVuln(expandedVuln === v.id ? null : v.id)}
                       >
                         <div className="flex items-start gap-2 justify-between">
@@ -1103,23 +1173,23 @@ export function AssetDetailPage() {
                             </span>
                             <span className="text-xs text-white truncate">{v.title}</span>
                           </div>
-                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[#1e2530] text-[#6b7280] font-mono">
+                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[#1C2030] text-[#475569] font-mono">
                             {v.tool_source}
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
                           {v.cve_id && (
-                            <span className="text-[10px] font-mono text-[#00d4ff]">{v.cve_id}</span>
+                            <span className="text-[10px] font-mono text-[#8B5CF6]">{v.cve_id}</span>
                           )}
                           {v.created_at && (
-                            <span className="text-[10px] text-[#6b7280] font-mono">
+                            <span className="text-[10px] text-[#475569] font-mono">
                               {fmt.format(new Date(v.created_at))}
                             </span>
                           )}
                         </div>
                         {expandedVuln === v.id && (
-                          <div className="text-xs text-[#9ca3af] mt-2 pt-2 border-t border-[#1e2530]">
-                            <p className="font-mono text-[10px] text-[#6b7280] mb-1">
+                          <div className="text-xs text-[#64748B] mt-2 pt-2 border-t border-[#1C2030]">
+                            <p className="font-mono text-[10px] text-[#475569] mb-1">
                               IP: {asset.ip} · Herramienta: {v.tool_source} · {new Date(v.created_at).toLocaleDateString('es-ES')}
                             </p>
                             <p className="line-clamp-none">{v.title}</p>
@@ -1136,8 +1206,8 @@ export function AssetDetailPage() {
             <div className="col-span-5 space-y-5">
 
               {/* Card 3: Launch Scan */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
-                <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Lanzar escaneo</h2>
+              <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
+                <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider mb-4">Lanzar escaneo</h2>
 
                 <div className="flex items-center gap-2 mb-4">
                   {SCAN_TOOLS.map((tool) => (
@@ -1146,8 +1216,8 @@ export function AssetDetailPage() {
                       onClick={() => setSelectedTool(tool)}
                       className={`px-3 py-1.5 text-xs rounded border transition-colors ${
                         selectedTool === tool
-                          ? 'border-[#00d4ff]/50 text-[#00d4ff] bg-[#00d4ff]/10'
-                          : 'border-[#1e2530] text-[#6b7280] bg-[#1a1d27] hover:border-[#374151] hover:text-[#9ca3af]'
+                          ? 'border-[#8B5CF6]/50 text-[#8B5CF6] bg-[#8B5CF6]/10'
+                          : 'border-[#1C2030] text-[#475569] bg-[#111318] hover:border-[#374151] hover:text-[#64748B]'
                       }`}
                     >
                       {tool}
@@ -1158,33 +1228,33 @@ export function AssetDetailPage() {
                 <button
                   onClick={handleScan}
                   disabled={scanState.status === 'scanning'}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] hover:bg-[#00d4ff]/20 rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed mb-3"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 text-[#8B5CF6] hover:bg-[#8B5CF6]/20 rounded-lg text-sm font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed mb-3"
                 >
                   {scanState.status === 'scanning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                   Iniciar escaneo
                 </button>
 
-                {scanState.status === 'scanning' && scanState.msg && <p className="text-xs text-[#00d4ff] font-mono text-center mb-2 animate-pulse">{scanState.msg}</p>}
+                {scanState.status === 'scanning' && scanState.msg && <p className="text-xs text-[#8B5CF6] font-mono text-center mb-2 animate-pulse">{scanState.msg}</p>}
                 {scanState.status === 'done' && <p className="text-xs text-[#22c55e] font-mono text-center mb-2">{scanState.msg}</p>}
                 {scanState.status === 'error' && <p className="text-xs text-[#ff3b3b] font-mono text-center mb-2">{scanState.msg}</p>}
 
                 <button
                   onClick={handleFullScan}
                   disabled={fullScanState.status === 'scanning'}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#1e2530] border border-[#1e2530] text-[#9ca3af] hover:text-white rounded-lg text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#1C2030] border border-[#1C2030] text-[#64748B] hover:text-white rounded-lg text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {fullScanState.status === 'scanning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                   Escaneo completo (nuclei + nikto)
                 </button>
 
-                {fullScanState.status === 'scanning' && fullScanState.msg && <p className="text-xs text-[#00d4ff] font-mono text-center mt-2 animate-pulse">{fullScanState.msg}</p>}
+                {fullScanState.status === 'scanning' && fullScanState.msg && <p className="text-xs text-[#8B5CF6] font-mono text-center mt-2 animate-pulse">{fullScanState.msg}</p>}
                 {fullScanState.status === 'done' && <p className="text-xs text-[#22c55e] font-mono text-center mt-2">{fullScanState.msg}</p>}
                 {fullScanState.status === 'error' && <p className="text-xs text-[#ff3b3b] font-mono text-center mt-2">{fullScanState.msg}</p>}
               </div>
 
               {/* Card 4: ENS Metadata */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
-                <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Trazabilidad ENS Alto</h2>
+              <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
+                <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider mb-4">Trazabilidad ENS Alto</h2>
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   {([
                     ['ID interno',            String(asset.id)],
@@ -1195,19 +1265,19 @@ export function AssetDetailPage() {
                     ['Rango de red',          asset.network_range   ?? '—'],
                   ] as [string, string][]).map(([label, value]) => (
                     <div key={label}>
-                      <div className="text-[10px] text-[#6b7280] uppercase font-semibold tracking-wider mb-0.5">{label}</div>
+                      <div className="text-[10px] text-[#475569] uppercase font-semibold tracking-wider mb-0.5">{label}</div>
                       <div className="text-white font-mono">{value}</div>
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-[#6b7280] mt-4 pt-3 border-t border-[#1e2530]">
+                <p className="text-[10px] text-[#475569] mt-4 pt-3 border-t border-[#1C2030]">
                   ENS op.exp.1 · RD 311/2022
                 </p>
               </div>
 
               {/* Card 5: Quick Actions */}
-              <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5">
-                <h2 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Acciones rápidas</h2>
+              <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5">
+                <h2 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider mb-4">Acciones rápidas</h2>
                 <div className="space-y-2">
                   {([
                     ['Ver en M2+M3 Scanner',  '/surface'],
@@ -1229,7 +1299,7 @@ export function AssetDetailPage() {
                           navigate(path);
                         }
                       }}
-                      className="w-full px-4 py-2.5 text-sm text-[#9ca3af] border border-[#1e2530] rounded-lg hover:text-white hover:border-[#374151] transition-colors text-left cursor-pointer"
+                      className="w-full px-4 py-2.5 text-sm text-[#64748B] border border-[#1C2030] rounded-lg hover:text-white hover:border-[#374151] transition-colors text-left cursor-pointer"
                     >
                       {label}
                     </button>
@@ -1246,11 +1316,11 @@ export function AssetDetailPage() {
 
             {/* KPI card del activo */}
             {logStat && (
-              <div className={`bg-[#1a1d27] border rounded-xl p-4 ${logStat.critical_count > 0 ? 'border-[#ff3b3b]/40' : logStat.high_count > 0 ? 'border-[#f59e0b]/30' : 'border-[#1e2530]'}`}>
+              <div className={`bg-[#111318] border rounded-xl p-4 ${logStat.critical_count > 0 ? 'border-[#ff3b3b]/40' : logStat.high_count > 0 ? 'border-[#f59e0b]/30' : 'border-[#1C2030]'}`}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-sm font-semibold text-[#a78bfa]">{asset.nombre || asset.hostname || asset.ip}</div>
-                    <div className="text-[10px] font-mono text-[#4b5563]">{asset.ip}</div>
+                    <div className="text-[10px] font-mono text-[#334155]">{asset.ip}</div>
                   </div>
                   {(logStat.critical_count > 0 || logStat.high_count > 0) && (
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${logStat.critical_count > 0 ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]' : 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]'}`}>
@@ -1259,12 +1329,12 @@ export function AssetDetailPage() {
                   )}
                 </div>
                 <div className="grid grid-cols-4 gap-2 text-center">
-                  <div className="bg-[#0f1117] rounded-lg p-2"><div className="text-lg font-bold text-white">{logStat.total}</div><div className="text-[10px] text-[#6b7280]">Total</div></div>
-                  <div className="bg-[#0f1117] rounded-lg p-2"><div className={`text-lg font-bold ${logStat.failures > 0 ? 'text-[#ff3b3b]' : 'text-white'}`}>{logStat.failures}</div><div className="text-[10px] text-[#6b7280]">Fallos</div></div>
-                  <div className="bg-[#0f1117] rounded-lg p-2"><div className="text-lg font-bold text-[#22c55e]">{logStat.successes}</div><div className="text-[10px] text-[#6b7280]">Éxitos</div></div>
-                  <div className="bg-[#0f1117] rounded-lg p-2"><div className={`text-lg font-bold ${logStat.sudo_cmds > 0 ? 'text-[#a78bfa]' : 'text-white'}`}>{logStat.sudo_cmds}</div><div className="text-[10px] text-[#6b7280]">Sudo</div></div>
+                  <div className="bg-[#0A0C10] rounded-lg p-2"><div className="text-lg font-bold text-white">{logStat.total}</div><div className="text-[10px] text-[#475569]">Total</div></div>
+                  <div className="bg-[#0A0C10] rounded-lg p-2"><div className={`text-lg font-bold ${logStat.failures > 0 ? 'text-[#ff3b3b]' : 'text-white'}`}>{logStat.failures}</div><div className="text-[10px] text-[#475569]">Fallos</div></div>
+                  <div className="bg-[#0A0C10] rounded-lg p-2"><div className="text-lg font-bold text-[#22c55e]">{logStat.successes}</div><div className="text-[10px] text-[#475569]">Éxitos</div></div>
+                  <div className="bg-[#0A0C10] rounded-lg p-2"><div className={`text-lg font-bold ${logStat.sudo_cmds > 0 ? 'text-[#a78bfa]' : 'text-white'}`}>{logStat.sudo_cmds}</div><div className="text-[10px] text-[#475569]">Sudo</div></div>
                 </div>
-                <div className="mt-2 flex gap-3 text-[10px] text-[#6b7280]">
+                <div className="mt-2 flex gap-3 text-[10px] text-[#475569]">
                   <span>{logStat.unique_users.length} usuario{logStat.unique_users.length !== 1 ? 's' : ''}</span>
                   <span>·</span>
                   <span>{logStat.unique_ips.length} IP{logStat.unique_ips.length !== 1 ? 's' : ''} origen</span>
@@ -1278,30 +1348,30 @@ export function AssetDetailPage() {
                 <ShieldAlert className="w-4 h-4 text-[#ff3b3b] mt-0.5 shrink-0" />
                 <div>
                   <div className="text-sm font-semibold text-[#ff3b3b]">⚠ Fuerza bruta detectada</div>
-                  <div className="text-xs text-[#9ca3af] mt-0.5">IPs con ≥5 fallos en 10 min: <span className="font-mono text-white">{logBruteIPs.join(', ')}</span></div>
-                  <div className="text-[10px] text-[#6b7280] mt-1">ENS op.acc.6 — Bloqueo recomendado</div>
+                  <div className="text-xs text-[#64748B] mt-0.5">IPs con ≥5 fallos en 10 min: <span className="font-mono text-white">{logBruteIPs.join(', ')}</span></div>
+                  <div className="text-[10px] text-[#475569] mt-1">ENS op.acc.6 — Bloqueo recomendado</div>
                 </div>
               </div>
             )}
 
             {/* Tabla */}
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden flex flex-col">
 
               {/* Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C2030]">
                 <div className="flex items-center gap-2">
                   <Monitor className="w-4 h-4 text-[#a78bfa]" />
                   <span className="text-sm font-semibold text-white">Logs de Acceso</span>
-                  <span className="text-xs text-[#4b5563]">· SSH auth.log · ENS op.acc.1, op.acc.6, op.exp.5</span>
+                  <span className="text-xs text-[#334155]">· SSH auth.log · ENS op.acc.1, op.acc.6, op.exp.5</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {logLastLoad && <span className="text-[10px] text-[#4b5563] font-mono">Última carga: {fmtTimeAsset(logLastLoad.toISOString())}</span>}
+                  {logLastLoad && <span className="text-[10px] text-[#334155] font-mono">Última carga: {fmtTimeAsset(logLastLoad.toISOString())}</span>}
                   <button
                     onClick={() => setLogLiveMode(m => !m)}
                     className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors ${
                       logLiveMode
                         ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]'
-                        : 'border-[#1e2530] text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                        : 'border-[#1C2030] text-[#64748B] hover:text-white hover:border-[#374151]'
                     }`}
                     title={logLiveMode ? 'Desactivar refresco automático' : 'Activar refresco automático cada 60s'}
                   >
@@ -1309,7 +1379,7 @@ export function AssetDetailPage() {
                     {logLiveMode ? `Live · ${logLiveCountdown}s` : 'Live'}
                   </button>
                   <button onClick={loadLogs} disabled={logLoading}
-                    className="flex items-center gap-1.5 text-xs text-[#9ca3af] hover:text-[#a78bfa] transition-colors disabled:opacity-50">
+                    className="flex items-center gap-1.5 text-xs text-[#64748B] hover:text-[#a78bfa] transition-colors disabled:opacity-50">
                     <RefreshCw className={`w-3.5 h-3.5 ${logLoading ? 'animate-spin' : ''}`} />
                     Actualizar
                   </button>
@@ -1323,30 +1393,30 @@ export function AssetDetailPage() {
               </div>
 
               {/* Filtros */}
-              <div className="px-4 py-3 border-b border-[#1e2530] grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 items-end">
+              <div className="px-4 py-3 border-b border-[#1C2030] grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 items-end">
                 <div className="col-span-2 flex flex-col gap-1">
-                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Búsqueda</label>
+                  <label className="text-[10px] text-[#475569] uppercase tracking-wider">Búsqueda</label>
                   <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#334155]" />
                     <input value={logSearch} onChange={e => setLogSearch(e.target.value)}
                       placeholder="usuario, IP, comando..."
-                      className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]" />
+                      className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]" />
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Desde</label>
+                  <label className="text-[10px] text-[#475569] uppercase tracking-wider">Desde</label>
                   <input type="date" value={logDateFrom} onChange={e => setLogDateFrom(e.target.value)}
-                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+                    className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Hasta</label>
+                  <label className="text-[10px] text-[#475569] uppercase tracking-wider">Hasta</label>
                   <input type="date" value={logDateTo} onChange={e => setLogDateTo(e.target.value)}
-                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+                    className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Tipo acción</label>
+                  <label className="text-[10px] text-[#475569] uppercase tracking-wider">Tipo acción</label>
                   <select value={logFilterAction} onChange={e => setLogFilterAction(e.target.value)}
-                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                    className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
                     <option value="ALL">Todas</option>
                     <option value="SSH_LOGIN_OK">SSH OK</option>
                     <option value="SSH_LOGIN_FAIL">SSH Fail</option>
@@ -1366,16 +1436,16 @@ export function AssetDetailPage() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Severidad</label>
+                  <label className="text-[10px] text-[#475569] uppercase tracking-wider">Severidad</label>
                   <select value={logFilterSeverity} onChange={e => setLogFilterSeverity(e.target.value)}
-                    className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                    className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
                     <option value="ALL">Todas</option>
                     {logSeverities.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="flex gap-1.5 items-end">
                   <button onClick={() => setLogPage(1)}
-                    className="flex-1 text-xs font-semibold text-white bg-[#00d4ff] hover:bg-[#00b8d9] transition-colors px-3 py-1.5 rounded-lg">
+                    className="flex-1 text-xs font-semibold text-white bg-[#8B5CF6] hover:bg-[#00b8d9] transition-colors px-3 py-1.5 rounded-lg">
                     Filtrar
                   </button>
                   <button onClick={() => {
@@ -1383,7 +1453,7 @@ export function AssetDetailPage() {
                     setLogFilterResult('ALL'); setLogFilterIP('ALL');
                     setLogDateFrom(''); setLogDateTo(''); setLogPage(1);
                   }}
-                    className="text-xs text-[#9ca3af] hover:text-white border border-[#1e2530] hover:border-[#4b5563] transition-colors px-2 py-1.5 rounded-lg">
+                    className="text-xs text-[#64748B] hover:text-white border border-[#1C2030] hover:border-[#334155] transition-colors px-2 py-1.5 rounded-lg">
                     <XCircle className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -1399,7 +1469,7 @@ export function AssetDetailPage() {
                   </div>
                 )}
                 {!logLoading && !logError && logFiltered.length === 0 && (
-                  <p className="text-[#6b7280] text-sm text-center py-8">
+                  <p className="text-[#475569] text-sm text-center py-8">
                     {logEvents.length === 0
                       ? `Sin logs de acceso registrados para ${asset.ip}.`
                       : 'Sin resultados para los filtros aplicados.'}
@@ -1407,8 +1477,8 @@ export function AssetDetailPage() {
                 )}
                 {!logLoading && !logError && logFiltered.length > 0 && (
                   <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-[#1a1d27] z-10">
-                      <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
+                    <thead className="sticky top-0 bg-[#111318] z-10">
+                      <tr className="text-left text-[#475569] border-b border-[#1C2030]">
                         <th className="px-3 py-2 font-medium">Fecha / Hora</th>
                         <th className="px-3 py-2 font-medium">Usuario</th>
                         <th className="px-3 py-2 font-medium">Tipo Acción</th>
@@ -1418,14 +1488,14 @@ export function AssetDetailPage() {
                         <th className="px-3 py-2 font-medium"></th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#1e2530]">
+                    <tbody className="divide-y divide-[#1C2030]">
                       {logPaged.map(ev => {
                         const sevColor: Record<string, string> = {
                           CRITICAL: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',
                           HIGH:     'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
-                          MEDIUM:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
+                          MEDIUM:   'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6]',
                           LOW:      'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',
-                          INFO:     'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',
+                          INFO:     'bg-[#374151]/30 border-[#334155]/30 text-[#64748B]',
                         };
                         const isExp = logExpanded === ev.alert_id;
                         const isBF  = ev.src_ip != null && logBruteIPs.includes(ev.src_ip);
@@ -1433,16 +1503,16 @@ export function AssetDetailPage() {
                           <>
                             <tr key={ev.alert_id}
                               onClick={() => setLogExpanded(isExp ? null : ev.alert_id)}
-                              className={`hover:bg-[#1e2530]/40 transition-colors cursor-pointer ${
+                              className={`hover:bg-[#1C2030]/40 transition-colors cursor-pointer ${
                                 ev.severity === 'CRITICAL' ? 'border-l-2 border-[#ff3b3b]' :
                                 ev.severity === 'HIGH'     ? 'border-l-2 border-[#f59e0b]' : ''
                               }`}
                             >
-                              <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetimeAsset(ev.timestamp)}</td>
-                              <td className="px-3 py-2 font-mono text-white">{ev.src_user ?? <span className="text-[#4b5563]">—</span>}</td>
+                              <td className="px-3 py-2 font-mono text-[#64748B] whitespace-nowrap">{fmtDatetimeAsset(ev.timestamp)}</td>
+                              <td className="px-3 py-2 font-mono text-white">{ev.src_user ?? <span className="text-[#334155]">—</span>}</td>
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-1">
-                                  <span className={`text-[10px] text-[#4b5563] transition-transform inline-block ${isExp ? 'rotate-90' : ''}`}>▶</span>
+                                  <span className={`text-[10px] text-[#334155] transition-transform inline-block ${isExp ? 'rotate-90' : ''}`}>▶</span>
                                   {actionBadgeAsset(ev.action_type)}
                                 </div>
                               </td>
@@ -1453,54 +1523,54 @@ export function AssetDetailPage() {
                               </td>
                               <td className="px-3 py-2 font-mono text-xs">
                                 {ev.src_ip
-                                  ? <span className={isBF ? 'text-[#ff3b3b] font-semibold' : 'text-[#9ca3af]'}>
+                                  ? <span className={isBF ? 'text-[#ff3b3b] font-semibold' : 'text-[#64748B]'}>
                                       {ev.src_ip}{isBF && <span className="ml-1">⚠</span>}
                                     </span>
-                                  : <span className="text-[#4b5563]">—</span>}
+                                  : <span className="text-[#334155]">—</span>}
                               </td>
-                              <td className="px-3 py-2 font-mono text-[#6b7280]">{ev.port ?? '—'}</td>
+                              <td className="px-3 py-2 font-mono text-[#475569]">{ev.port ?? '—'}</td>
                               <td className="px-3 py-2 w-4" />
                             </tr>
                             {isExp && (
                               <tr key={`${ev.alert_id}-d`}>
-                                <td colSpan={7} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#a78bfa]">
+                                <td colSpan={7} className="px-4 py-3 bg-[#0A0C10] border-l-2 border-[#a78bfa]">
                                   <div className="space-y-3 text-xs">
                                     <div>
-                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-1">Raw Log</span>
-                                      <code className="text-[#9ca3af] font-mono break-all leading-5">{ev.raw_log}</code>
+                                      <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-1">Raw Log</span>
+                                      <code className="text-[#64748B] font-mono break-all leading-5">{ev.raw_log}</code>
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                       <div>
-                                        <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Resultado</span>
+                                        <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Resultado</span>
                                         <span className={ev.success ? 'text-[#22c55e] font-semibold' : 'text-[#ff3b3b] font-semibold'}>
                                           {ev.success ? '✓ EXITOSO' : '✗ FALLIDO'}
                                         </span>
                                       </div>
                                       <div>
-                                        <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Timestamp UTC</span>
+                                        <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Timestamp UTC</span>
                                         <span className="text-white font-mono">{ev.timestamp}</span>
                                       </div>
                                       {ev.command && (
                                         <div className="col-span-2">
-                                          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Comando ejecutado</span>
+                                          <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Comando ejecutado</span>
                                           <code className="text-[#a78bfa] font-mono">{ev.command}</code>
                                         </div>
                                       )}
                                       {ev.mitre_tactic && (
                                         <div>
-                                          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Táctica</span>
+                                          <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">MITRE Táctica</span>
                                           <span className="text-white">{ev.mitre_tactic}</span>
                                         </div>
                                       )}
                                       {ev.mitre_technique && (
                                         <div>
-                                          <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Técnica</span>
+                                          <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">MITRE Técnica</span>
                                           <span className="text-white font-mono">{ev.mitre_technique}</span>
                                         </div>
                                       )}
                                       <div>
-                                        <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Norma ENS</span>
-                                        <span className="text-[#00d4ff]">op.acc.1 · op.acc.6 · op.exp.5</span>
+                                        <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Norma ENS</span>
+                                        <span className="text-[#8B5CF6]">op.acc.1 · op.acc.6 · op.exp.5</span>
                                       </div>
                                     </div>
                                   </div>
@@ -1517,23 +1587,23 @@ export function AssetDetailPage() {
 
               {/* Paginación */}
               {logTotalPages > 1 && (
-                <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530]">
+                <div className="flex items-center justify-between px-4 py-2 border-t border-[#1C2030]">
                   <button onClick={() => setLogPage(p => Math.max(1, p - 1))} disabled={logPage === 1}
-                    className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                    className="text-xs text-[#64748B] hover:text-white disabled:opacity-30 px-3 py-1 rounded border border-[#1C2030] hover:border-[#a78bfa] transition-colors">
                     ← Anterior
                   </button>
-                  <span className="text-xs text-[#6b7280]">
+                  <span className="text-xs text-[#475569]">
                     Página {logPage} de {logTotalPages} · {logFiltered.length} de {logEvents.length} eventos
                   </span>
                   <button onClick={() => setLogPage(p => Math.min(logTotalPages, p + 1))} disabled={logPage === logTotalPages}
-                    className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                    className="text-xs text-[#64748B] hover:text-white disabled:opacity-30 px-3 py-1 rounded border border-[#1C2030] hover:border-[#a78bfa] transition-colors">
                     Siguiente →
                   </button>
                 </div>
               )}
 
               {/* Footer */}
-              <div className="px-4 py-2 border-t border-[#1e2530] flex items-center justify-between text-[10px] text-[#4b5563] font-mono">
+              <div className="px-4 py-2 border-t border-[#1C2030] flex items-center justify-between text-[10px] text-[#334155] font-mono">
                 <span>{logFiltered.length} eventos filtrados · {logEvents.length} total</span>
                 <span>ENS RD 311/2022 · op.acc.1 · op.acc.6 · op.exp.5</span>
               </div>
@@ -1547,15 +1617,15 @@ export function AssetDetailPage() {
       {/* Pipeline Modal */}
       {pipelineOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#1a1d27] border border-[#1e2530] rounded-2xl w-full max-w-2xl mx-4 mb-4 sm:mb-0 shadow-2xl flex flex-col max-h-[80vh]">
+          <div className="bg-[#111318] border border-[#1C2030] rounded-2xl w-full max-w-2xl mx-4 mb-4 sm:mb-0 shadow-2xl flex flex-col max-h-[80vh]">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2530]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1C2030]">
               <div className="flex items-center gap-3">
                 <Zap className="w-5 h-5 text-[#a78bfa]"/>
                 <div>
                   <h3 className="text-sm font-bold text-white">Pipeline Completo — {asset?.ip}</h3>
-                  <p className="text-xs text-[#6b7280]">M2 → M3 → M8 → M4</p>
+                  <p className="text-xs text-[#475569]">M2 → M3 → M8 → M4</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -1568,7 +1638,7 @@ export function AssetDetailPage() {
                     setPipelineExecResult(null);
                     try { sessionStorage.removeItem(`scanops_pipeline_${asset?.id}`); } catch {}
                   }}
-                  className="text-[10px] text-[#4b5563] hover:text-[#9ca3af] font-mono underline"
+                  className="text-[10px] text-[#334155] hover:text-[#64748B] font-mono underline"
                 >
                   Limpiar
                 </button>
@@ -1578,13 +1648,13 @@ export function AssetDetailPage() {
                       ? 'bg-[#a78bfa]/20 border-[#a78bfa]/40 text-[#a78bfa] animate-pulse'
                       : (['done','error'].includes(pipelinePhase) && i < 4) || (['m3','m8','m4'].indexOf(phase) < ['m2','m3','m8','m4'].indexOf(pipelinePhase as any))
                         ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]'
-                        : 'bg-[#1e2530] border-[#374151] text-[#4b5563]'
+                        : 'bg-[#1C2030] border-[#374151] text-[#334155]'
                   }`}>
                     {phase.toUpperCase()}
                   </div>
                 ))}
                 {!pipelineRunning && (
-                  <button onClick={() => setPipelineOpen(false)} className="text-[#6b7280] hover:text-white text-lg">×</button>
+                  <button onClick={() => setPipelineOpen(false)} className="text-[#475569] hover:text-white text-lg">×</button>
                 )}
               </div>
             </div>
@@ -1608,7 +1678,7 @@ export function AssetDetailPage() {
 
             {/* Log terminal */}
             <div ref={pipelineLogRef}
-                 className="flex-1 overflow-y-auto bg-[#0f1117] p-4 font-mono text-xs space-y-0.5 min-h-[200px]">
+                 className="flex-1 overflow-y-auto bg-[#0A0C10] p-4 font-mono text-xs space-y-0.5 min-h-[200px]">
               {pipelineLogs.length === 0 && (
                 <p className="text-[#374151]">Iniciando pipeline...</p>
               )}
@@ -1619,7 +1689,7 @@ export function AssetDetailPage() {
                     l.level === 'success' ? 'text-[#22c55e]' :
                     l.level === 'error'   ? 'text-[#ff3b3b]' :
                     l.level === 'warn'    ? 'text-[#f59e0b]' :
-                    'text-[#9ca3af]'
+                    'text-[#64748B]'
                   }>{l.msg}</span>
                 </div>
               ))}
@@ -1633,17 +1703,17 @@ export function AssetDetailPage() {
 
             {/* Footer — QR cuando done */}
             {pipelinePhase === 'done' && (
-              <div className="px-5 py-4 border-t border-[#1e2530] space-y-3">
+              <div className="px-5 py-4 border-t border-[#1C2030] space-y-3">
 
                 {/* Fila QR + Ir a M4 */}
                 <div className="flex items-center gap-4">
                   {pipelineQr && (
                     <>
                       <img src={`data:image/png;base64,${pipelineQr}`}
-                           alt="QR TOTP M4" className="w-16 h-16 rounded border border-[#1e2530]"/>
+                           alt="QR TOTP M4" className="w-16 h-16 rounded border border-[#1C2030]"/>
                       <div>
                         <p className="text-xs font-semibold text-white">Aprobación #{pipelineApprovalId} lista en M4</p>
-                        <p className="text-xs text-[#6b7280] mt-0.5">Escanea el QR con Google Authenticator</p>
+                        <p className="text-xs text-[#475569] mt-0.5">Escanea el QR con Google Authenticator</p>
                         <p className="text-xs text-[#f59e0b] font-mono mt-0.5">PIN: 1234</p>
                       </div>
                     </>
@@ -1673,7 +1743,7 @@ export function AssetDetailPage() {
                         plog(`[EXEC] Lanzando ataque de fuerza bruta SSH sobre ${asset?.ip}...`, 'warn');
                         try {
                           const execRes = await fetch(
-                            `http://localhost:8004/api/m4/execute/${pipelineApprovalId}`,
+                            `/api/m4/api/m4/execute/${pipelineApprovalId}`,
                             {
                               method: 'POST',
                               headers: authHeader(),
@@ -1682,16 +1752,75 @@ export function AssetDetailPage() {
                           );
                           if (execRes.ok) {
                             const execData = await execRes.json();
-                            setPipelineExecResult(execData);
-                            if (execData.success) {
-                              plog(`[EXEC] ✓ ACCESO OBTENIDO`, 'success');
-                              plog(`[EXEC]   → Target: ${execData.target_ip}:22 (SSH)`, 'success');
-                              plog(`[EXEC]   → Usuario: admin | Contraseña: ${execData.password_found}`, 'success');
-                              plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'success');
-                              plog(`[EXEC] ★ VULNERABILIDAD CONFIRMADA — Sistema comprometido`, 'error');
+
+                            // El backend devuelve 202 accepted — el bruteforce corre en background.
+                            // Hacemos polling de /api/m4/approval-status/{id} hasta que status = EXECUTED.
+                            if (execData.status === 'accepted') {
+                              plog(`[EXEC] Pipeline iniciado en background — esperando resultado...`, 'info');
+                              let pollData: any = null;
+                              const POLL_INTERVAL = 5000;
+                              const POLL_MAX = 60; // 5 min máximo
+                              for (let i = 0; i < POLL_MAX; i++) {
+                                await new Promise(r => setTimeout(r, POLL_INTERVAL));
+                                plog(`[EXEC] Comprobando estado... (${(i + 1) * 5}s)`, 'info');
+                                try {
+                                  const statusRes = await fetch(
+                                    `/api/m4/api/m4/approval-status/${pipelineApprovalId}`,
+                                    { headers: authHeader() }
+                                  );
+                                  if (statusRes.ok) {
+                                    const statusData = await statusRes.json();
+                                    if (statusData.status === 'EXECUTED') {
+                                      pollData = statusData;
+                                      break;
+                                    }
+                                  }
+                                } catch {}
+                              }
+
+                              if (pollData) {
+                                // execution_result es el JSON guardado por _run_crack
+                                const r = pollData.execution_result
+                                  ? (typeof pollData.execution_result === 'string'
+                                      ? JSON.parse(pollData.execution_result)
+                                      : pollData.execution_result)
+                                  : {};
+                                const finalData = {
+                                  ...execData,
+                                  success: r.success ?? false,
+                                  password_found: r.password ?? null,
+                                  attempts: r.attempts ?? 0,
+                                  duration: r.duration ?? 0,
+                                  target_ip: execData.target_ip,
+                                };
+                                setPipelineExecResult(finalData);
+                                if (finalData.success) {
+                                  plog(`[EXEC] ✓ ACCESO OBTENIDO`, 'success');
+                                  plog(`[EXEC]   → Target: ${finalData.target_ip}:22 (SSH)`, 'success');
+                                  plog(`[EXEC]   → Usuario: admin | Contraseña: ${finalData.password_found}`, 'success');
+                                  plog(`[EXEC]   → Intentos: ${finalData.attempts} | Duración: ${finalData.duration}s`, 'success');
+                                  plog(`[EXEC] ★ VULNERABILIDAD CONFIRMADA — Sistema comprometido`, 'error');
+                                } else {
+                                  plog(`[EXEC] ✗ Sin credenciales válidas encontradas`, 'warn');
+                                  plog(`[EXEC]   → Intentos: ${finalData.attempts} | Duración: ${finalData.duration}s`, 'info');
+                                }
+                              } else {
+                                plog(`[EXEC] ⏱ Timeout esperando resultado — consulta M4 manualmente`, 'warn');
+                              }
+
                             } else {
-                              plog(`[EXEC] ✗ Sin credenciales válidas encontradas`, 'warn');
-                              plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'info');
+                              // Respuesta síncrona legacy (por si acaso)
+                              setPipelineExecResult(execData);
+                              if (execData.success) {
+                                plog(`[EXEC] ✓ ACCESO OBTENIDO`, 'success');
+                                plog(`[EXEC]   → Target: ${execData.target_ip}:22 (SSH)`, 'success');
+                                plog(`[EXEC]   → Usuario: admin | Contraseña: ${execData.password_found}`, 'success');
+                                plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'success');
+                                plog(`[EXEC] ★ VULNERABILIDAD CONFIRMADA — Sistema comprometido`, 'error');
+                              } else {
+                                plog(`[EXEC] ✗ Sin credenciales válidas encontradas`, 'warn');
+                                plog(`[EXEC]   → Intentos: ${execData.attempts} | Duración: ${execData.duration}s`, 'info');
+                              }
                             }
                           } else {
                             plog(`[EXEC] ✗ Error al ejecutar: HTTP ${execRes.status}`, 'error');
@@ -1716,7 +1845,7 @@ export function AssetDetailPage() {
                   <div className={`rounded-lg border p-3 ${
                     pipelineExecResult.success
                       ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30'
-                      : 'bg-[#1e2530] border-[#374151]'
+                      : 'bg-[#1C2030] border-[#374151]'
                   }`}>
                     <div className="flex items-center gap-2 mb-2">
                       {pipelineExecResult.success
@@ -1727,19 +1856,19 @@ export function AssetDetailPage() {
                       }
                     </div>
                     <div className="grid grid-cols-2 gap-1 text-[10px] font-mono">
-                      <span className="text-[#6b7280]">Target:</span>
+                      <span className="text-[#475569]">Target:</span>
                       <span className="text-white">{pipelineExecResult.target_ip}:22</span>
-                      <span className="text-[#6b7280]">Servicio:</span>
+                      <span className="text-[#475569]">Servicio:</span>
                       <span className="text-white">SSH</span>
                       {pipelineExecResult.success && (
                         <>
-                          <span className="text-[#6b7280]">Credenciales:</span>
+                          <span className="text-[#475569]">Credenciales:</span>
                           <span className="text-[#ff3b3b] font-bold">admin:{pipelineExecResult.password_found}</span>
                         </>
                       )}
-                      <span className="text-[#6b7280]">Intentos:</span>
+                      <span className="text-[#475569]">Intentos:</span>
                       <span className="text-white">{pipelineExecResult.attempts}</span>
-                      <span className="text-[#6b7280]">Duración:</span>
+                      <span className="text-[#475569]">Duración:</span>
                       <span className="text-white">{pipelineExecResult.duration}s</span>
                     </div>
                   </div>
@@ -1750,7 +1879,7 @@ export function AssetDetailPage() {
 
             {/* Footer — Error */}
             {pipelinePhase === 'error' && (
-              <div className="px-5 py-3 border-t border-[#1e2530] flex items-center gap-3">
+              <div className="px-5 py-3 border-t border-[#1C2030] flex items-center gap-3">
                 <AlertCircle className="w-4 h-4 text-[#ff3b3b]"/>
                 <span className="text-xs text-[#ff3b3b]">Pipeline fallido — revisa los logs</span>
                 <button
@@ -1769,12 +1898,12 @@ export function AssetDetailPage() {
       <Dialog.Root open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1d27] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#111318] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl z-50">
             <Dialog.Title className="text-base font-semibold text-white mb-2 flex items-center gap-2">
               <Trash2 className="w-4 h-4 text-[#ff3b3b]" />
               Confirmar eliminación
             </Dialog.Title>
-            <Dialog.Description className="text-sm text-[#9ca3af] mb-5">
+            <Dialog.Description className="text-sm text-[#64748B] mb-5">
               Esta acción eliminará el activo{' '}
               <span className="font-mono text-white">{asset.ip}</span>{' '}
               del inventario. La operación quedará registrada en los logs de auditoría (ENS op.exp.1).
@@ -1789,7 +1918,7 @@ export function AssetDetailPage() {
                 Eliminar activo
               </button>
               <Dialog.Close asChild>
-                <button className="px-5 bg-[#374151] hover:bg-[#4b5563] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
+                <button className="px-5 bg-[#374151] hover:bg-[#334155] text-white font-semibold py-2 rounded-lg transition-colors text-sm">
                   Cancelar
                 </button>
               </Dialog.Close>

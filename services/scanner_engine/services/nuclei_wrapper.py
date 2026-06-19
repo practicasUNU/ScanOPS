@@ -5,10 +5,13 @@ from shared.scan_logger import ScanLogger
 
 logger = ScanLogger("nuclei_wrapper")
 
-# Templates ordenados por impacto — technologies para fingerprint, misconfiguration para hallazgos reales
+# Templates: technologies para fingerprint rápido, misconfiguration para hallazgos relevantes.
+# Se excluyen directorios muy lentos (fuzzing/, passive/) para mantener el escaneo ágil.
 NUCLEI_TEMPLATES = [
     "http/technologies/",
     "http/misconfiguration/",
+    "http/exposures/",
+    "/app/templates/nuclei/custom/",
 ]
 
 # Remediaciones por tipo de finding
@@ -85,15 +88,31 @@ def _get_professional_title(template_id: str, matcher_name: str, info_name: str)
         return info_name
     return template_id.replace("-", " ").replace("/", " - ").title()
 
+def _resolves(host: str) -> bool:
+    """True si el hostname resuelve por DNS desde este contenedor."""
+    import socket
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except Exception:
+        return False
+
+
 def run_nuclei_scan(target_ip: str, hostname: str = None):
     logger.info("NUCLEI_START", target=target_ip)
 
-    if hostname and hostname != target_ip:
-        targets = [f"https://{hostname}", f"http://{hostname}"]
-    else:
-        targets = [f"https://{target_ip}", f"http://{target_ip}"]
+    # Siempre escaneamos por IP: el contenedor del worker no resuelve los
+    # hostnames internos de los assets, así que apuntar a la IP evita que
+    # nuclei agote el timeout completo intentando resolver un host inexistente.
+    targets = [f"http://{target_ip}", f"https://{target_ip}"]
 
-    logger.info("NUCLEI_TARGETS", targets=targets)
+    # Si el hostname resuelve y es distinto de la IP, lo inyectamos como
+    # cabecera Host para virtual-hosting sin depender de DNS para el destino.
+    host_header = None
+    if hostname and hostname != target_ip and _resolves(hostname):
+        host_header = hostname
+
+    logger.info("NUCLEI_TARGETS", targets=targets, host_header=host_header)
 
     output_file = f"/tmp/nuclei_output_{os.getpid()}.jsonl"
 
@@ -103,17 +122,21 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
         "-jsonl",
         "-output", output_file,
         "-duc",
-        "-timeout", "8",
-        "-bulk-size", "5",
-        "-rate-limit", "10",
+        "-timeout", "10",
+        "-bulk-size", "10",
+        "-rate-limit", "30",
         "-retries", "0",
-        "-max-host-error", "3",
+        "-max-host-error", "5",
         "-no-interactsh",
         "-follow-redirects",
+        "-nh",
     ]
 
     for template in NUCLEI_TEMPLATES:
         cmd.extend(["-t", template])
+
+    if host_header:
+        cmd.extend(["-H", f"Host: {host_header}"])
 
     for target in targets:
         cmd.extend(["-u", target])
@@ -126,9 +149,8 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=90,
+            timeout=300,
             env=env,
-            start_new_session=True,
         )
 
         findings = []
@@ -169,11 +191,18 @@ def run_nuclei_scan(target_ip: str, hostname: str = None):
                             continue
                         seen.add(dedup_key)
 
+                        _cvss_raw = info.get("classification", {}).get("cvss-score")
+                        try:
+                            _cvss = float(_cvss_raw) if _cvss_raw is not None else None
+                        except (ValueError, TypeError):
+                            _cvss = None
+
                         findings.append({
                             "title": title,
                             "severity": severity,
                             "description": description,
                             "cve_id": cve_str,
+                            "cvss_score": _cvss,
                             "evidence": matched_at,
                             "remediation": remediation,
                             "ens_measure": "op.exp.2"

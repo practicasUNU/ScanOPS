@@ -1,6 +1,6 @@
 """FastAPI endpoints for vulnerability scanning."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Depends, Response
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
@@ -32,7 +32,7 @@ async def get_asset_from_m1(asset_id: int) -> dict:
         try:
             _svc_token = create_access_token("scanops_service", "service")
             response = await client.get(
-                f"{M1_BASE_URL}/assets/{asset_id}",
+                f"{M1_BASE_URL}/api/v1/assets/{asset_id}",
                 headers={"Authorization": f"Bearer {_svc_token}", "Content-Type": "application/json"},
             )
             if response.status_code == 404:
@@ -76,6 +76,9 @@ class ScannerTypeEnum(str, Enum):
     ffuf = "ffuf"
     whatweb = "whatweb"
     testssl = "testssl"
+    js_analyzer = "js_analyzer"
+    cors = "cors"
+    behavioral = "behavioral"
 
 class ScanRequest(BaseModel):
     """Request to start a vulnerability scan."""
@@ -173,13 +176,15 @@ async def start_asset_scan(
         try:
             import redis as redis_lib
             import json as _json
-            _r = redis_lib.Redis(host='redis', port=6379, db=0, decode_responses=True)
+            import urllib.parse as _urlparse
+            _redis_url = os.getenv("REDIS_URL", "redis://scanops-main-redis:6379/0")
+            _r = redis_lib.Redis.from_url(_redis_url, decode_responses=True)
             _r.setex(
                 f"scanops:scan:{task.id}",
                 600,
                 _json.dumps({
                     "asset_id": asset_id,
-                    "started_at": datetime.utcnow().isoformat(),
+                    "started_at": datetime.now(timezone.utc).isoformat(),
                     "scan_types": [str(t) for t in request.scan_types],
                 })
             )
@@ -289,13 +294,18 @@ async def get_scan_status(task_id: str) -> ScanStatusResponse:
         # Celery hasn't registered a result yet; check whether findings
         # already landed in the DB (chord completed but result expired/missed).
         try:
-            _r = redis_lib.Redis(host='redis', port=6379, db=0, decode_responses=True)
+            _redis_url = os.getenv("REDIS_URL", "redis://scanops-main-redis:6379/0")
+            _r = redis_lib.Redis.from_url(_redis_url, decode_responses=True)
             scan_meta_raw = _r.get(f"scanops:scan:{task_id}")
             if scan_meta_raw:
                 scan_meta = _json.loads(scan_meta_raw)
                 fb_asset_id = scan_meta.get("asset_id")
                 started_at_str = scan_meta.get("started_at", datetime.utcnow().isoformat())
                 started_at_dt = datetime.fromisoformat(started_at_str)
+                # Forzar UTC-aware para que la comparación con PostgreSQL sea correcta
+                if started_at_dt.tzinfo is None:
+                    from datetime import timezone as _tz
+                    started_at_dt = started_at_dt.replace(tzinfo=_tz.utc)
 
                 if fb_asset_id:
                     db = SessionLocal()

@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 
-const M1_ASSETS_URL = 'http://localhost:8001/api/v1/assets?page_size=100';
-const BASE_RESULTS_URL = 'http://localhost:8002/api/v1/scan/results';
+const M1_ASSETS_URL = '/api/m1/api/v1/assets?page_size=100';
+const BASE_RESULTS_URL = '/api/m3/api/v1/scan/results';
 const TOKEN_KEY = 'scanops_auth';
 
 /** Reads the stored JWT from sessionStorage (ENS mp.info.3). */

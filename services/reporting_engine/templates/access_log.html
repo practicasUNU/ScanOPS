@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<style>
+  @page { size: A4; margin: 20mm 15mm; }
+  body { font-family: Arial, sans-serif; font-size: 9pt; color: #222; }
+  h1 { font-size: 16pt; color: #1a3a5c; border-bottom: 2px solid #1a3a5c; padding-bottom: 6px; }
+  h2 { font-size: 11pt; color: #1a3a5c; margin-top: 18px; border-left: 4px solid #1a3a5c; padding-left: 8px; }
+  .header-meta { background: #f0f4f8; padding: 8px 12px; border-radius: 4px; margin-bottom: 16px; font-size: 8pt; }
+  .kpi-row { display: flex; gap: 12px; margin: 10px 0; }
+  .kpi { flex: 1; background: #1a3a5c; color: white; padding: 8px; border-radius: 4px; text-align: center; }
+  .kpi .val { font-size: 20pt; font-weight: bold; }
+  .kpi .lbl { font-size: 7pt; opacity: 0.85; }
+  .kpi.warn { background: #c0392b; }
+  .kpi.ok   { background: #27ae60; }
+  .kpi.info { background: #2980b9; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 8pt; }
+  th { background: #1a3a5c; color: white; padding: 5px 6px; text-align: left; }
+  td { padding: 4px 6px; border-bottom: 1px solid #ddd; }
+  tr:nth-child(even) { background: #f8f9fa; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 7pt; font-weight: bold; }
+  .badge.ok   { background: #d4edda; color: #155724; }
+  .badge.fail { background: #f8d7da; color: #721c24; }
+  .badge.warn { background: #fff3cd; color: #856404; }
+  .brute { background: #fff3cd; border: 1px solid #ffc107; padding: 8px 12px; border-radius: 4px; margin: 8px 0; }
+  .brute strong { color: #c0392b; }
+  .footer { margin-top: 20px; font-size: 7pt; color: #888; border-top: 1px solid #ddd; padding-top: 6px; }
+  .ens-badge { background: #1a3a5c; color: white; font-size: 7pt; padding: 2px 6px; border-radius: 3px; }
+  .section-divider { border: none; border-top: 1px solid #e0e0e0; margin: 12px 0; }
+</style>
+</head>
+<body>
+
+<h1>Evidencia de Control de Acceso ENS Alto</h1>
+
+<div class="header-meta">
+  <strong>ID Informe:</strong> {{ report_id }} &nbsp;|&nbsp;
+  <strong>Período:</strong> {{ periodo }} &nbsp;|&nbsp;
+  <strong>Generado:</strong> {{ fecha }} &nbsp;|&nbsp;
+  <strong>Generado por:</strong> ScanOps M7 Reporting Engine (UNUWARE) &nbsp;|&nbsp;
+  <span class="ens-badge">ENS Alto — op.exp.5 / op.acc.1 / mp.info.4</span>
+</div>
+
+<!-- KPIs -->
+<div class="kpi-row">
+  <div class="kpi info">
+    <div class="val">{{ total_platform }}</div>
+    <div class="lbl">Accesos Plataforma</div>
+  </div>
+  <div class="kpi {% if failed_platform > 0 %}warn{% else %}ok{% endif %}">
+    <div class="val">{{ failed_platform }}</div>
+    <div class="lbl">Fallos Login</div>
+  </div>
+  <div class="kpi ok">
+    <div class="val">{{ success_platform }}</div>
+    <div class="lbl">Accesos Exitosos</div>
+  </div>
+  <div class="kpi info">
+    <div class="val">{{ total_server }}</div>
+    <div class="lbl">Eventos SSH Servidores</div>
+  </div>
+  <div class="kpi {% if failed_server > 5 %}warn{% else %}ok{% endif %}">
+    <div class="val">{{ failed_server }}</div>
+    <div class="lbl">Fallos SSH</div>
+  </div>
+  <div class="kpi {% if brute_force_alerts|length > 0 %}warn{% else %}ok{% endif %}">
+    <div class="val">{{ brute_force_alerts|length }}</div>
+    <div class="lbl">Alertas Fuerza Bruta</div>
+  </div>
+</div>
+
+<!-- Alertas fuerza bruta -->
+{% if brute_force_alerts %}
+<h2>Alertas de Fuerza Bruta Detectadas</h2>
+{% for alert in brute_force_alerts %}
+<div class="brute">
+  <strong>IP atacante: {{ alert.ip }}</strong> — {{ alert.count }} intentos fallidos &nbsp;|&nbsp;
+  Primero: {{ alert.first }} &nbsp;|&nbsp; Último: {{ alert.last }}
+</div>
+{% endfor %}
+{% endif %}
+
+<hr class="section-divider"/>
+
+<!-- Tabla 1: Sesiones ScanOps -->
+<h2>1. Sesiones de Acceso a la Plataforma ScanOps</h2>
+<p style="font-size:8pt;color:#555;">Control de autenticación JWT — ENS <strong>op.acc.1</strong>, <strong>op.exp.5</strong></p>
+
+{% if platform_events %}
+<table>
+  <tr>
+    <th>Timestamp</th>
+    <th>Usuario</th>
+    <th>Rol</th>
+    <th>IP Origen</th>
+    <th>Resultado</th>
+    <th>Motivo</th>
+  </tr>
+  {% for ev in platform_events %}
+  <tr>
+    <td>{{ ev.timestamp | default('—') }}</td>
+    <td>{{ ev.username | default('—') }}</td>
+    <td>{{ ev.role | default('—') }}</td>
+    <td>{{ ev.ip_origin | default('—') }}</td>
+    <td>
+      <span class="badge {% if ev.success %}ok{% else %}fail{% endif %}">
+        {{ 'EXITO' if ev.success else 'FALLO' }}
+      </span>
+    </td>
+    <td>{{ ev.reason | default('—') }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p style="color:#888;font-style:italic;">Sin eventos de sesión registrados en este período.</p>
+{% endif %}
+
+<hr class="section-divider"/>
+
+<!-- Tabla 2: Auth events servidores -->
+<h2>2. Eventos de Autenticación en Servidores (auth.log)</h2>
+<p style="font-size:8pt;color:#555;">Recopilado vía SSH/paramiko — ENS <strong>op.exp.5</strong></p>
+
+{% if server_stats %}
+<table>
+  <tr>
+    <th>Servidor</th>
+    <th>IP</th>
+    <th>Total Eventos</th>
+    <th>Exitosos</th>
+    <th>Fallidos</th>
+    <th>Comandos sudo</th>
+    <th>IPs únicas</th>
+  </tr>
+  {% for s in server_stats %}
+  <tr>
+    <td>{{ s.agent_name | default('—') }}</td>
+    <td>{{ s.agent_ip | default('—') }}</td>
+    <td>{{ s.total | default(0) }}</td>
+    <td><span class="badge ok">{{ s.successes | default(0) }}</span></td>
+    <td><span class="badge {% if s.failures > 5 %}warn{% else %}fail{% endif %}">{{ s.failures | default(0) }}</span></td>
+    <td>{{ s.sudo_cmds | default(0) }}</td>
+    <td>{{ s.unique_ips | length if s.unique_ips else 0 }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if server_events %}
+<br/>
+<table>
+  <tr>
+    <th>Timestamp</th>
+    <th>Servidor</th>
+    <th>Tipo</th>
+    <th>Usuario</th>
+    <th>IP Origen</th>
+    <th>Resultado</th>
+    <th>Severidad</th>
+  </tr>
+  {% for ev in server_events[:50] %}
+  <tr>
+    <td>{{ ev.timestamp | default('—') }}</td>
+    <td>{{ ev.agent_name | default(ev.agent_ip) | default('—') }}</td>
+    <td>{{ ev.action_type | default('—') }}</td>
+    <td>{{ ev.src_user | default('—') }}</td>
+    <td>{{ ev.src_ip | default('—') }}</td>
+    <td>
+      <span class="badge {% if ev.success %}ok{% else %}fail{% endif %}">
+        {{ 'EXITO' if ev.success else 'FALLO' }}
+      </span>
+    </td>
+    <td>
+      <span class="badge {% if ev.severity == 'CRITICAL' %}fail{% elif ev.severity == 'HIGH' %}warn{% else %}ok{% endif %}">
+        {{ ev.severity | default('INFO') }}
+      </span>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p style="color:#888;font-style:italic;">Sin eventos SSH registrados en este período.</p>
+{% endif %}
+
+<!-- Footer ENS -->
+<div class="footer">
+  <strong>UNUWARE ScanOps</strong> — Evidencia generada automáticamente y sellada con AES-256 (PyMuPDF) &nbsp;|&nbsp;
+  Medidas ENS cumplidas: <strong>op.exp.5</strong> (Registro de actividad) · <strong>op.acc.1</strong> (Control de acceso) · <strong>mp.info.4</strong> (Integridad) &nbsp;|&nbsp;
+  Este documento es inalterable. Cualquier modificación invalida la firma criptográfica. &nbsp;|&nbsp;
+  <strong>Report ID: {{ report_id }}</strong>
+</div>
+
+</body>
+</html>

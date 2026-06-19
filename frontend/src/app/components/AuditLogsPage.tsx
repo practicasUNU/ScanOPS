@@ -1,4 +1,4 @@
-// frontend/src/app/components/AuditLogsPage.tsx
+﻿// frontend/src/app/components/AuditLogsPage.tsx
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import {
@@ -8,9 +8,9 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
-const ORCHESTRATOR_BASE = 'http://localhost:8009';
-const M1_BASE           = 'http://localhost:8001';
-const AUTH_BASE         = 'http://localhost:8009';
+const ORCHESTRATOR_BASE = '/api/orchestrator';
+const M1_BASE           = '/api/m1';
+const AUTH_BASE         = '/api/orchestrator';
 
 function getToken(): string | null {
   try {
@@ -78,12 +78,27 @@ function fmtDatetime(ts: string): string {
   try { return new Date(ts).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
   catch { return ts; }
 }
+function DateTimeCell({ ts }: { ts: string }) {
+  try {
+    const d = new Date(ts);
+    const date = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const time = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return (
+      <div className="whitespace-nowrap">
+        <div className="font-mono text-sm text-white font-semibold">{time}</div>
+        <div className="font-mono text-[11px] text-[#475569]">{date}</div>
+      </div>
+    );
+  } catch {
+    return <span className="font-mono text-[#64748B] text-xs">{ts}</span>;
+  }
+}
 function levelColor(level: string): string {
   switch (level?.toUpperCase()) {
     case 'ERROR': return 'text-[#ff3b3b]';
     case 'WARN':  return 'text-[#f59e0b]';
     case 'SUCCESS': return 'text-[#22c55e]';
-    default: return 'text-[#9ca3af]';
+    default: return 'text-[#64748B]';
   }
 }
 
@@ -134,8 +149,8 @@ function LoginSessionsTab() {
     setSrvLoading(true); setSrvError(false);
     try {
       const res = await fetch(
-        'http://localhost:8006/siem/auth-events?limit=500',
-        { headers: authH(), signal: AbortSignal.timeout(15000) }
+        '/api/m5/siem/auth-events?limit=500',
+        { headers: authH(), signal: AbortSignal.timeout(45000) }
       );
       if (!res.ok) throw new Error();
       const data = await res.json() as {
@@ -250,8 +265,8 @@ function LoginSessionsTab() {
       SSH_LOGIN_FAIL:   { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SSH FAIL' },
       SSH_INVALID_USER: { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ INVÁLIDO' },
       SSH_ABORT:        { cls: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',   label: '⚡ ABORT' },
-      SESSION_OPEN:     { cls: 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',   label: '▶ SESIÓN' },
-      SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',   label: '■ FIN SESIÓN' },
+      SESSION_OPEN:     { cls: 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6]',   label: '▶ SESIÓN' },
+      SESSION_CLOSE:    { cls: 'bg-[#374151]/30 border-[#334155]/30 text-[#64748B]',   label: '■ FIN SESIÓN' },
       SUDO_COMMAND:     { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',   label: '⚡ SUDO' },
       SUDO_FAIL:        { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ SUDO FAIL' },
       SU_OK:            { cls: 'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',   label: '▲ SU OK' },
@@ -265,7 +280,7 @@ function LoginSessionsTab() {
       ACCOUNT_LOCKOUT:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '🔒 LOCKOUT' },
       AUTH_FAILURE:     { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '✗ AUTH FAIL' },
       PRIV_ESCALATION:  { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',   label: '⚠ ESCALADA' },
-      OTHER:            { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]',   label: 'OTRO' },
+      OTHER:            { cls: 'bg-[#374151]/30 border-[#334155]/30 text-[#475569]',   label: 'OTRO' },
     };
     const c = cfg[action ?? 'OTHER'] ?? cfg['OTHER'];
     return (
@@ -276,34 +291,34 @@ function LoginSessionsTab() {
   };
 
   const roleBadge = (role: string | null) => {
-    if (!role) return <span className="text-[#4b5563]">—</span>;
+    if (!role) return <span className="text-[#334155]">—</span>;
     const colors: Record<string, string> = {
-      system_manager:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
+      system_manager:   'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6]',
       security_officer: 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
       auditor:          'bg-[#a78bfa]/10 border-[#a78bfa]/30 text-[#a78bfa]',
     };
-    const cls = colors[role] ?? 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]';
+    const cls = colors[role] ?? 'bg-[#374151]/30 border-[#334155]/30 text-[#475569]';
     return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${cls}`}>{role}</span>;
   };
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4">
+        <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4">
           <div className="text-2xl font-bold text-white">{total}</div>
-          <div className="text-xs text-[#9ca3af] mt-0.5">Intentos totales</div>
+          <div className="text-xs text-[#64748B] mt-0.5">Intentos totales</div>
         </div>
-        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4">
+        <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4">
           <div className="text-2xl font-bold text-[#22c55e]">{successes}</div>
-          <div className="text-xs text-[#9ca3af] mt-0.5">Sesiones exitosas</div>
+          <div className="text-xs text-[#64748B] mt-0.5">Sesiones exitosas</div>
         </div>
-        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4">
+        <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4">
           <div className={`text-2xl font-bold ${failures > 0 ? 'text-[#ff3b3b]' : 'text-white'}`}>{failures}</div>
-          <div className="text-xs text-[#9ca3af] mt-0.5">Intentos fallidos</div>
+          <div className="text-xs text-[#64748B] mt-0.5">Intentos fallidos</div>
         </div>
-        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4">
+        <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4">
           <div className={`text-2xl font-bold ${bruteForceIPs.length > 0 ? 'text-[#f59e0b]' : 'text-white'}`}>{bruteForceIPs.length}</div>
-          <div className="text-xs text-[#9ca3af] mt-0.5">IPs sospechosas (10 min)</div>
+          <div className="text-xs text-[#64748B] mt-0.5">IPs sospechosas (10 min)</div>
         </div>
       </div>
 
@@ -312,44 +327,44 @@ function LoginSessionsTab() {
           <ShieldAlert className="w-4 h-4 text-[#f59e0b] mt-0.5 shrink-0" />
           <div>
             <div className="text-sm font-semibold text-[#f59e0b]">Posible fuerza bruta detectada</div>
-            <div className="text-xs text-[#9ca3af] mt-0.5">IPs con ≥5 fallos en los últimos 10 min: <span className="font-mono text-white">{bruteForceIPs.join(', ')}</span></div>
+            <div className="text-xs text-[#64748B] mt-0.5">IPs con ≥5 fallos en los últimos 10 min: <span className="font-mono text-white">{bruteForceIPs.join(', ')}</span></div>
           </div>
         </div>
       )}
 
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+      <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C2030]">
           <div className="flex items-center gap-2">
-            <LogIn className="w-4 h-4 text-[#00d4ff]" />
+            <LogIn className="w-4 h-4 text-[#8B5CF6]" />
             <span className="text-sm font-semibold text-white">Eventos de Inicio de Sesión</span>
-            <span className="text-xs text-[#4b5563]">· ENS op.acc.1, op.exp.5</span>
+            <span className="text-xs text-[#334155]">· ENS op.acc.1, op.exp.5</span>
           </div>
-          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 text-xs text-[#9ca3af] hover:text-[#00d4ff] transition-colors disabled:opacity-50">
+          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 text-xs text-[#64748B] hover:text-[#8B5CF6] transition-colors disabled:opacity-50">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Actualizar
           </button>
         </div>
 
-        <div className="px-4 py-3 border-b border-[#1e2530] flex flex-wrap gap-2">
+        <div className="px-4 py-3 border-b border-[#1C2030] flex flex-wrap gap-2">
           <div className="relative flex-1 min-w-32">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#334155]" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por usuario, IP, rol..."
-              className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff]" />
+              className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#8B5CF6]" />
           </div>
           <select value={filterResult} onChange={e => setFilterResult(e.target.value as 'ALL' | 'SUCCESS' | 'FAIL')}
-            className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#00d4ff]">
+            className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#8B5CF6]">
             <option value="ALL">Todos los resultados</option>
             <option value="SUCCESS">Solo exitosos</option>
             <option value="FAIL">Solo fallidos</option>
           </select>
           <select value={filterUser} onChange={e => setFilterUser(e.target.value)}
-            className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#00d4ff]">
+            className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#8B5CF6]">
             <option value="ALL">Todos los usuarios</option>
             {uniqueUsers.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
         </div>
 
         <div className="flex-1 overflow-auto min-h-[300px]">
-          {loading && <div className="flex justify-center items-center py-16"><Loader2 className="w-6 h-6 animate-spin text-[#00d4ff]" /></div>}
+          {loading && <div className="flex justify-center items-center py-16"><Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6]" /></div>}
           {!loading && error && (
             <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg text-sm text-[#ff3b3b]">
               <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -357,14 +372,14 @@ function LoginSessionsTab() {
             </div>
           )}
           {!loading && !error && filtered.length === 0 && (
-            <p className="text-[#6b7280] text-sm text-center py-12">
+            <p className="text-[#475569] text-sm text-center py-12">
               {events.length === 0 ? 'Sin eventos de sesión registrados aún.' : 'Sin resultados para los filtros aplicados.'}
             </p>
           )}
           {!loading && !error && filtered.length > 0 && (
             <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-[#1a1d27]">
-                <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
+              <thead className="sticky top-0 bg-[#111318]">
+                <tr className="text-left text-[#475569] border-b border-[#1C2030]">
                   <th className="px-3 py-2 font-medium">Timestamp</th>
                   <th className="px-3 py-2 font-medium">Usuario</th>
                   <th className="px-3 py-2 font-medium">Rol</th>
@@ -373,14 +388,14 @@ function LoginSessionsTab() {
                   <th className="px-3 py-2 font-medium">Det.</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#1e2530]">
+              <tbody className="divide-y divide-[#1C2030]">
                 {filtered.map((ev, idx) => (
                   <>
-                    <tr key={idx} className={`hover:bg-[#1e2530]/40 transition-colors ${!ev.success ? 'border-l-2 border-[#ff3b3b]/40' : ''}`}>
-                      <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
+                    <tr key={idx} className={`hover:bg-[#1C2030]/40 transition-colors ${!ev.success ? 'border-l-2 border-[#ff3b3b]/40' : ''}`}>
+                      <td className="px-3 py-2"><DateTimeCell ts={ev.timestamp} /></td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5">
-                          <User className="w-3 h-3 text-[#4b5563] shrink-0" />
+                          <User className="w-3 h-3 text-[#334155] shrink-0" />
                           <span className="text-white font-medium">{ev.username}</span>
                         </div>
                       </td>
@@ -393,30 +408,30 @@ function LoginSessionsTab() {
                       </td>
                       <td className="px-3 py-2 font-mono">
                         {ev.ip_origin
-                          ? <span className={bruteForceIPs.includes(ev.ip_origin) ? 'text-[#f59e0b] font-semibold' : 'text-[#9ca3af]'}>
+                          ? <span className={bruteForceIPs.includes(ev.ip_origin) ? 'text-[#f59e0b] font-semibold' : 'text-[#64748B]'}>
                               {ev.ip_origin}{bruteForceIPs.includes(ev.ip_origin) && <span className="ml-1">⚠</span>}
                             </span>
-                          : <span className="text-[#4b5563]">—</span>
+                          : <span className="text-[#334155]">—</span>
                         }
                       </td>
                       <td className="px-3 py-2">
-                        <button onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)} className="text-[#6b7280] hover:text-[#00d4ff] transition-colors">
+                        <button onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)} className="text-[#475569] hover:text-[#8B5CF6] transition-colors">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
                     {expandedIdx === idx && (
                       <tr key={`${idx}-detail`}>
-                        <td colSpan={6} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#00d4ff]">
+                        <td colSpan={6} className="px-4 py-3 bg-[#0A0C10] border-l-2 border-[#8B5CF6]">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                            {ev.reason && <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Motivo del fallo</span><span className="text-[#f59e0b]">{ev.reason}</span></div>}
+                            {ev.reason && <div><span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Motivo del fallo</span><span className="text-[#f59e0b]">{ev.reason}</span></div>}
                             {ev.user_agent && (
                               <div>
-                                <div className="flex items-center gap-1 text-[10px] text-[#6b7280] uppercase tracking-wider mb-0.5"><Monitor className="w-3 h-3" /> User-Agent</div>
-                                <span className="text-[#9ca3af] font-mono break-all">{ev.user_agent}</span>
+                                <div className="flex items-center gap-1 text-[10px] text-[#475569] uppercase tracking-wider mb-0.5"><Monitor className="w-3 h-3" /> User-Agent</div>
+                                <span className="text-[#64748B] font-mono break-all">{ev.user_agent}</span>
                               </div>
                             )}
-                            <div><span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Timestamp UTC</span><span className="text-white font-mono">{ev.timestamp}</span></div>
+                            <div><span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Timestamp UTC</span><span className="text-white font-mono">{ev.timestamp}</span></div>
                           </div>
                         </td>
                       </tr>
@@ -427,7 +442,7 @@ function LoginSessionsTab() {
             </table>
           )}
         </div>
-        <div className="px-4 py-2 border-t border-[#1e2530] text-[10px] text-[#4b5563] font-mono">
+        <div className="px-4 py-2 border-t border-[#1C2030] text-[10px] text-[#334155] font-mono">
           {filtered.length} eventos · buffer máx 500 · ENS op.acc.1, op.exp.5
         </div>
       </div>
@@ -439,11 +454,11 @@ function LoginSessionsTab() {
         {srvStats.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {srvStats.map(s => (
-              <div key={s.agent_ip} className={`bg-[#1a1d27] border rounded-xl p-4 ${s.critical_count > 0 ? 'border-[#ff3b3b]/40' : s.high_count > 0 ? 'border-[#f59e0b]/30' : 'border-[#1e2530]'}`}>
+              <div key={s.agent_ip} className={`bg-[#111318] border rounded-xl p-4 ${s.critical_count > 0 ? 'border-[#ff3b3b]/40' : s.high_count > 0 ? 'border-[#f59e0b]/30' : 'border-[#1C2030]'}`}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-sm font-semibold text-[#a78bfa]">{s.agent_name}</div>
-                    <div className="text-[10px] font-mono text-[#4b5563]">{s.agent_ip}</div>
+                    <div className="text-[10px] font-mono text-[#334155]">{s.agent_ip}</div>
                   </div>
                   {(s.critical_count > 0 || s.high_count > 0) && (
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${s.critical_count > 0 ? 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]' : 'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]'}`}>
@@ -452,20 +467,20 @@ function LoginSessionsTab() {
                   )}
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-[#0f1117] rounded-lg p-2">
+                  <div className="bg-[#0A0C10] rounded-lg p-2">
                     <div className="text-lg font-bold text-white">{s.total}</div>
-                    <div className="text-[10px] text-[#6b7280]">Total</div>
+                    <div className="text-[10px] text-[#475569]">Total</div>
                   </div>
-                  <div className="bg-[#0f1117] rounded-lg p-2">
+                  <div className="bg-[#0A0C10] rounded-lg p-2">
                     <div className={`text-lg font-bold ${s.failures > 0 ? 'text-[#ff3b3b]' : 'text-white'}`}>{s.failures}</div>
-                    <div className="text-[10px] text-[#6b7280]">Fallos</div>
+                    <div className="text-[10px] text-[#475569]">Fallos</div>
                   </div>
-                  <div className="bg-[#0f1117] rounded-lg p-2">
+                  <div className="bg-[#0A0C10] rounded-lg p-2">
                     <div className={`text-lg font-bold ${s.sudo_cmds > 0 ? 'text-[#a78bfa]' : 'text-white'}`}>{s.sudo_cmds}</div>
-                    <div className="text-[10px] text-[#6b7280]">Sudo</div>
+                    <div className="text-[10px] text-[#475569]">Sudo</div>
                   </div>
                 </div>
-                <div className="mt-2 flex gap-3 text-[10px] text-[#6b7280]">
+                <div className="mt-2 flex gap-3 text-[10px] text-[#475569]">
                   <span>{s.unique_users.length} usuario{s.unique_users.length !== 1 ? 's' : ''}</span>
                   <span>·</span>
                   <span>{s.unique_ips.length} IP{s.unique_ips.length !== 1 ? 's' : ''} origen</span>
@@ -481,28 +496,28 @@ function LoginSessionsTab() {
             <ShieldAlert className="w-4 h-4 text-[#ff3b3b] mt-0.5 shrink-0" />
             <div>
               <div className="text-sm font-semibold text-[#ff3b3b]">⚠ Ataque de fuerza bruta detectado en servidores</div>
-              <div className="text-xs text-[#9ca3af] mt-0.5">
+              <div className="text-xs text-[#64748B] mt-0.5">
                 IPs con ≥5 fallos SSH en los últimos 10 min:{' '}
                 <span className="font-mono text-white">{srvBruteIPs.join(', ')}</span>
               </div>
-              <div className="text-[10px] text-[#6b7280] mt-1">ENS op.acc.6 — Bloqueo recomendado · Registrar como incidente</div>
+              <div className="text-[10px] text-[#475569] mt-1">ENS op.acc.6 — Bloqueo recomendado · Registrar como incidente</div>
             </div>
           </div>
         )}
 
         {/* Tabla principal */}
-        <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
+        <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden flex flex-col">
 
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C2030]">
             <div className="flex items-center gap-2">
               <Monitor className="w-4 h-4 text-[#a78bfa]" />
               <span className="text-sm font-semibold text-white">Logins en Servidores</span>
-              <span className="text-xs text-[#4b5563]">· SSH auth.log · ENS op.acc.1, op.acc.6, op.exp.5</span>
+              <span className="text-xs text-[#334155]">· SSH auth.log · ENS op.acc.1, op.acc.6, op.exp.5</span>
             </div>
             <div className="flex items-center gap-2">
               {srvLastLoad && (
-                <span className="text-[10px] text-[#4b5563] font-mono">
+                <span className="text-[10px] text-[#334155] font-mono">
                   Última carga: {fmtTime(srvLastLoad.toISOString())}
                 </span>
               )}
@@ -511,7 +526,7 @@ function LoginSessionsTab() {
                 className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border transition-colors ${
                   liveMode
                     ? 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]'
-                    : 'border-[#1e2530] text-[#9ca3af] hover:text-white hover:border-[#374151]'
+                    : 'border-[#1C2030] text-[#64748B] hover:text-white hover:border-[#374151]'
                 }`}
                 title={liveMode ? 'Desactivar refresco automático' : 'Activar refresco automático cada 60s'}
               >
@@ -521,7 +536,7 @@ function LoginSessionsTab() {
               <button
                 onClick={() => { setSrvLoading(true); loadSrv(); }}
                 disabled={srvLoading}
-                className="flex items-center gap-1.5 text-xs text-[#9ca3af] hover:text-[#a78bfa] transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 text-xs text-[#64748B] hover:text-[#a78bfa] transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${srvLoading ? 'animate-spin' : ''}`} />
                 Actualizar
@@ -540,38 +555,38 @@ function LoginSessionsTab() {
           </div>
 
           {/* Filtros */}
-          <div className="px-4 py-3 border-b border-[#1e2530] grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 items-end">
+          <div className="px-4 py-3 border-b border-[#1C2030] grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 items-end">
             <div className="col-span-2 flex flex-col gap-1">
-              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Búsqueda</label>
+              <label className="text-[10px] text-[#475569] uppercase tracking-wider">Búsqueda</label>
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#334155]" />
                 <input value={srvSearch} onChange={e => setSrvSearch(e.target.value)}
                   placeholder="usuario, IP, comando..."
-                  className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]" />
+                  className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#a78bfa]" />
               </div>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Desde</label>
+              <label className="text-[10px] text-[#475569] uppercase tracking-wider">Desde</label>
               <input type="date" value={srvDateFrom} onChange={e => setSrvDateFrom(e.target.value)}
-                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+                className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Hasta</label>
+              <label className="text-[10px] text-[#475569] uppercase tracking-wider">Hasta</label>
               <input type="date" value={srvDateTo} onChange={e => setSrvDateTo(e.target.value)}
-                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
+                className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa] [color-scheme:dark]" />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Servidor</label>
+              <label className="text-[10px] text-[#475569] uppercase tracking-wider">Servidor</label>
               <select value={srvFilterServer} onChange={e => setSrvFilterServer(e.target.value)}
-                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
                 <option value="ALL">Todos</option>
                 {srvServers.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Tipo acción</label>
+              <label className="text-[10px] text-[#475569] uppercase tracking-wider">Tipo acción</label>
               <select value={srvFilterAction} onChange={e => setSrvFilterAction(e.target.value)}
-                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
                 <option value="ALL">Todas</option>
                 <option value="SSH_LOGIN_OK">SSH OK</option>
                 <option value="SSH_LOGIN_FAIL">SSH Fail</option>
@@ -592,16 +607,16 @@ function LoginSessionsTab() {
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-[#6b7280] uppercase tracking-wider">Severidad</label>
+              <label className="text-[10px] text-[#475569] uppercase tracking-wider">Severidad</label>
               <select value={srvFilterSeverity} onChange={e => setSrvFilterSeverity(e.target.value)}
-                className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
+                className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#a78bfa]">
                 <option value="ALL">Todas</option>
                 {srvSeverities.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div className="flex gap-1.5 items-end">
               <button onClick={() => setSrvPage(1)}
-                className="flex-1 text-xs font-semibold text-white bg-[#00d4ff] hover:bg-[#00b8d9] transition-colors px-3 py-1.5 rounded-lg">
+                className="flex-1 text-xs font-semibold text-white bg-[#8B5CF6] hover:bg-[#00b8d9] transition-colors px-3 py-1.5 rounded-lg">
                 Filtrar
               </button>
               <button onClick={() => {
@@ -609,7 +624,7 @@ function LoginSessionsTab() {
                 setSrvFilterResult('ALL'); setSrvFilterIP('ALL'); setSrvFilterAction('ALL');
                 setSrvDateFrom(''); setSrvDateTo(''); setSrvPage(1);
               }}
-                className="text-xs text-[#9ca3af] hover:text-white border border-[#1e2530] hover:border-[#4b5563] transition-colors px-2 py-1.5 rounded-lg"
+                className="text-xs text-[#64748B] hover:text-white border border-[#1C2030] hover:border-[#334155] transition-colors px-2 py-1.5 rounded-lg"
                 title="Limpiar filtros">
                 <XCircle className="w-3.5 h-3.5" />
               </button>
@@ -626,14 +641,14 @@ function LoginSessionsTab() {
               </div>
             )}
             {!srvLoading && !srvError && srvFiltered.length === 0 && (
-              <p className="text-[#6b7280] text-sm text-center py-8">
+              <p className="text-[#475569] text-sm text-center py-8">
                 {srvEvents.length === 0 ? 'Sin eventos de autenticación en servidores.' : 'Sin resultados para los filtros aplicados.'}
               </p>
             )}
             {!srvLoading && !srvError && srvFiltered.length > 0 && (
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-[#1a1d27] z-10">
-                  <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
+                <thead className="sticky top-0 bg-[#111318] z-10">
+                  <tr className="text-left text-[#475569] border-b border-[#1C2030]">
                     <th className="px-3 py-2 font-medium">Fecha / Hora</th>
                     <th className="px-3 py-2 font-medium">Servidor</th>
                     <th className="px-3 py-2 font-medium">Usuario</th>
@@ -644,14 +659,14 @@ function LoginSessionsTab() {
                     <th className="px-3 py-2 font-medium"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#1e2530]">
+                <tbody className="divide-y divide-[#1C2030]">
                   {srvPaged.map(ev => {
                     const sevColor: Record<string, string> = {
                       CRITICAL: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]',
                       HIGH:     'bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]',
-                      MEDIUM:   'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]',
+                      MEDIUM:   'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6]',
                       LOW:      'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]',
-                      INFO:     'bg-[#374151]/30 border-[#4b5563]/30 text-[#9ca3af]',
+                      INFO:     'bg-[#374151]/30 border-[#334155]/30 text-[#64748B]',
                     };
                     const isExpanded = srvExpanded === ev.alert_id;
                     const isBF = !!(ev.src_ip && srvBruteIPs.includes(ev.src_ip));
@@ -660,22 +675,22 @@ function LoginSessionsTab() {
                         <tr
                           key={ev.alert_id}
                           onClick={() => setSrvExpanded(isExpanded ? null : ev.alert_id)}
-                          className={`hover:bg-[#1e2530]/40 transition-colors cursor-pointer ${
+                          className={`hover:bg-[#1C2030]/40 transition-colors cursor-pointer ${
                             ev.severity === 'CRITICAL' ? 'border-l-2 border-[#ff3b3b]' :
                             ev.severity === 'HIGH'     ? 'border-l-2 border-[#f59e0b]' : ''
                           }`}
                         >
-                          <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(ev.timestamp)}</td>
+                          <td className="px-3 py-2"><DateTimeCell ts={ev.timestamp} /></td>
                           <td className="px-3 py-2">
                             <div className="flex flex-col">
                               <span className="text-[#a78bfa] font-mono font-medium">{ev.agent_name}</span>
-                              <span className="text-[#4b5563] font-mono text-[10px]">{ev.agent_ip}</span>
+                              <span className="text-[#334155] font-mono text-[10px]">{ev.agent_ip}</span>
                             </div>
                           </td>
-                          <td className="px-3 py-2 font-mono text-white">{ev.src_user ?? <span className="text-[#4b5563]">—</span>}</td>
+                          <td className="px-3 py-2 font-mono text-white">{ev.src_user ?? <span className="text-[#334155]">—</span>}</td>
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-1">
-                              <span className={`text-[10px] text-[#4b5563] transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                              <span className={`text-[10px] text-[#334155] transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
                               {actionBadgeSrv(ev.action_type)}
                             </div>
                           </td>
@@ -686,58 +701,58 @@ function LoginSessionsTab() {
                           </td>
                           <td className="px-3 py-2 font-mono text-xs">
                             {ev.src_ip ? (
-                              <span className={isBF ? 'text-[#ff3b3b] font-semibold' : 'text-[#9ca3af]'}>
+                              <span className={isBF ? 'text-[#ff3b3b] font-semibold' : 'text-[#64748B]'}>
                                 {ev.src_ip}{isBF && <span className="ml-1" title="IP en brute force activo">⚠</span>}
                               </span>
-                            ) : <span className="text-[#4b5563]">—</span>}
+                            ) : <span className="text-[#334155]">—</span>}
                           </td>
-                          <td className="px-3 py-2 font-mono text-[#6b7280]">{ev.port ?? '—'}</td>
+                          <td className="px-3 py-2 font-mono text-[#475569]">{ev.port ?? '—'}</td>
                           <td className="px-3 py-2 w-4" />
                         </tr>
                         {isExpanded && (
                           <tr key={`${ev.alert_id}-detail`}>
-                            <td colSpan={8} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#a78bfa]">
+                            <td colSpan={8} className="px-4 py-3 bg-[#0A0C10] border-l-2 border-[#a78bfa]">
                               <div className="space-y-3 text-xs">
                                 <div>
-                                  <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-1">Raw Log</span>
-                                  <code className="text-[#9ca3af] font-mono break-all leading-5">{ev.raw_log}</code>
+                                  <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-1">Raw Log</span>
+                                  <code className="text-[#64748B] font-mono break-all leading-5">{ev.raw_log}</code>
                                 </div>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                   <div>
-                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Resultado</span>
+                                    <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Resultado</span>
                                     <span className={ev.success ? 'text-[#22c55e] font-semibold' : 'text-[#ff3b3b] font-semibold'}>
                                       {ev.success ? '✓ EXITOSO' : '✗ FALLIDO'}
                                     </span>
                                   </div>
                                   <div>
-                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Timestamp UTC</span>
+                                    <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Timestamp UTC</span>
                                     <span className="text-white font-mono">{ev.timestamp}</span>
                                   </div>
                                   {ev.command && (
                                     <div className="col-span-2">
-                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Comando ejecutado</span>
+                                      <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Comando ejecutado</span>
                                       <code className="text-[#a78bfa] font-mono">{ev.command}</code>
                                     </div>
                                   )}
                                   {ev.mitre_tactic && (
                                     <div>
-                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Táctica</span>
+                                      <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">MITRE Táctica</span>
                                       <span className="text-white">{ev.mitre_tactic}</span>
                                     </div>
                                   )}
                                   {ev.mitre_technique && (
                                     <div>
-                                      <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">MITRE Técnica</span>
+                                      <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">MITRE Técnica</span>
                                       <span className="text-white font-mono">{ev.mitre_technique}</span>
                                     </div>
                                   )}
                                   <div>
-                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Agent ID (M1)</span>
+                                    <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Agent ID (M1)</span>
                                     <span className="text-white font-mono">{ev.agent_id}</span>
                                   </div>
                                   <div>
-                                    <span className="text-[10px] text-[#6b7280] uppercase tracking-wider block mb-0.5">Norma ENS</span>
-                                    <span className="text-[#00d4ff]">op.acc.1 · op.acc.6 · op.exp.5</span>
+                                    <span className="text-[10px] text-[#475569] uppercase tracking-wider block mb-0.5">Norma ENS</span>
+                                    <span className="text-[#8B5CF6]">op.acc.1 · op.acc.6 · op.exp.5</span>
                                   </div>
                                 </div>
                               </div>
@@ -754,23 +769,23 @@ function LoginSessionsTab() {
 
           {/* Paginación */}
           {srvTotalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-2 border-t border-[#1e2530]">
+            <div className="flex items-center justify-between px-4 py-2 border-t border-[#1C2030]">
               <button onClick={() => setSrvPage(p => Math.max(1, p - 1))} disabled={srvPage === 1}
-                className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                className="text-xs text-[#64748B] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1C2030] hover:border-[#a78bfa] transition-colors">
                 ← Anterior
               </button>
-              <span className="text-xs text-[#6b7280]">
+              <span className="text-xs text-[#475569]">
                 Página {srvPage} de {srvTotalPages} · {srvFiltered.length} de {srvEvents.length} eventos
               </span>
               <button onClick={() => setSrvPage(p => Math.min(srvTotalPages, p + 1))} disabled={srvPage === srvTotalPages}
-                className="text-xs text-[#9ca3af] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1e2530] hover:border-[#a78bfa] transition-colors">
+                className="text-xs text-[#64748B] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1 rounded border border-[#1C2030] hover:border-[#a78bfa] transition-colors">
                 Siguiente →
               </button>
             </div>
           )}
 
           {/* Footer ENS */}
-          <div className="px-4 py-2 border-t border-[#1e2530] flex items-center justify-between text-[10px] text-[#4b5563] font-mono">
+          <div className="px-4 py-2 border-t border-[#1C2030] flex items-center justify-between text-[10px] text-[#334155] font-mono">
             <span>{srvFiltered.length} eventos filtrados · {srvEvents.length} total · pág {srvPage}/{srvTotalPages}</span>
             <span>ENS RD 311/2022 · op.acc.1 · op.acc.6 · op.exp.5 · Retención ≥2 años</span>
           </div>
@@ -858,22 +873,22 @@ export function AuditLogsPage() {
   const actionBadge = (action: string) => {
     const cfg: Record<string, { cls: string; icon: React.ReactNode; label: string }> = {
       CREATE: { cls: 'bg-[#22c55e]/10 border-[#22c55e]/30 text-[#22c55e]', icon: <Plus className="w-3 h-3" />,   label: 'CREATE' },
-      UPDATE: { cls: 'bg-[#00d4ff]/10 border-[#00d4ff]/30 text-[#00d4ff]', icon: <Pencil className="w-3 h-3" />, label: 'UPDATE' },
+      UPDATE: { cls: 'bg-[#8B5CF6]/10 border-[#8B5CF6]/30 text-[#8B5CF6]', icon: <Pencil className="w-3 h-3" />, label: 'UPDATE' },
       DELETE: { cls: 'bg-[#ff3b3b]/10 border-[#ff3b3b]/30 text-[#ff3b3b]', icon: <Trash2 className="w-3 h-3" />, label: 'DELETE' },
     };
-    const c = cfg[action] ?? { cls: 'bg-[#374151]/30 border-[#4b5563]/30 text-[#6b7280]', icon: null, label: action };
+    const c = cfg[action] ?? { cls: 'bg-[#374151]/30 border-[#334155]/30 text-[#475569]', icon: null, label: action };
     return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${c.cls}`}>{c.icon}{c.label}</span>;
   };
 
   const Tab = ({ id, label, icon: Icon }: { id: typeof activeTab; label: string; icon: React.ElementType }) => (
     <button onClick={() => setActiveTab(id)}
-      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === id ? 'border-[#00d4ff] text-[#00d4ff]' : 'border-transparent text-[#9ca3af] hover:text-white hover:border-[#374151]'}`}>
+      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === id ? 'border-[#8B5CF6] text-[#8B5CF6]' : 'border-transparent text-[#64748B] hover:text-white hover:border-[#374151]'}`}>
       <Icon className="w-4 h-4" />{label}
     </button>
   );
 
   return (
-    <div className="flex h-screen bg-[#0f1117]">
+    <div className="flex h-screen bg-[#0A0C10]">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar role="Auditor" />
@@ -881,120 +896,120 @@ export function AuditLogsPage() {
 
           <div>
             <h1 className="text-2xl font-semibold text-white mb-1">Logs de Auditoría</h1>
-            <p className="text-[#9ca3af] text-sm">Trazabilidad completa del sistema · ENS op.exp.5 · RD 311/2022</p>
+            <p className="text-[#64748B] text-sm">Trazabilidad completa del sistema · ENS op.exp.5 · RD 311/2022</p>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-white">{totalEntries}</div><div className="text-xs text-[#9ca3af] mt-0.5">Total entradas sistema</div></div>
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-[#ff3b3b]">{errorCount}</div><div className="text-xs text-[#9ca3af] mt-0.5">Errores del sistema</div></div>
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-[#00d4ff]">{assetOpsCount}</div><div className="text-xs text-[#9ca3af] mt-0.5">Operaciones sobre activos</div></div>
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl p-4"><div className="text-2xl font-bold text-white font-mono">{lastActivity}</div><div className="text-xs text-[#9ca3af] mt-0.5">Última actividad</div></div>
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4"><div className="text-2xl font-bold text-white">{totalEntries}</div><div className="text-xs text-[#64748B] mt-0.5">Total entradas sistema</div></div>
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4"><div className="text-2xl font-bold text-[#ff3b3b]">{errorCount}</div><div className="text-xs text-[#64748B] mt-0.5">Errores del sistema</div></div>
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4"><div className="text-2xl font-bold text-[#8B5CF6]">{assetOpsCount}</div><div className="text-xs text-[#64748B] mt-0.5">Operaciones sobre activos</div></div>
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-4"><div className="text-2xl font-bold text-white font-mono">{lastActivity}</div><div className="text-xs text-[#64748B] mt-0.5">Última actividad</div></div>
           </div>
 
-          <div className="border-b border-[#1e2530] flex gap-0 -mb-2">
+          <div className="border-b border-[#1C2030] flex gap-0 -mb-2">
             <Tab id="system"   label="Sistema — Live"     icon={Activity} />
             <Tab id="assets"   label="Auditoría Activos"  icon={Search} />
             <Tab id="sessions" label="Sesiones de Acceso" icon={LogIn} />
           </div>
 
           {activeTab === 'system' && (
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e2530]">
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#1C2030]">
                 <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-[#00d4ff]" />
+                  <Activity className="w-4 h-4 text-[#8B5CF6]" />
                   <span className="text-sm font-semibold text-white">Orchestrator — Live</span>
                   <span className={`flex items-center gap-1 text-xs ${sseConnected ? 'text-[#22c55e]' : 'text-[#ff3b3b]'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#ff3b3b]'}`} />
                     {sseConnected ? 'Conectado' : 'Desconectado'}
                   </span>
                 </div>
-                <button onClick={() => setOrchestratorLogs([])} className="text-[#6b7280] hover:text-[#ff3b3b] transition-colors p-1 rounded">
+                <button onClick={() => setOrchestratorLogs([])} className="text-[#475569] hover:text-[#ff3b3b] transition-colors p-1 rounded">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div ref={logEndRef} className="flex-1 bg-[#0f1117] p-3 font-mono text-xs overflow-y-auto h-80 space-y-0.5">
-                {orchestratorLogs.length === 0 && <div className="text-[#4b5563] italic">Esperando logs del orchestrator...</div>}
+              <div ref={logEndRef} className="flex-1 bg-[#0A0C10] p-3 font-mono text-xs overflow-y-auto h-80 space-y-0.5">
+                {orchestratorLogs.length === 0 && <div className="text-[#334155] italic">Esperando logs del orchestrator...</div>}
                 {[...orchestratorLogs].reverse().map((log, i) => (
                   <div key={i} className={`leading-5 ${levelColor(log.level)}`}>
-                    <span className="text-[#4b5563]">[{fmtTime(log.timestamp)}]</span>{' '}
-                    <span className="text-[#6b7280]">[{log.module}]</span>{' '}{log.message}
+                    <span className="text-[#334155]">[{fmtTime(log.timestamp)}]</span>{' '}
+                    <span className="text-[#475569]">[{log.module}]</span>{' '}{log.message}
                   </div>
                 ))}
               </div>
-              <div className="px-4 py-2 border-t border-[#1e2530] text-[10px] text-[#4b5563] font-mono">{orchestratorLogs.length} entradas · máx 200</div>
+              <div className="px-4 py-2 border-t border-[#1C2030] text-[10px] text-[#334155] font-mono">{orchestratorLogs.length} entradas · máx 200</div>
             </div>
           )}
 
           {activeTab === 'assets' && (
-            <div className="bg-[#1a1d27] border border-[#1e2530] rounded-xl overflow-hidden flex flex-col">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e2530]">
-                <Search className="w-4 h-4 text-[#00d4ff]" />
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden flex flex-col">
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1C2030]">
+                <Search className="w-4 h-4 text-[#8B5CF6]" />
                 <span className="text-sm font-semibold text-white">Auditoría de Activos (M1)</span>
               </div>
-              <div className="px-4 py-3 border-b border-[#1e2530] flex flex-wrap gap-2">
+              <div className="px-4 py-3 border-b border-[#1C2030] flex flex-wrap gap-2">
                 <div className="relative flex-1 min-w-32">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#4b5563]" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#334155]" />
                   <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Buscar..."
-                    className="w-full bg-[#0f1117] border border-[#1e2530] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#00d4ff]" />
+                    className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-[#374151] focus:outline-none focus:border-[#8B5CF6]" />
                 </div>
                 <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
-                  className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#00d4ff]">
+                  className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#8B5CF6]">
                   <option value="ALL">Todas las acciones</option>
                   <option value="CREATE">CREATE</option>
                   <option value="UPDATE">UPDATE</option>
                   <option value="DELETE">DELETE</option>
                 </select>
                 <select value={filterAsset} onChange={e => setFilterAsset(e.target.value)}
-                  className="bg-[#0f1117] border border-[#1e2530] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#00d4ff]">
+                  className="bg-[#0A0C10] border border-[#1C2030] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#8B5CF6]">
                   <option value="ALL">Todos los activos</option>
                   {assetIPs.map(ip => <option key={ip} value={ip}>{ip}</option>)}
                 </select>
               </div>
               <div className="flex-1 overflow-auto">
-                {assetLoading && <div className="flex justify-center items-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[#00d4ff]" /></div>}
+                {assetLoading && <div className="flex justify-center items-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6]" /></div>}
                 {!assetLoading && assetError && (
                   <div className="m-4 flex items-center gap-2 px-4 py-3 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg text-sm text-[#f59e0b]">
                     <AlertTriangle className="w-4 h-4 shrink-0" /> M1 no disponible — no se pudo cargar el historial de auditoría.
                   </div>
                 )}
-                {!assetLoading && !assetError && filteredAsset.length === 0 && <p className="text-[#6b7280] text-sm text-center py-8">Sin registros de auditoría disponibles.</p>}
+                {!assetLoading && !assetError && filteredAsset.length === 0 && <p className="text-[#475569] text-sm text-center py-8">Sin registros de auditoría disponibles.</p>}
                 {!assetLoading && !assetError && filteredAsset.length > 0 && (
                   <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-[#1a1d27]">
-                      <tr className="text-left text-[#6b7280] border-b border-[#1e2530]">
+                    <thead className="sticky top-0 bg-[#111318]">
+                      <tr className="text-left text-[#475569] border-b border-[#1C2030]">
                         <th className="px-3 py-2 font-medium">Timestamp</th><th className="px-3 py-2 font-medium">Activo</th>
                         <th className="px-3 py-2 font-medium">Acción</th><th className="px-3 py-2 font-medium">Usuario</th>
                         <th className="px-3 py-2 font-medium">Rol</th><th className="px-3 py-2 font-medium">IP Origen</th>
                         <th className="px-3 py-2 font-medium">Det.</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#1e2530]">
+                    <tbody className="divide-y divide-[#1C2030]">
                       {filteredAsset.map(log => (
                         <>
-                          <tr key={log.id} className="hover:bg-[#1e2530]/40 transition-colors">
-                            <td className="px-3 py-2 font-mono text-[#9ca3af] whitespace-nowrap">{fmtDatetime(log.timestamp)}</td>
-                            <td className="px-3 py-2 font-mono text-[#00d4ff]">{log._asset_ip ?? String(log.asset_id)}</td>
+                          <tr key={log.id} className="hover:bg-[#1C2030]/40 transition-colors">
+                            <td className="px-3 py-2"><DateTimeCell ts={log.timestamp} /></td>
+                            <td className="px-3 py-2 font-mono text-[#8B5CF6]">{log._asset_ip ?? String(log.asset_id)}</td>
                             <td className="px-3 py-2">{actionBadge(log.action)}</td>
                             <td className="px-3 py-2 text-white">{log.user_id}</td>
                             <td className="px-3 py-2">
                               {log.user_role
-                                ? <span className="px-1.5 py-0.5 bg-[#374151]/40 text-[#9ca3af] border border-[#4b5563]/30 rounded text-[10px]">{log.user_role}</span>
-                                : <span className="text-[#4b5563]">—</span>}
+                                ? <span className="px-1.5 py-0.5 bg-[#374151]/40 text-[#64748B] border border-[#334155]/30 rounded text-[10px]">{log.user_role}</span>
+                                : <span className="text-[#334155]">—</span>}
                             </td>
-                            <td className="px-3 py-2 font-mono text-[#9ca3af]">{log.ip_origin ?? '—'}</td>
+                            <td className="px-3 py-2 font-mono text-[#64748B]">{log.ip_origin ?? '—'}</td>
                             <td className="px-3 py-2">
-                              <button onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)} className="text-[#6b7280] hover:text-[#00d4ff] transition-colors">
+                              <button onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)} className="text-[#475569] hover:text-[#8B5CF6] transition-colors">
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
                             </td>
                           </tr>
                           {expandedRow === log.id && (
                             <tr key={`${log.id}-detail`}>
-                              <td colSpan={7} className="px-4 py-3 bg-[#0f1117] border-l-2 border-[#00d4ff]">
-                                {log.reason && <div className="mb-2"><span className="text-[10px] text-[#6b7280] uppercase tracking-wider">Motivo: </span><span className="text-xs text-white">{log.reason}</span></div>}
+                              <td colSpan={7} className="px-4 py-3 bg-[#0A0C10] border-l-2 border-[#8B5CF6]">
+                                {log.reason && <div className="mb-2"><span className="text-[10px] text-[#475569] uppercase tracking-wider">Motivo: </span><span className="text-xs text-white">{log.reason}</span></div>}
                                 {log.changes && Object.keys(log.changes).length > 0
-                                  ? <div><div className="text-[10px] text-[#6b7280] uppercase tracking-wider mb-1">Cambios</div><pre className="bg-[#080a10] rounded p-3 font-mono text-xs text-[#9ca3af] max-h-40 overflow-y-auto">{JSON.stringify(log.changes, null, 2)}</pre></div>
-                                  : !log.reason ? <span className="text-xs text-[#4b5563]">Sin detalles adicionales.</span> : null}
+                                  ? <div><div className="text-[10px] text-[#475569] uppercase tracking-wider mb-1">Cambios</div><pre className="bg-[#080a10] rounded p-3 font-mono text-xs text-[#64748B] max-h-40 overflow-y-auto">{JSON.stringify(log.changes, null, 2)}</pre></div>
+                                  : !log.reason ? <span className="text-xs text-[#334155]">Sin detalles adicionales.</span> : null}
                               </td>
                             </tr>
                           )}
@@ -1004,13 +1019,13 @@ export function AuditLogsPage() {
                   </table>
                 )}
               </div>
-              <div className="px-4 py-2 border-t border-[#1e2530] text-[10px] text-[#4b5563] font-mono">{filteredAsset.length} entradas · máx 500 por carga</div>
+              <div className="px-4 py-2 border-t border-[#1C2030] text-[10px] text-[#334155] font-mono">{filteredAsset.length} entradas · máx 500 por carga</div>
             </div>
           )}
 
           {activeTab === 'sessions' && <LoginSessionsTab />}
 
-          <div className="text-center text-xs text-[#4b5563]">Logs inmutables · ENS op.exp.5 · RD 311/2022 · Retención mínima 2 años</div>
+          <div className="text-center text-xs text-[#334155]">Logs inmutables · ENS op.exp.5 · RD 311/2022 · Retención mínima 2 años</div>
 
         </main>
       </div>

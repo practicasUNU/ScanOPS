@@ -85,6 +85,13 @@ app-layer:
       enabled: yes
     dns:
       enabled: yes
+    modbus:
+      enabled: no
+      detection-enabled: no
+    dnp3:
+      enabled: no
+    enip:
+      enabled: no
 
 default-rule-path: /var/lib/suricata/rules
 

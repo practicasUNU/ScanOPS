@@ -7,14 +7,14 @@ import asyncio
 import logging
 import time
 from typing import Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from celery import group, chord
+import sqlalchemy as sa
 from celery.exceptions import SoftTimeLimitExceeded
 
 from shared.celery_app import app
 from shared.database import SessionLocal
 from shared.scan_logger import ScanLogger
-from services.scanner_engine.models.vulnerability import VulnFinding
 from services.scanner_engine.services.nuclei_wrapper import run_nuclei_scan as execute_nuclei_binary
 from services.scanner_engine.clients.nmap_client import run_nmap_scan, extract_http_ports
 from services.scanner_engine.clients.ffuf_client import run_ffuf_scan
@@ -24,7 +24,8 @@ from services.scanner_engine.clients.testssl_client import run_testssl_scan
 logger = ScanLogger("scanner_tasks")
 
 # --- TAREA: NUCLEI (US-3.2) ---
-@app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities")
+@app.task(name="tasks.run_nuclei_vulnerability_scan", queue="vulnerabilities",
+          time_limit=360, soft_time_limit=330)
 def run_nuclei_task(asset_id: int, ip: str, hostname: str = None) -> List[Dict]:
     """Ejecuta Nuclei y devuelve hallazgos sin persistir (el orquestador persiste)."""
     logger.info("NUCLEI_TASK_START", asset_id=asset_id, target=ip)
@@ -69,7 +70,8 @@ def run_openvas_scan(asset_id: int, asset_ip: str, asset_name: str) -> List[Dict
         loop.close()
 
 
-@app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities")
+@app.task(name="tasks.run_nikto_vulnerability_scan", queue="vulnerabilities",
+          time_limit=70, soft_time_limit=60)
 def run_nikto_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
     from services.scanner_engine.clients.nikto_client import run_nikto_scan
     scheme = "https" if port == 443 else "http"
@@ -148,44 +150,150 @@ def run_testssl_task(asset_id: int, ip: str) -> List[Dict]:
         logger.error("TESTSSL_TASK_ERROR", error=str(e))
         return []
 
-# --- CALLBACK: MERGE & PERSIST (US-3.4) ---
+# --- TAREA: JS Source Analyzer (secretos hardcoded en HTML/JS) ---
+@app.task(name="tasks.run_js_source_analysis", queue="vulnerabilities",
+          time_limit=120, soft_time_limit=110)
+def run_js_source_analyzer_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
+    from services.scanner_engine.clients.js_source_analyzer_client import run_js_source_analysis
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("JS_ANALYZER_TASK_START", asset_id=asset_id, target=target_url)
+    try:
+        findings = run_js_source_analysis(asset_id, target_url)
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "JS-SourceAnalyzer",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
+    except Exception as e:
+        logger.error("JS_ANALYZER_TASK_ERROR", error=str(e))
+        return []
+
+
+# --- TAREA: CORS Advanced Checker ---
+@app.task(name="tasks.run_cors_check", queue="vulnerabilities",
+          time_limit=60, soft_time_limit=50)
+def run_cors_checker_task(asset_id: int, ip: str, port: int = 80) -> List[Dict]:
+    from services.scanner_engine.clients.cors_checker_client import run_cors_check
+    scheme = "https" if port == 443 else "http"
+    target_url = f"{scheme}://{ip}:{port}"
+    logger.info("CORS_CHECK_TASK_START", asset_id=asset_id, target=target_url)
+    try:
+        findings = run_cors_check(asset_id, target_url)
+        tagged = []
+        for f in findings:
+            evidence = dict(f.get("evidence", {}))
+            evidence["port"] = str(port)
+            evidence["target"] = target_url
+            desc = f.get("description", "")
+            tagged.append({
+                **f,
+                "scanner": "CORS-Checker",
+                "evidence": evidence,
+                "description": f"[Port {port}] {desc}" if f":{port}" not in desc else desc,
+            })
+        return tagged
+    except Exception as e:
+        logger.error("CORS_CHECK_TASK_ERROR", error=str(e))
+        return []
+
+
+# --- CALLBACK: MERGE & PERSIST con deduplicación (US-3.4) ---
 @app.task(name="tasks.merge_and_persist_results")
 def merge_and_persist_results(results_list: List[List[Dict]], asset_id: int):
     """
-    Recibe los resultados de todos los scanners, los une, persiste y genera stats.
+    Recibe los resultados de todos los scanners, los une, persiste con upsert
+    y genera stats. Deduplicación por (asset_id, vulnerability_id, scanner_name,
+    COALESCE(affected_port, -1)) usando el índice funcional uix_vuln_findings_dedup.
     """
     all_findings = [finding for sublist in results_list for finding in sublist]
     db = SessionLocal()
     scan_id = f"scan_multi_{int(time.time())}"
-    
-    stats = {"total": 0, "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
-    
+    stats = {"total": 0, "new": 0, "updated": 0,
+             "CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+
+    # Upsert raw SQL: ON CONFLICT referencia la expresión exacta del índice funcional.
+    # SQLAlchemy ORM no puede referenciar un índice funcional con COALESCE en index_elements,
+    # por lo que se usa text() para que PostgreSQL lo resuelva correctamente.
+    upsert_sql = sa.text("""
+        INSERT INTO vuln_findings
+            (asset_id, scan_id, vulnerability_id, title, description, severity,
+             cvss_v3_score, scanner_name, scanner_reference, affected_port,
+             evidence, discovered_at, last_verified_at, remediation_status, created_by, created_at)
+        VALUES
+            (:asset_id, :scan_id, :vulnerability_id, :title, :description, :severity,
+             :cvss_v3_score, :scanner_name, :scanner_reference, :affected_port,
+             CAST(:evidence AS json), NOW(), :last_verified_at, 'open', :created_by, NOW())
+        ON CONFLICT (asset_id, vulnerability_id, scanner_name, COALESCE(affected_port, -1))
+        DO UPDATE SET
+            last_verified_at = EXCLUDED.last_verified_at,
+            evidence         = EXCLUDED.evidence,
+            description      = EXCLUDED.description,
+            severity         = EXCLUDED.severity,
+            scan_id          = EXCLUDED.scan_id,
+            updated_by       = EXCLUDED.created_by
+        RETURNING id, xmax
+    """)
+
+    import json as _json
+
     try:
         for f in all_findings:
             severity = f.get("severity", "INFO").upper()
+            if severity not in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
+                severity = "INFO"
             raw_evidence = f.get("evidence", {})
             evidence = raw_evidence if isinstance(raw_evidence, dict) else {"raw": str(raw_evidence)}
-            vuln = VulnFinding(
-                asset_id=asset_id,
-                scan_id=scan_id,
-                vulnerability_id=(f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32],
-                title=f.get("title", "Unknown Vulnerability")[:255],
-                severity=severity[:16],
-                description=f.get("description", ""),
-                scanner_name=f.get("scanner", "Generic")[:32],
-                evidence=evidence,
-                created_by="system-orchestrator",
-                cvss_v3_score=f.get("cvss_score"),
-                scanner_reference=(f.get("cve_id") or "")[:128],
-            )
-            db.add(vuln)
+
+            affected_port = f.get("affected_port") or f.get("port")
+            if not affected_port:
+                port_raw = evidence.get("port")
+                try:
+                    affected_port = int(port_raw) if port_raw else None
+                except (ValueError, TypeError):
+                    affected_port = None
+
+            vulnerability_id = (f.get("cve_id") or f.get("vulnerability_id") or "VULN_GENERIC")[:32]
+            scanner_name     = f.get("scanner", "Generic")[:32]
+
+            row = db.execute(upsert_sql, {
+                "asset_id":          asset_id,
+                "scan_id":           scan_id,
+                "vulnerability_id":  vulnerability_id,
+                "title":             f.get("title", "Unknown Vulnerability")[:255],
+                "severity":          severity[:16],
+                "description":       f.get("description", ""),
+                "cvss_v3_score":     f.get("cvss_score"),
+                "scanner_name":      scanner_name,
+                "scanner_reference": (f.get("cve_id") or "")[:128],
+                "affected_port":     affected_port,
+                "evidence":          _json.dumps(evidence),
+                "last_verified_at":  datetime.now(timezone.utc),
+                "created_by":        "system-orchestrator",
+            }).fetchone()
+
             stats["total"] += 1
+            # xmax == 0 → INSERT nuevo; xmax != 0 → UPDATE (row existente)
+            if row and row[1] == 0:
+                stats["new"] += 1
+            else:
+                stats["updated"] += 1
             if severity in stats:
                 stats[severity] += 1
-        
+
         db.commit()
-        logger.info("SCAN_MERGE_COMPLETE", asset_id=asset_id, total=stats["total"])
-        return {"status": "completed", "asset_id": asset_id, "scan_id": scan_id, "stats": stats}
+        logger.info("SCAN_MERGE_COMPLETE", asset_id=asset_id,
+                    total=stats["total"], new=stats["new"], updated=stats["updated"])
+        return {"status": "completed", "asset_id": asset_id,
+                "scan_id": scan_id, "stats": stats}
     except Exception as e:
         db.rollback()
         logger.error("MERGE_PERSIST_ERROR", error=str(e))
@@ -209,11 +317,32 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
                 por cada puerto HTTP descubierto por Nmap.
     """
     if not scan_types:
-        scan_types = ["nuclei", "nmap", "nikto"]
+        scan_types = ["nuclei", "nmap", "nikto", "js_analyzer", "cors"]
+
+    # --- Behavioral scan (fire-and-forget, writes to behavioral_findings independently) ---
+    if "behavioral" in scan_types:
+        try:
+            from services.scanner_engine.tasks.behavioral_tasks import run_behavioral_scan
+            run_behavioral_scan.delay(asset_id=asset_id, ssh_host=asset_ip)
+            logger.info("BEHAVIORAL_SCAN_QUEUED", asset_id=asset_id, host=asset_ip)
+        except Exception as _e:
+            logger.warning("BEHAVIORAL_SCAN_QUEUE_FAILED", error=str(_e))
 
     # --- Fase 1: Nmap ---
     nmap_findings = []
-    if "openvas" in scan_types or "nmap" in scan_types:
+    # Ejecutar Nmap si está explícito O si hay tareas que dependen de puertos (nikto, ffuf, js_analyzer, cors, whatweb, testssl)
+    should_run_nmap = (
+        "openvas" in scan_types or
+        "nmap" in scan_types or
+        "nikto" in scan_types or
+        "ffuf" in scan_types or
+        "js_analyzer" in scan_types or
+        "cors" in scan_types or
+        "whatweb" in scan_types or
+        "testssl" in scan_types
+    )
+
+    if should_run_nmap:
         logger.info("NMAP_PHASE_START", asset_id=asset_id, target=asset_ip)
         try:
             nmap_findings = run_nmap_scan(asset_id, asset_ip)
@@ -221,6 +350,10 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
             logger.error("NMAP_PHASE_ERROR", error=str(e))
 
     http_ports = extract_http_ports(nmap_findings)
+    # Si no hay puertos abiertos pero se pidió js_analyzer o cors, usar puertos estándar
+    if not http_ports and ("js_analyzer" in scan_types or "cors" in scan_types):
+        http_ports = [80, 443]
+        logger.info("NO_OPEN_PORTS_USING_STANDARD_PORTS", asset_id=asset_id, ports=http_ports)
     logger.info("HTTP_PORTS_DISCOVERED", asset_id=asset_id, ports=http_ports)
 
     # --- Fase 2: resto de scanners ---
@@ -237,17 +370,23 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     if "openvas" in scan_types:
         tasks.append(run_openvas_scan.s(asset_id, asset_ip, asset_name))
 
-    # Nikto y ffuf: una tarea por puerto HTTP descubierto
+    # Nikto, ffuf, JS analyzer y CORS checker: una tarea por puerto HTTP descubierto
     for port in http_ports:
         if "nikto" in scan_types:
             tasks.append(run_nikto_task.s(asset_id, asset_ip, port))
         if "ffuf" in scan_types:
             tasks.append(run_ffuf_task.s(asset_id, asset_ip, port))
+        if "js_analyzer" in scan_types:
+            tasks.append(run_js_source_analyzer_task.s(asset_id, asset_ip, port))
+        if "cors" in scan_types:
+            tasks.append(run_cors_checker_task.s(asset_id, asset_ip, port))
 
-    if "whatweb" in scan_types:
-        tasks.append(run_whatweb_task.s(asset_id, asset_ip))
-    if "testssl" in scan_types:
-        tasks.append(run_testssl_task.s(asset_id, asset_ip))
+    # whatweb y testssl solo tienen sentido si hay puertos HTTP/HTTPS abiertos
+    if http_ports:
+        if "whatweb" in scan_types:
+            tasks.append(run_whatweb_task.s(asset_id, asset_ip))
+        if "testssl" in scan_types and (443 in http_ports or 8443 in http_ports):
+            tasks.append(run_testssl_task.s(asset_id, asset_ip))
 
     if not tasks:
         # Solo nmap se ejecutó, persistir sus findings directamente
@@ -259,3 +398,37 @@ def scan_asset_parallel(asset_id: int, asset_ip: str, asset_name: str, scan_type
     logger.info("PARALLEL_SCAN_ORCHESTRATED", asset_id=asset_id, scanners=scan_types,
                 http_ports=http_ports, hostname=asset_name)
     return {"status": "parallel_scans_initiated", "task_id": workflow.id}
+
+
+@app.task(name="services.scanner_engine.tasks.vuln_tasks.run_full_vulnerability_scan",
+          queue="vulnerabilities")
+def run_full_vulnerability_scan():
+    """
+    Tarea batch semanal (ENS op.exp.2): lanza scan_asset_parallel
+    sobre todos los assets ACTIVO en la BD.
+    Referenciada en celery_app.py beat_schedule (martes 00:00).
+    """
+    from shared.database import SessionLocal
+    from services.asset_manager.models.asset import Asset
+
+    db = SessionLocal()
+    try:
+        assets = db.query(Asset).filter(Asset.status == "ACTIVO").all()
+        logger.info("FULL_VULN_SCAN_START", total_assets=len(assets))
+        launched = 0
+        for asset in assets:
+            try:
+                scan_asset_parallel.delay(
+                    asset_id=asset.id,
+                    asset_ip=asset.ip,
+                    asset_name=asset.hostname or f"Asset-{asset.id}",
+                    scan_types=["nmap", "nuclei", "nikto"],
+                )
+                launched += 1
+            except Exception as e:
+                logger.error("FULL_VULN_SCAN_ASSET_ERROR",
+                             asset_id=asset.id, error=str(e))
+        logger.info("FULL_VULN_SCAN_DISPATCHED", launched=launched)
+        return {"status": "dispatched", "total": len(assets), "launched": launched}
+    finally:
+        db.close()

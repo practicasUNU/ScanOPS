@@ -26,10 +26,11 @@ import os
 # ---------------------------------------------------------------------------
 DEFAULT_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 DEFAULT_MODEL: str = os.getenv("OLLAMA_MODEL", "mistral:latest")
+POST_EXPLOIT_MODEL: str = os.getenv("OLLAMA_POST_EXPLOIT_MODEL", "qwen2.5:14b")
 DEFAULT_EMBED_MODEL: str = "nomic-embed-text"
 DEFAULT_TEMPERATURE: float = 0.7
 DEFAULT_TOP_P: float = 0.9
-DEFAULT_TIMEOUT: float = 120.0  # segundos
+DEFAULT_TIMEOUT: float = 180.0  # segundos — aumentado para qwen2.5:14b
 
 
 # ---------------------------------------------------------------------------
@@ -396,6 +397,80 @@ class OllamaClient:
             return None
         except (httpx.RequestError, json.JSONDecodeError) as exc:
             logger.error("get_model_info('%s') — error inesperado: %s", model_name, exc)
+            return None
+
+    async def analyze_with_model(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: float = DEFAULT_TEMPERATURE,
+        top_p: float = DEFAULT_TOP_P,
+    ) -> Optional[str]:
+        """Igual que analyze() pero permite especificar el modelo en cada llamada.
+
+        Permite usar un modelo secundario (p.ej. qwen2.5:14b para post-explotación)
+        sin cambiar el DEFAULT_MODEL de la instancia global.
+
+        Args:
+            prompt: Texto de entrada para el modelo.
+            system_prompt: Instrucción de sistema opcional.
+            model: Nombre del modelo a usar. Si es None usa self.model.
+            temperature: Aleatoriedad (0.0 = determinista).
+            top_p: Muestreo por núcleo.
+
+        Returns:
+            Texto generado o None si hay error.
+        """
+        if not prompt or not prompt.strip():
+            logger.warning("analyze_with_model() llamado con prompt vacío — se omite")
+            return None
+
+        target_model = model or self.model
+        payload: Dict = {
+            "model": target_model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "top_p": top_p,
+            },
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        logger.info(
+            "analyze_with_model() → model=%s | prompt_len=%d | temperature=%.2f",
+            target_model,
+            len(prompt),
+            temperature,
+        )
+
+        # qwen2.5:14b necesita más tiempo — timeout extendido
+        timeout = max(self.timeout, 300.0) if "qwen" in target_model else self.timeout
+        try:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=timeout) as client:
+                response = await client.post("/api/generate", json=payload)
+                response.raise_for_status()
+                data = response.json()
+                result: str = data.get("response", "")
+                logger.info(
+                    "analyze_with_model('%s') completado — %d caracteres", target_model, len(result)
+                )
+                return result
+        except httpx.ConnectError as exc:
+            logger.error("analyze_with_model() — error de conexión: %s", exc)
+            raise OllamaConnectionError(str(exc), url=self.base_url) from exc
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "analyze_with_model('%s') — HTTP %s: %s",
+                target_model,
+                exc.response.status_code,
+                exc.response.text[:200],
+            )
+            return None
+        except (httpx.RequestError, json.JSONDecodeError) as exc:
+            logger.error("analyze_with_model('%s') — error inesperado: %s", target_model, exc)
             return None
 
     async def generate_embedding(

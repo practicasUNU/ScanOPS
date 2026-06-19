@@ -19,12 +19,15 @@ _CONTAINER = "scanops-suricata"
 
 
 def _docker_exec_tail(filepath: str, lines: int) -> list[str]:
-    result = subprocess.run(
-        ["docker", "exec", _CONTAINER, "tail", "-n", str(lines), filepath],
-        capture_output=True, text=True, timeout=15,
-    )
-    if result.returncode == 0:
-        return result.stdout.splitlines()
+    try:
+        result = subprocess.run(
+            ["docker", "exec", _CONTAINER, "tail", "-n", str(lines), filepath],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0:
+            return result.stdout.splitlines()
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        pass
     return []
 
 
@@ -79,7 +82,7 @@ async def suricata_status() -> dict[str, Any]:
 
     return {
         "status": "running" if running else "stopped",
-        "interface": "lo",
+        "interface": "eth0",
         "uptime_seconds": uptime_seconds,
         "ens_compliance": {
             "op_exp_4": True,

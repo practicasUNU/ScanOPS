@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -10,10 +10,10 @@ const SEVERITY_COLORS = {
   HIGH:     '#f97316',
   MEDIUM:   '#f59e0b',
   LOW:      '#3b82f6',
-  INFO:     '#6b7280',
+  INFO:     '#475569',
 };
 
-const PORT_COLORS = ['#00d4ff', '#22c55e', '#f59e0b', '#a78bfa', '#f87171'];
+const PORT_COLORS = ['#8B5CF6', '#22c55e', '#f59e0b', '#a78bfa', '#f87171'];
 
 // ─── Fallback data ───────────────────────────────────────────────────────────
 const DEFAULT_SEVERITY_DATA = [
@@ -41,7 +41,7 @@ const DEFAULT_TOOL_DATA = [
 function DarkTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg px-3 py-2 shadow-lg text-xs font-mono">
+    <div className="bg-[#111318] border border-[#1C2030] rounded-lg px-3 py-2 shadow-lg text-xs font-mono">
       {payload.map((p, i) => (
         <div key={i} className="flex items-center gap-2">
           <span style={{ color: p.fill ?? p.color }} className="font-semibold">{p.name}</span>
@@ -59,7 +59,7 @@ function DonutLabel({ cx, cy, total }) {
       <text x={cx} y={cy - 6} textAnchor="middle" className="fill-white" fontSize={22} fontWeight={600}>
         {total}
       </text>
-      <text x={cx} y={cy + 14} textAnchor="middle" fill="#6b7280" fontSize={11}>
+      <text x={cx} y={cy + 14} textAnchor="middle" fill="#475569" fontSize={11}>
         hallazgos
       </text>
     </>
@@ -69,8 +69,8 @@ function DonutLabel({ cx, cy, total }) {
 // ─── Section wrapper ─────────────────────────────────────────────────────────
 function ChartCard({ title, children }) {
   return (
-    <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-5 flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider">{title}</h3>
+    <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-4">
+      <h3 className="text-sm font-semibold text-[#64748B] uppercase tracking-wider">{title}</h3>
       {children}
     </div>
   );
@@ -116,7 +116,7 @@ export function SurfaceMap({ data }) {
               label={false}
             >
               {severityData.map((entry, i) => (
-                <Cell key={i} fill={SEVERITY_COLORS[entry.name] ?? '#6b7280'} stroke="transparent" />
+                <Cell key={i} fill={SEVERITY_COLORS[entry.name] ?? '#475569'} stroke="transparent" />
               ))}
             </Pie>
             <DonutLabel cx="50%" cy="50%" total={total} />
@@ -125,7 +125,7 @@ export function SurfaceMap({ data }) {
               iconType="circle"
               iconSize={8}
               formatter={(value) => (
-                <span className="text-xs text-[#9ca3af] font-mono">{value}</span>
+                <span className="text-xs text-[#64748B] font-mono">{value}</span>
               )}
             />
           </PieChart>
@@ -155,7 +155,7 @@ export function SurfaceMap({ data }) {
               iconType="circle"
               iconSize={8}
               formatter={(value) => (
-                <span className="text-xs text-[#9ca3af] font-mono">{value}</span>
+                <span className="text-xs text-[#64748B] font-mono">{value}</span>
               )}
             />
           </PieChart>
@@ -166,20 +166,20 @@ export function SurfaceMap({ data }) {
       <ChartCard title="Hallazgos por Herramienta">
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={toolData} barCategoryGap="30%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e2530" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1C2030" vertical={false} />
             <XAxis
               dataKey="name"
-              tick={{ fill: '#6b7280', fontSize: 11, fontFamily: 'monospace' }}
-              axisLine={{ stroke: '#1e2530' }}
+              tick={{ fill: '#475569', fontSize: 11, fontFamily: 'monospace' }}
+              axisLine={{ stroke: '#1C2030' }}
               tickLine={false}
             />
             <YAxis
-              tick={{ fill: '#6b7280', fontSize: 11 }}
+              tick={{ fill: '#475569', fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               allowDecimals={false}
             />
-            <Tooltip content={<DarkTooltip />} cursor={{ fill: '#1e2530' }} />
+            <Tooltip content={<DarkTooltip />} cursor={{ fill: '#1C2030' }} />
             <Bar dataKey="CRITICAL" stackId="a" fill={SEVERITY_COLORS.CRITICAL} radius={[0, 0, 0, 0]} />
             <Bar dataKey="HIGH"     stackId="a" fill={SEVERITY_COLORS.HIGH} />
             <Bar dataKey="MEDIUM"   stackId="a" fill={SEVERITY_COLORS.MEDIUM} radius={[4, 4, 0, 0]} />
@@ -187,7 +187,7 @@ export function SurfaceMap({ data }) {
               iconType="square"
               iconSize={8}
               formatter={(value) => (
-                <span className="text-xs text-[#9ca3af] font-mono">{value}</span>
+                <span className="text-xs text-[#64748B] font-mono">{value}</span>
               )}
             />
           </BarChart>
@@ -208,10 +208,10 @@ export function SurfaceMap({ data }) {
             layout="vertical"
             barCategoryGap="25%"
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e2530" horizontal={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1C2030" horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fill: '#6b7280', fontSize: 11 }}
+              tick={{ fill: '#475569', fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               allowDecimals={false}
@@ -219,13 +219,13 @@ export function SurfaceMap({ data }) {
             <YAxis
               type="category"
               dataKey="name"
-              tick={{ fill: '#6b7280', fontSize: 11, fontFamily: 'monospace' }}
-              axisLine={{ stroke: '#1e2530' }}
+              tick={{ fill: '#475569', fontSize: 11, fontFamily: 'monospace' }}
+              axisLine={{ stroke: '#1C2030' }}
               tickLine={false}
               width={80}
             />
-            <Tooltip content={<DarkTooltip />} cursor={{ fill: '#1e2530' }} />
-            <Bar dataKey="value" fill="#00d4ff" radius={[0, 4, 4, 0]} />
+            <Tooltip content={<DarkTooltip />} cursor={{ fill: '#1C2030' }} />
+            <Bar dataKey="value" fill="#8B5CF6" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>

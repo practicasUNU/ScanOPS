@@ -1,0 +1,115 @@
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml text/javascript
+               application/json application/javascript application/xml+rss
+               application/rss+xml font/truetype font/opentype
+               application/vnd.ms-fontobject image/svg+xml;
+
+    # Docker internal DNS resolver — required for dynamic service name resolution
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
+    server {
+        listen 80;
+        server_name _;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 120s;
+
+        # Frontend static files
+        location / {
+            root /usr/share/nginx/html;
+            try_files $uri $uri/ /index.html;
+
+            location = /index.html {
+                add_header Cache-Control "no-cache, no-store, must-revalidate";
+                expires 0;
+            }
+        }
+
+        # Health check
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # API M1 - Asset Manager (port 8001)
+        location /api/m1/ {
+            proxy_pass http://m1:8001/;
+        }
+
+        # API M2 - Recon Engine (port 8003)
+        location /api/m2/ {
+            proxy_pass http://m2:8003/;
+        }
+
+        # API M3 - Scanner Engine (port 8002, service name: scanner-engine)
+        location /api/m3/ {
+            proxy_pass http://scanner-engine:8002/;
+        }
+
+        # API M4 - Exploit Engine (port 8004)
+        location /api/m4/ {
+            proxy_pass http://m4:8004/;
+        }
+
+        # API M5 - SIEM Engine (port 8006)
+        location /api/m5/ {
+            proxy_pass http://m5:8006/;
+        }
+
+        # API M7 - Reporting Engine (internal port 8000, exposed as 8007)
+        location /api/m7/ {
+            proxy_pass http://m7:8000/;
+        }
+
+        # API M8 - AI Reasoning (port 8005)
+        location /api/m8/ {
+            proxy_pass http://m8:8005/;
+        }
+
+        # Orchestrator + Auth (port 8009)
+        location /api/orchestrator/ {
+            proxy_pass http://orchestrator:8009/;
+            proxy_read_timeout 300s;
+        }
+
+        # Web-Check OSINT (port 3000)
+        location /api/webcheck/ {
+            proxy_pass http://scanops-webcheck:3000/;
+        }
+    }
+}

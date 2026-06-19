@@ -51,7 +51,7 @@ def _validate_tags_ens(v: Optional[List[str]]) -> Optional[List[str]]:
 
 class AssetCreate(BaseModel):
     """POST /assets"""
-    ip: str = Field(..., min_length=7, max_length=45)
+    ip: Optional[str] = Field(None, min_length=7, max_length=45)
     hostname: Optional[str] = Field(None, max_length=255)
     nombre: Optional[str] = Field(None, max_length=255)
     dominio: Optional[str] = Field(None, max_length=255)
@@ -67,8 +67,19 @@ class AssetCreate(BaseModel):
     os_family: Optional[str] = Field(None, max_length=50)
     os_version: Optional[str] = Field(None, max_length=100)
     password: Optional[str] = Field(None, description="Contraseña que se enviará a Vault")
+    ssh_user:     Optional[str] = Field(None, max_length=100)
+    ssh_password: Optional[str] = Field(None, max_length=255)
 
-    _validate_ip = field_validator("ip")(_validate_ip)
+    @field_validator("ip", mode="before")
+    def validate_ip_or_hostname(cls, v, info):
+        """IP is optional UNLESS hostname is NOT provided."""
+        hostname = info.data.get("hostname")
+        if v is None and not hostname:
+            raise ValueError("Either 'ip' or 'hostname' must be provided")
+        if v is not None:
+            _validate_ip(v)
+        return v
+
     _validate_mac = field_validator("mac_address")(_validate_mac)
     _validate_tags = field_validator("tags_ens")(_validate_tags_ens)
 
@@ -90,6 +101,8 @@ class AssetUpdate(BaseModel):
     notas: Optional[str] = None
     os_family: Optional[str] = Field(None, max_length=50)
     os_version: Optional[str] = Field(None, max_length=100)
+    ssh_user:     Optional[str] = Field(None, max_length=100)
+    ssh_password: Optional[str] = Field(None, max_length=255)
 
     _validate_ip = field_validator("ip")(_validate_ip)
     _validate_mac = field_validator("mac_address")(_validate_mac)
@@ -121,6 +134,8 @@ class AssetResponse(BaseModel):
     network_range: Optional[str] = None
     os_family: Optional[str] = None
     os_version: Optional[str] = None
+    ssh_user:     Optional[str] = None
+    ssh_password: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None

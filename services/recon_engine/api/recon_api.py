@@ -20,7 +20,6 @@ from ..models.schemas import (
 from ..services.scanner_network import perform_full_recon
 
 router = APIRouter(
-    prefix="/api/v1",
     tags=["Recon Engine (M2)"]
 )
 

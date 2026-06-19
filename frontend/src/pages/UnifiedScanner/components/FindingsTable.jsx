@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+﻿import { useState, useMemo } from 'react';
 import { ChevronUp, ChevronDown, Search, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/app/components/ui/badge';
 import { ScrollArea } from '@/app/components/ui/scroll-area';
@@ -101,10 +101,10 @@ const SEVERITY_ORDER = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, INFO: 0 };
 
 /** SortIcon — shows up/down chevron based on current sort state. */
 function SortIcon({ field, sortField, sortDir }) {
-  if (sortField !== field) return <ChevronUp className="w-3 h-3 text-[#4b5563]" />;
+  if (sortField !== field) return <ChevronUp className="w-3 h-3 text-[#334155]" />;
   return sortDir === 'asc'
-    ? <ChevronUp className="w-3 h-3 text-[#00d4ff]" />
-    : <ChevronDown className="w-3 h-3 text-[#00d4ff]" />;
+    ? <ChevronUp className="w-3 h-3 text-[#8B5CF6]" />
+    : <ChevronDown className="w-3 h-3 text-[#8B5CF6]" />;
 }
 
 /**
@@ -116,7 +116,7 @@ function FindingDrawer({ finding, open, onClose }) {
     <Sheet open={open} onOpenChange={onClose}>
       <SheetContent
         side="right"
-        className="w-[480px] sm:w-[540px] bg-[#111318] border-l border-[#1e2530] p-0"
+        className="w-[480px] sm:w-[540px] bg-[#111318] border-l border-[#1C2030] p-0"
       >
         <ScrollArea className="h-full">
           <div className="p-6 space-y-6">
@@ -129,7 +129,7 @@ function FindingDrawer({ finding, open, onClose }) {
                   {finding.severidad}
                 </Badge>
               </div>
-              <SheetDescription className="text-[#6b7280] text-xs font-mono">
+              <SheetDescription className="text-[#475569] text-xs font-mono">
                 {finding.id} · {finding.herramienta} · {finding.activo}
               </SheetDescription>
             </SheetHeader>
@@ -144,8 +144,8 @@ function FindingDrawer({ finding, open, onClose }) {
                 { label: 'Puerto', value: finding.port ?? '—' },
                 { label: 'Medida ENS', value: finding.medida_ens },
               ].map(({ label, value }) => (
-                <div key={label} className="bg-[#1a1d27] border border-[#1e2530] rounded-lg p-3">
-                  <div className="text-[#6b7280] text-xs mb-1">{label}</div>
+                <div key={label} className="bg-[#111318] border border-[#1C2030] rounded-lg p-3">
+                  <div className="text-[#475569] text-xs mb-1">{label}</div>
                   <div className="text-white text-sm font-mono">{value}</div>
                 </div>
               ))}
@@ -153,21 +153,21 @@ function FindingDrawer({ finding, open, onClose }) {
 
             {/* Descripción */}
             <div>
-              <h3 className="text-xs font-semibold text-[#9ca3af] uppercase tracking-wider mb-2">
+              <h3 className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-2">
                 Descripción
               </h3>
               <p className="text-[#d1d5db] text-sm leading-relaxed">{finding.descripcion}</p>
             </div>
 
             {/* Contexto ENS (RAGEngine) */}
-            <div className="bg-[#0f1117] border border-[#00d4ff]/20 rounded-lg p-4 space-y-2">
+            <div className="bg-[#0A0C10] border border-[#8B5CF6]/20 rounded-lg p-4 space-y-2">
               <div className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-[#00d4ff]" />
-                <h3 className="text-xs font-semibold text-[#00d4ff] uppercase tracking-wider">
+                <ShieldAlert className="w-4 h-4 text-[#8B5CF6]" />
+                <h3 className="text-xs font-semibold text-[#8B5CF6] uppercase tracking-wider">
                   Contexto ENS (RAGEngine)
                 </h3>
               </div>
-              <p className="text-[#9ca3af] text-xs font-mono leading-relaxed">
+              <p className="text-[#64748B] text-xs font-mono leading-relaxed">
                 Artículo incumplido:
               </p>
               <p className="text-[#d1d5db] text-sm leading-relaxed">{finding.articulo_ens}</p>
@@ -248,26 +248,26 @@ export function FindingsTable({ findings, initialQuery = '' }) {
       {/* Search bar */}
       <div className="flex items-center gap-2 mb-4">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#6b7280]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#475569]" />
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Filtrar hallazgos…"
-            className="w-full pl-8 pr-3 py-2 bg-[#1a1d27] border border-[#1e2530] rounded-lg text-sm text-white placeholder:text-[#4b5563] focus:outline-none focus:border-[#00d4ff]/50 transition-colors"
+            className="w-full pl-8 pr-3 py-2 bg-[#111318] border border-[#1C2030] rounded-lg text-sm text-white placeholder:text-[#334155] focus:outline-none focus:border-[#8B5CF6]/50 transition-colors"
           />
         </div>
-        <span className="text-xs text-[#6b7280] font-mono">{sorted.length} hallazgos</span>
+        <span className="text-xs text-[#475569] font-mono">{sorted.length} hallazgos</span>
       </div>
 
       {/* Table */}
-      <div className="bg-[#1a1d27] border border-[#1e2530] rounded-lg overflow-hidden flex flex-col min-h-0">
+      <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden flex flex-col min-h-0">
         {/* Header */}
-        <div className="grid grid-cols-[80px_112px_112px_minmax(0,_1fr)_112px_96px] border-b border-[#1e2530] bg-[#111318]">
+        <div className="grid grid-cols-[80px_112px_112px_minmax(0,_1fr)_112px_96px] border-b border-[#1C2030] bg-[#111318]">
           {COLS.map(col => (
             <button
               key={col.key}
               onClick={col.sortable ? () => handleSort(col.key) : undefined}
-              className={`flex items-center gap-1 px-4 py-3 text-left text-xs font-semibold text-[#6b7280] uppercase tracking-wider transition-colors ${col.sortable ? 'hover:text-white cursor-pointer' : 'cursor-default'}`}
+              className={`flex items-center gap-1 px-4 py-3 text-left text-xs font-semibold text-[#475569] uppercase tracking-wider transition-colors ${col.sortable ? 'hover:text-white cursor-pointer' : 'cursor-default'}`}
             >
               {col.label}
               {col.sortable && (
@@ -280,7 +280,7 @@ export function FindingsTable({ findings, initialQuery = '' }) {
         {/* Rows */}
         <ScrollArea className="h-[calc(100vh-320px)] min-h-[300px]">
           {sorted.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-[#4b5563]">
+            <div className="flex flex-col items-center justify-center py-16 text-[#334155]">
               <ShieldAlert className="w-8 h-8 mb-2" />
               <p className="text-sm">No se encontraron hallazgos</p>
             </div>
@@ -289,11 +289,11 @@ export function FindingsTable({ findings, initialQuery = '' }) {
               <div
                 key={row.id}
                 onClick={() => handleRowClick(row)}
-                className={`grid grid-cols-[80px_112px_112px_minmax(0,_1fr)_112px_96px] border-b border-[#1e2530]/50 cursor-pointer transition-colors hover:bg-[#1e2530] ${i % 2 === 0 ? 'bg-transparent' : 'bg-[#111318]/30'}`}
+                className={`grid grid-cols-[80px_112px_112px_minmax(0,_1fr)_112px_96px] border-b border-[#1C2030]/50 cursor-pointer transition-colors hover:bg-[#1C2030] ${i % 2 === 0 ? 'bg-transparent' : 'bg-[#111318]/30'}`}
               >
-                <div className="px-4 py-3 text-xs font-mono text-[#6b7280]">{row.id}</div>
+                <div className="px-4 py-3 text-xs font-mono text-[#475569]">{row.id}</div>
                 <div className="px-4 py-3 text-xs font-mono text-[#d1d5db]">{row.activo}</div>
-                <div className="px-4 py-3 text-xs text-[#9ca3af]">{row.herramienta}</div>
+                <div className="px-4 py-3 text-xs text-[#64748B]">{row.herramienta}</div>
                 
                 <div className="px-4 py-3 text-sm text-white min-w-0">
                   <div className="truncate text-left tracking-wide leading-relaxed" title={row.nombre}>
@@ -306,7 +306,7 @@ export function FindingsTable({ findings, initialQuery = '' }) {
                     {row.severidad}
                   </Badge>
                 </div>
-                <div className="px-4 py-3 text-xs font-mono text-[#00d4ff]">{row.medida_ens}</div>
+                <div className="px-4 py-3 text-xs font-mono text-[#8B5CF6]">{row.medida_ens}</div>
               </div>
             ))
           )}

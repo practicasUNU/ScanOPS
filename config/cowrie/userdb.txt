@@ -1,0 +1,29 @@
+# Cowrie userdb.txt — credenciales aceptadas por el honeypot SSH
+# Formato: usuario:x:contraseña  ('!' al inicio rechaza, '*' es comodin)
+# Procesamiento: primera coincidencia gana
+
+# root — solo contraseñas comunes/debiles para capturar atacantes reales
+root:x:root
+root:x:toor
+root:x:admin
+root:x:admin123
+root:x:password
+root:x:password123
+root:x:123456
+root:x:12345678
+root:x:pass
+root:x:pass123
+root:x:test
+root:x:qwerty
+root:x:letmein
+root:x:changeme
+
+# admin / ubuntu / pi — cuentas comunes en IoT y servidores
+admin:x:admin
+admin:x:admin123
+admin:x:password
+ubuntu:x:ubuntu
+pi:x:raspberry
+
+# Rechazar todo lo demas (cualquier usuario, cualquier password no listado)
+*:x:!*

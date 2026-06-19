@@ -21,7 +21,10 @@ from shared.database import engine, get_db
 from shared.scan_logger import ScanLogger
 from services.scanner_engine.endpoints.scan import router as scan_router
 from services.scanner_engine.api.router import router as results_router
+from services.scanner_engine.endpoints.hardening import router as hardening_router
+from services.scanner_engine.endpoints.edr import router as edr_router
 from services.scanner_engine.models.vulnerability import Base as VulnerabilityBase
+from services.scanner_engine.models.edr import Base as EDRBase
  
 # ─── Logging Setup ─────────────────────────────
 logger = ScanLogger(__name__)
@@ -39,7 +42,9 @@ async def lifespan(app: FastAPI):
     try:
         # Create database tables
         VulnerabilityBase.metadata.create_all(bind=engine)
+        EDRBase.metadata.create_all(bind=engine)
         logger.info("✓ Vulnerability tables initialized")
+        logger.info("✓ EDR tables initialized")
         logger.info("✓ Scanner Engine startup complete")
     except Exception as e:
         logger.error(f"✗ Startup failed: {str(e)}", exc_info=True)
@@ -93,6 +98,8 @@ app.add_middleware(
 # ─── Include Routers ──────────────────────────
 app.include_router(scan_router, prefix="/api/v1")
 app.include_router(results_router, prefix="/api/v1")
+app.include_router(hardening_router, prefix="/api/v1")
+app.include_router(edr_router, prefix="/api/v1")
  
  
 # ─── Root Endpoint ────────────────────────────

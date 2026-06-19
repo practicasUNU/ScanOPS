@@ -8,7 +8,7 @@ from shared.celery_app import app
 
 logger = logging.getLogger(__name__)
 
-REPORTING_URL = "http://localhost:8008"
+REPORTING_URL = "http://scanops-m7:8000"
 
 
 @app.task(name='services.reporting_engine.tasks.generate_weekly_report', bind=True, max_retries=2)

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+/* ── Páginas ── */
+@page {
+  size: A4;
+  margin: 2cm;
+  @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 8pt; color: #64748b; }
+  @bottom-left  { content: "CONFIDENCIAL — ScanOps M7 Técnico — ENS Alto"; font-size: 8pt; color: #64748b; }
+}
+@page :first {
+  margin: 0;
+  @bottom-right { content: ""; }
+  @bottom-left  { content: ""; }
+}
+
+/* ── Base ── */
+body { font-family: Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.55; font-size: 10pt; margin: 0; }
+
+/* ── Portada ── */
+.cover { page-break-after: always; background: #ffffff; width: 100%; min-height: 297mm; box-sizing: border-box; }
+.cover-stripe-top { background: #7f1d1d; height: 18mm; width: 100%; }
+.cover-stripe-accent { background: #dc2626; height: 3mm; width: 100%; }
+.cover-body { padding: 18mm 25mm 0; }
+.cover-logo-area { border-bottom: 1px solid #e2e8f0; padding-bottom: 8mm; margin-bottom: 14mm; }
+.cover-logo-name { font-size: 14pt; font-weight: bold; color: #7f1d1d; letter-spacing: 1px; }
+.cover-logo-sub  { font-size: 9pt; color: #64748b; margin-top: 1mm; }
+.cover-classification {
+  display: inline-block;
+  border: 2px solid #7f1d1d;
+  color: #7f1d1d;
+  font-size: 8pt;
+  font-weight: bold;
+  letter-spacing: 2px;
+  padding: 3px 14px;
+  margin-bottom: 12mm;
+}
+.cover-title { color: #0f172a; font-size: 24pt; font-weight: bold; margin: 0 0 4px; line-height: 1.2; }
+.cover-subtitle { color: #dc2626; font-size: 12pt; font-weight: normal; margin: 0 0 14mm; }
+.cover-divider { border: none; border-top: 2px solid #7f1d1d; margin: 0 0 10mm; }
+.cover-meta-table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+.cover-meta-table tr { border-bottom: 1px solid #f1f5f9; }
+.cover-meta-table td { padding: 5px 0; vertical-align: top; }
+.cover-meta-table td:first-child { color: #64748b; width: 52mm; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; }
+.cover-meta-table td:last-child { color: #0f172a; font-weight: bold; }
+.cover-seal-area { margin-top: 18mm; border: 1px solid #fecaca; background: #fff7f7; padding: 10px 14px; font-size: 8.5pt; color: #6b7280; }
+.cover-seal-title { font-weight: bold; color: #7f1d1d; margin-bottom: 3px; }
+.cover-footer-band { background: #7f1d1d; margin-top: 20mm; padding: 6mm 25mm; display: table; width: 100%; box-sizing: border-box; }
+.cover-footer-l { display: table-cell; color: #fecaca; font-size: 8pt; }
+.cover-footer-r { display: table-cell; text-align: right; color: #fca5a5; font-size: 8pt; }
+
+/* ── Headings ── */
+h1 { color: #7f1d1d; border-bottom: 3px solid #dc2626; padding-bottom: 8px; font-size: 18pt; margin-top: 0; }
+h2 { color: #7f1d1d; margin-top: 28px; margin-bottom: 8px; font-size: 12pt;
+     border-left: 4px solid #dc2626; padding-left: 10px; }
+h3 { color: #374151; font-size: 10pt; margin-top: 14px; margin-bottom: 4px; font-weight: bold; }
+
+/* ── Tablas ── */
+table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 8.5pt; }
+th { background: #7f1d1d; color: white; padding: 7px 6px; text-align: left; }
+td { border-bottom: 1px solid #e2e8f0; padding: 6px; vertical-align: top; }
+tr:nth-child(even) td { background: #fef2f2; }
+.col-desc { max-width: 200px; word-break: break-word; }
+
+/* ── Badges ── */
+.badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 7.5pt; font-weight: bold; white-space: nowrap; }
+.badge-critical { background: #fee2e2; color: #dc2626; }
+.badge-high     { background: #ffedd5; color: #ea580c; }
+.badge-medium   { background: #fef9c3; color: #ca8a04; }
+.badge-low      { background: #dcfce7; color: #16a34a; }
+.badge-approved { background: #dcfce7; color: #16a34a; }
+.badge-executed { background: #ede9fe; color: #7c3aed; }
+.badge-pending  { background: #fef9c3; color: #ca8a04; }
+.badge-info     { background: #dbeafe; color: #1d4ed8; }
+
+/* ── Task boxes ── */
+.task-box {
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+  background: #fff7f7;
+  padding: 10px 14px;
+  margin: 8px 0;
+  border-radius: 4px;
+  page-break-inside: avoid;
+}
+.task-box.high { border-left-color: #ea580c; background: #fff8f5; border-color: #fed7aa; }
+.task-box-header { font-weight: bold; font-size: 9.5pt; color: #1e293b; margin-bottom: 5px; }
+.task-field { font-size: 8.5pt; color: #374151; margin-top: 3px; }
+.task-field span.label { font-weight: bold; color: #7f1d1d; }
+.task-steps { margin-top: 6px; padding-left: 14px; font-size: 8.5pt; color: #374151; }
+.task-steps li { margin-bottom: 2px; }
+
+/* ── Info / Alert ── */
+.section-note { font-size: 8.5pt; color: #64748b; font-style: italic; margin: 4px 0 10px; }
+.stat-row { display: table; width: 100%; border-collapse: separate; border-spacing: 8px; margin: 8px 0; }
+.stat-cell { display: table-cell; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px;
+             padding: 10px; text-align: center; }
+.stat-value { font-size: 18pt; font-weight: bold; }
+.stat-label { font-size: 8pt; color: #6b7280; text-transform: uppercase; margin-top: 2px; }
+
+/* ── Firma ── */
+.signature-block { margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 12px; }
+.sig-row { display: table; width: 100%; }
+.sig-cell { display: table-cell; text-align: center; width: 33%; font-size: 9pt; color: #475569; }
+.sig-line { border-top: 1px solid #94a3b8; margin: 20px auto 5px; width: 80%; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════ PORTADA ══════════════════════════════ -->
+<div class="cover">
+  <div class="cover-stripe-top"></div>
+  <div class="cover-stripe-accent"></div>
+  <div class="cover-body">
+
+    <!-- Logo / cabecera organismo -->
+    <div class="cover-logo-area">
+      <div class="cover-logo-name">UNUWARE — ScanOps</div>
+      <div class="cover-logo-sub">Plataforma de Operaciones de Seguridad · M7 Reporting Engine</div>
+    </div>
+
+    <!-- Clasificación -->
+    <div class="cover-classification">CONFIDENCIAL — ENS ALTO — TÉCNICO</div>
+
+    <!-- Título -->
+    <div class="cover-title">Informe Técnico de<br>Vulnerabilidades y Remediación</div>
+    <div class="cover-subtitle">Análisis completo M3 · Plan de remediación · Historial M4</div>
+
+    <hr class="cover-divider">
+
+    <!-- Metadatos del documento -->
+    <table class="cover-meta-table">
+      <tr><td>Organización</td><td>UNUWARE</td></tr>
+      <tr><td>Marco normativo</td><td>ENS Alto — RD 311/2022</td></tr>
+      <tr><td>Fecha de generación</td><td>{{ fecha }}</td></tr>
+      <tr><td>ID de informe</td><td>{{ signature_id }}</td></tr>
+      <tr><td>Reconocimientos M2</td><td>{{ total_snapshots }} snapshots completados</td></tr>
+      <tr><td>Clasificación</td><td>CONFIDENCIAL — Solo personal técnico autorizado</td></tr>
+    </table>
+
+    <!-- Nota de integridad -->
+    <div class="cover-seal-area">
+      <div class="cover-seal-title">Integridad del documento</div>
+      Este informe ha sido generado y sellado automáticamente con cifrado AES-256 (mp.info.4 ENS Alto).
+      Cualquier modificación posterior invalida el documento. ID verificable: {{ signature_id }}
+    </div>
+
+  </div>
+
+  <!-- Pie de portada -->
+  <div class="cover-footer-band">
+    <div class="cover-footer-l">UNUWARE ScanOps · Análisis Técnico de Vulnerabilidades</div>
+    <div class="cover-footer-r">Sellado AES-256 · Generado: {{ fecha }}</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ CUERPO ══════════════════════════════ -->
+
+<h1>Informe Técnico de Vulnerabilidades y Remediación</h1>
+<p style="font-size:9pt; color:#64748b; margin-top:-6px;">
+  <strong>ID:</strong> {{ signature_id }} &nbsp;|&nbsp;
+  <strong>Fecha:</strong> {{ fecha }} &nbsp;|&nbsp;
+  <strong>Marco:</strong> ENS Alto (RD 311/2022) &nbsp;|&nbsp;
+  <strong>Reconocimientos M2:</strong> {{ total_snapshots }}
+</p>
+
+<!-- ── Resumen estadístico ── -->
+<h2>1. Resumen Estadístico</h2>
+<table class="stat-row">
+  <tr>
+    <td class="stat-cell">
+      <div class="stat-value" style="color:#dc2626;">{{ severity_counts.CRITICAL }}</div>
+      <div class="stat-label">Críticas</div>
+    </td>
+    <td class="stat-cell">
+      <div class="stat-value" style="color:#ea580c;">{{ severity_counts.HIGH }}</div>
+      <div class="stat-label">Altas</div>
+    </td>
+    <td class="stat-cell">
+      <div class="stat-value" style="color:#ca8a04;">{{ severity_counts.MEDIUM }}</div>
+      <div class="stat-label">Medias</div>
+    </td>
+    <td class="stat-cell">
+      <div class="stat-value" style="color:#16a34a;">{{ severity_counts.LOW }}</div>
+      <div class="stat-label">Bajas</div>
+    </td>
+    <td class="stat-cell">
+      <div class="stat-value" style="color:#1e3a8a;">{{ vulnerabilidades|length }}</div>
+      <div class="stat-label">Total analizadas</div>
+    </td>
+  </tr>
+</table>
+<p class="section-note">Nota: Se incluyen todos los hallazgos CRITICAL, HIGH y MEDIUM registrados en M3. Las vulnerabilidades LOW quedan excluidas de este informe pero están disponibles en BD.</p>
+
+<!-- ── Vulnerabilidades completas ── -->
+<h2>2. Vulnerabilidades Detectadas por M3 ({{ vulnerabilidades|length }} registros)</h2>
+<table>
+  <thead>
+    <tr>
+      <th style="width:55px;">Severidad</th>
+      <th style="width:90px;">CVE ID</th>
+      <th>Título / Descripción</th>
+      <th style="width:85px;">IP Afectada</th>
+      <th style="width:55px;">Puerto</th>
+      <th style="width:35px;">CVSS</th>
+      <th style="width:60px;">Scanner</th>
+      <th style="width:55px;">Req. ENS</th>
+      <th style="width:60px;">Fecha</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in vulnerabilidades %}
+    <tr>
+      <td>
+        <span class="badge
+          {% if v.crit == 'CRITICAL' %}badge-critical
+          {% elif v.crit == 'HIGH' %}badge-high
+          {% else %}badge-medium{% endif %}">{{ v.crit }}</span>
+      </td>
+      <td style="font-family:monospace; font-size:7.5pt;">{{ v.cve_id or '—' }}</td>
+      <td class="col-desc">
+        <strong style="font-size:8.5pt;">{{ v.cve or '—' }}</strong>
+        {% if v.desc %}<br><span style="color:#64748b; font-size:7.5pt;">{{ v.desc }}</span>{% endif %}
+      </td>
+      <td>{{ v.host_ip or '—' }}<br><span style="color:#94a3b8; font-size:7.5pt;">{{ v.hostname or '' }}</span></td>
+      <td>{{ v.port or '—' }}{% if v.protocol %}<br><span style="color:#94a3b8; font-size:7.5pt;">{{ v.protocol }}</span>{% endif %}</td>
+      <td style="font-weight:bold; text-align:center;">{{ v.cvss or '—' }}</td>
+      <td>{{ v.scanner_name or '—' }}</td>
+      <td style="font-size:7.5pt;">{{ v.ens_requirement or '—' }}</td>
+      <td style="font-size:7.5pt; white-space:nowrap;">{{ v.created_at.strftime('%d/%m/%Y') if v.created_at else '—' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" style="text-align:center; color:#94a3b8; font-style:italic;">Sin vulnerabilidades registradas</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- ── Plan de remediación ── -->
+<h2>3. Plan de Remediación Priorizado</h2>
+<p class="section-note">Ordenado por severidad (CRITICAL primero). Cada tarea incluye activo afectado, acción recomendada y pasos técnicos.</p>
+{% if tareas %}
+  {% for t in tareas %}
+  <div class="task-box {% if t.crit == 'HIGH' %}high{% endif %}">
+    <div class="task-box-header">
+      <span class="badge {% if t.crit == 'CRITICAL' %}badge-critical{% else %}badge-high{% endif %}">{{ t.crit }}</span>
+      &nbsp;{{ t.titulo }}
+    </div>
+    <div class="task-field"><span class="label">Activo afectado:</span> {{ t.activos }}</div>
+    <div class="task-field"><span class="label">CVE / Vector:</span> {{ t.cve_id or '—' }}</div>
+    {% if t.port %}<div class="task-field"><span class="label">Puerto / Protocolo:</span> {{ t.port }}{% if t.protocol %}/{{ t.protocol }}{% endif %}</div>{% endif %}
+    <div class="task-field"><span class="label">CVSS:</span> {{ t.cvss or '—' }}</div>
+    <div class="task-field"><span class="label">Acción inmediata:</span> {{ t.accion }}</div>
+    {% if t.desc %}<div class="task-field"><span class="label">Descripción técnica:</span> {{ t.desc }}</div>{% endif %}
+    <ul class="task-steps">
+      <li>Verificar si el servicio en puerto {{ t.port or 'afectado' }} está expuesto en la red corporativa.</li>
+      <li>Aplicar el parche o actualización del fabricante para {{ t.cve_id or 'esta vulnerabilidad' }}.</li>
+      <li>Re-escanear con M3 tras aplicar el parche para confirmar remediación.</li>
+      <li>Documentar la acción correctiva en el registro de cambios.</li>
+    </ul>
+  </div>
+  {% endfor %}
+{% else %}
+<p style="color:#94a3b8; font-style:italic; font-size:9pt;">Sin tareas de remediación generadas (no hay vulnerabilidades CRITICAL o HIGH activas).</p>
+{% endif %}
+
+<!-- ── M4 Historial ── -->
+<h2>4. Historial Completo de Explotación Controlada (M4)</h2>
+{% if m4_aprobaciones %}
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>CVE / Vector</th>
+      <th>Target IP</th>
+      <th>Estado</th>
+      <th>Operador</th>
+      <th>Solicitado</th>
+      <th>Aprobado</th>
+      <th>Ejecutado</th>
+      <th>Resultado</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ap in m4_aprobaciones %}
+    <tr>
+      <td>#{{ ap.id }}</td>
+      <td style="font-family:monospace; font-size:7.5pt;">{{ ap.cve_id or '—' }}</td>
+      <td>{{ ap.target_ip }}</td>
+      <td>
+        <span class="badge
+          {% if ap.status == 'APPROVED' %}badge-approved
+          {% elif ap.status == 'EXECUTED' %}badge-executed
+          {% elif ap.status == 'PENDING' %}badge-pending
+          {% else %}badge-info{% endif %}">{{ ap.status }}</span>
+      </td>
+      <td>{{ ap.requester or '—' }}</td>
+      <td style="font-size:7.5pt; white-space:nowrap;">{{ ap.created_at.strftime('%d/%m/%Y %H:%M') if ap.created_at else '—' }}</td>
+      <td style="font-size:7.5pt; white-space:nowrap;">{{ ap.approved_at.strftime('%d/%m/%Y %H:%M') if ap.approved_at else '—' }}</td>
+      <td style="font-size:7.5pt; white-space:nowrap;">{{ ap.executed_at.strftime('%d/%m/%Y %H:%M') if ap.executed_at else '—' }}</td>
+      <td style="font-size:7.5pt; max-width:100px; word-break:break-word;">{{ ap.exploit_result or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color:#94a3b8; font-style:italic; font-size:9pt;">Sin actividad de explotación registrada en este ciclo.</p>
+{% endif %}
+
+<!-- ── SIEM ── -->
+{% if siem_eventos %}
+<h2>5. Eventos del Pipeline de Seguridad — SIEM (M5)</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Tipo de Evento</th>
+      <th>Severidad</th>
+      <th>IP Origen</th>
+      <th>IP Target</th>
+      <th>Descripción completa</th>
+      <th>Timestamp</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in siem_eventos %}
+    <tr>
+      <td>{{ e.event_type or '—' }}</td>
+      <td>
+        <span class="badge
+          {% if e.severity == 'CRITICAL' %}badge-critical
+          {% elif e.severity == 'HIGH' %}badge-high
+          {% elif e.severity == 'MEDIUM' %}badge-medium
+          {% else %}badge-info{% endif %}">{{ e.severity or '—' }}</span>
+      </td>
+      <td>{{ e.source_ip or e.source or '—' }}</td>
+      <td>{{ e.target_ip or '—' }}</td>
+      <td class="col-desc">{{ e.description or '—' }}</td>
+      <td style="font-size:7.5pt; white-space:nowrap;">{{ e.timestamp.strftime('%d/%m/%Y %H:%M') if e.timestamp else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<!-- ── Firma ── -->
+<div class="signature-block">
+  <div class="sig-row">
+    <div class="sig-cell">
+      <div class="sig-line"></div>
+      <div>Analista de Seguridad</div>
+      <div style="font-size:8pt; color:#94a3b8;">Red Team / Pentesting</div>
+    </div>
+    <div class="sig-cell">
+      <div class="sig-line"></div>
+      <div>Generado por ScanOps M7</div>
+      <div style="font-size:8pt; color:#94a3b8;">{{ fecha }}</div>
+    </div>
+    <div class="sig-cell">
+      <div class="sig-line"></div>
+      <div>Sellado AES-256 — mp.info.4</div>
+      <div style="font-size:8pt; color:#94a3b8;">ID: {{ signature_id }}</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,34 +1,47 @@
-id: cve-2024-sql-injection
+id: custom-sql-injection-error
 info:
-  name: SQL Injection CVE-2024-XXXX
-  description: Potential SQL injection vulnerability
-  severity: critical
-  tags: [cve, injection, owasp, sql]
+  name: SQL Injection Error Disclosure
+  author: scanops
+  description: Detecta mensajes de error SQL en la respuesta al inyectar una comilla, indicio de SQL injection.
+  severity: high
+  tags: [custom, injection, sqli, owasp]
 http:
   - method: GET
-    path: /?id=1' OR '1'='1
+    path:
+      - "{{BaseURL}}/?id=1'"
+    matchers-condition: and
     matchers:
+      - type: word
+        part: body
+        words:
+          - "SQL syntax"
+          - "mysql_fetch"
+          - "ORA-01756"
+          - "Unclosed quotation mark"
+          - "SQLSTATE"
+          - "pg_query"
+        condition: or
       - type: status
-        status: [200]
+        status: [200, 500]
 
 ---
-id: cve-2024-xxe
+id: custom-xxe-probe
 info:
-  name: XML External Entity (XXE) CVE-2024-YYYY
-  description: XXE vulnerability in XML parser
+  name: XML External Entity (XXE) Probe
+  author: scanops
+  description: Comprueba si un endpoint XML refleja el contenido de una entidad externa definida en el cuerpo.
   severity: high
-  tags: [cve, xxe, owasp, xml]
+  tags: [custom, xxe, owasp, xml]
 http:
-  - method: POST
-    path: /api/parse
-    matchers:
-      - type: status
-        status: [200]
+  - raw:
+      - |
+        POST /api/parse HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/xml
 
----
-id: cve-2023-weak-cipher
-info:
-  name: Weak Cipher Suite CVE-2023-ZZZZ
-  description: Server uses weak cipher suites
-  severity: medium
-  tags: [cve, crypto, ssl, weak]
+        <?xml version="1.0"?><!DOCTYPE r [<!ENTITY x "scanops-xxe-canary">]><r>&x;</r>
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "scanops-xxe-canary"

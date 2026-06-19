@@ -1,19 +1,24 @@
 import asyncio
 import json
 import os
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from services.orchestrator.cycle_state import CycleStatus, get_cycle_status
 from services.orchestrator.health_checker import check_all_modules
-from shared.auth import create_access_token
+from shared.auth import create_access_token, _USERS_DB, UserInDB, get_password_hash
 from shared.auth_router import router as auth_router
+from shared.user_router import router as user_router
 
 try:
     from shared.vault_client import vault_client as _vault
@@ -26,12 +31,104 @@ _M1_BASE = os.getenv("M1_URL", "http://localhost:8001") + "/api/v1"
 _M3_BASE = os.getenv("M3_URL", "http://localhost:8002")
 _M5_BASE = os.getenv("M5_URL", "http://localhost:8006")
 
+# ── Rate limiter — ENS Alto op.acc.6 ────────────────────────────────────────
+class _SlidingWindowStore:
+    def __init__(self):
+        self._hits: dict[str, list[float]] = defaultdict(list)
+
+    def is_allowed(self, key: str, limit: int, window: int) -> bool:
+        now = time.monotonic()
+        bucket = self._hits[key]
+        # Evict timestamps outside the window
+        cutoff = now - window
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        return True
+
+_rate_store = _SlidingWindowStore()
+
+# Rastreo de estado de módulos para detectar cambios online→offline
+_prev_module_health: dict[str, str] = {}
+
+def _notify_module_state_change(module_id: str, prev: str, current: str) -> None:
+    """Envía alerta Telegram solo cuando un módulo cambia de estado."""
+    try:
+        platform_url = os.getenv("PLATFORM_URL", "")
+        token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        if not token or not chat_id:
+            return
+        if current == "offline" and prev != "offline":
+            msg = (
+                f"⚠️ <b>Módulo offline: {module_id.upper()}</b>\n\n"
+                f"El módulo <b>{module_id}</b> ha dejado de responder.\n"
+                f"Estado anterior: {prev} → Estado actual: offline\n\n"
+                f"Revisa los logs del contenedor."
+            )
+        elif current == "online" and prev == "offline":
+            msg = (
+                f"✅ <b>Módulo recuperado: {module_id.upper()}</b>\n\n"
+                f"El módulo <b>{module_id}</b> vuelve a estar operativo."
+            )
+        else:
+            return
+        payload: dict = {"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}
+        if platform_url and "localhost" not in platform_url:
+            payload["reply_markup"] = {"inline_keyboard": [[
+                {"text": "📊 Dashboard", "url": f"{platform_url}/dashboard"}
+            ]]}
+        httpx.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload, timeout=8,
+        )
+    except Exception:
+        pass
+
+# Stricter limits for auth endpoints
+_AUTH_PATHS = {"/auth/token", "/auth/login"}
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple per-IP sliding-window rate limiter.
+
+    General API: 120 req / 60 s
+    Auth endpoints: 10 req / 60 s
+    ENS Alto op.acc.6 — control de acceso y limitación de intentos.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+        path = request.url.path
+
+        if any(path.endswith(p) for p in _AUTH_PATHS):
+            allowed = _rate_store.is_allowed(f"auth:{client_ip}", limit=10, window=60)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many login attempts. Try again in 60 seconds."},
+                    headers={"Retry-After": "60"},
+                )
+        else:
+            allowed = _rate_store.is_allowed(f"api:{client_ip}", limit=120, window=60)
+            if not allowed:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded. Max 120 requests/min."},
+                    headers={"Retry-After": "60"},
+                )
+
+        return await call_next(request)
+
+
 app = FastAPI(
     title="ScanOPS Orchestrator",
     description="Cycle status and module health — ENS Alto [op.exp.3]",
     version="1.0.0",
 )
 
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -46,6 +143,47 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(user_router)
+
+
+def _sync_db_users_to_memory():
+    """Carga usuarios de la BD en el caché en memoria al arrancar."""
+    import urllib.parse
+    import psycopg2
+    db_url = os.getenv("DATABASE_URL", "")
+    try:
+        if db_url:
+            p = urllib.parse.urlparse(db_url)
+            conn = psycopg2.connect(
+                host=p.hostname, port=p.port or 5432,
+                database=p.path.lstrip("/"),
+                user=p.username, password=p.password,
+            )
+        else:
+            conn = psycopg2.connect(
+                host=os.getenv("DB_HOST", "localhost"),
+                port=int(os.getenv("DB_PORT", "5432")),
+                database=os.getenv("DB_NAME", "scanops"),
+                user=os.getenv("DB_USER", "scanops"),
+                password=os.getenv("DB_PASSWORD", "scanops"),
+            )
+        with conn.cursor() as cur:
+            cur.execute("SELECT username, hashed_password, role, disabled FROM scanops_users")
+            for row in cur.fetchall():
+                username, hashed, role, disabled = row
+                _USERS_DB[username] = UserInDB(
+                    username=username,
+                    hashed_password=hashed,
+                    role=role,
+                    disabled=bool(disabled),
+                )
+        conn.close()
+    except Exception as e:
+        import logging
+        logging.getLogger("scanops.auth").warning(f"No se pudo sincronizar usuarios desde BD: {e}")
+
+
+_sync_db_users_to_memory()
 
 # In-memory state (for MVP — replace with Redis/DB later)
 _kill_switch_active: bool = False
@@ -204,10 +342,109 @@ def _store_secret(vault_path: str, data: dict, config_fallback_key: str | None =
     return False
 
 
+_tg_poll_offset: int = 0
+
+
+async def _telegram_poll_loop() -> None:
+    """Polling de mensajes entrantes del bot (no requiere IP pública).
+    Llama a getUpdates cada 3 segundos y procesa comandos.
+    """
+    global _tg_poll_offset, _kill_switch_active, _paused
+    if not _TELEGRAM_TOKEN or not _TELEGRAM_ALLOWED_CHAT:
+        return
+
+    # Limpiar webhook previo para evitar conflicto con polling
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{_TELEGRAM_TOKEN}/deleteWebhook",
+                json={"drop_pending_updates": False},
+            )
+    except Exception:
+        pass
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        while True:
+            try:
+                resp = await client.get(
+                    f"https://api.telegram.org/bot{_TELEGRAM_TOKEN}/getUpdates",
+                    params={"offset": _tg_poll_offset, "timeout": 3, "allowed_updates": ["message"]},
+                )
+                if resp.status_code == 200:
+                    updates = resp.json().get("result", [])
+                    for update in updates:
+                        _tg_poll_offset = update["update_id"] + 1
+                        message = update.get("message", {})
+                        chat_id = str(message.get("chat", {}).get("id", ""))
+                        text = (message.get("text") or "").strip().lower().split("@")[0]
+
+                        if chat_id != str(_TELEGRAM_ALLOWED_CHAT):
+                            continue
+
+                        platform_btn = (
+                            [{"text": "📊 Dashboard", "url": f"{_PLATFORM_URL}/dashboard"}]
+                            if _PLATFORM_URL and "localhost" not in _PLATFORM_URL else []
+                        )
+
+                        if text in ("/ayuda", "/help", "/start"):
+                            _tg_reply(chat_id,
+                                "🤖 <b>ScanOPS Bot — Comandos disponibles</b>\n\n"
+                                "/estado — Estado del sistema y módulos\n"
+                                "/parar — Activar Kill Switch (detener ciclo)\n"
+                                "/reanudar — Desactivar Kill Switch\n"
+                                "/pausar — Pausar/reanudar el ciclo\n"
+                                "/ayuda — Mostrar este mensaje"
+                            )
+                        elif text == "/estado":
+                            try:
+                                module_health = await asyncio.wait_for(check_all_modules(), timeout=5.0)
+                                lines = ["📊 <b>Estado de módulos</b>\n"]
+                                for mod, state in module_health.items():
+                                    icon = "🟢" if state == "online" else "🔴"
+                                    lines.append(f"{icon} {mod.upper()} — {state}")
+                                ks = "🔴 ACTIVO" if _kill_switch_active else "🟢 inactivo"
+                                pause_st = "⏸️ PAUSADO" if _paused else "▶️ activo"
+                                lines.append(f"\n🛑 Kill Switch: {ks}")
+                                lines.append(f"🔄 Ciclo: {pause_st}")
+                                _tg_reply(chat_id, "\n".join(lines),
+                                    reply_markup={"inline_keyboard": [platform_btn]} if platform_btn else None)
+                            except Exception as e:
+                                _tg_reply(chat_id, f"❌ Error: {e}")
+                        elif text == "/parar":
+                            _kill_switch_active = True
+                            _add_log_entry("WARN", "Kill switch activado vía Telegram bot", "orchestrator")
+                            _tg_reply(chat_id,
+                                "🛑 <b>Kill Switch activado</b>\n\nCiclo detenido. Usa /reanudar para activarlo.",
+                                reply_markup={"inline_keyboard": [platform_btn]} if platform_btn else None,
+                            )
+                        elif text == "/reanudar":
+                            _kill_switch_active = False
+                            _add_log_entry("INFO", "Kill switch desactivado vía Telegram bot", "orchestrator")
+                            _tg_reply(chat_id,
+                                "✅ <b>Kill Switch desactivado</b>\n\nEl sistema puede volver a ejecutar exploits.",
+                                reply_markup={"inline_keyboard": [platform_btn]} if platform_btn else None,
+                            )
+                        elif text == "/pausar":
+                            _paused = not _paused
+                            estado = "pausado ⏸️" if _paused else "activo ▶️"
+                            _tg_reply(chat_id, f"🔄 Ciclo ahora: <b>{estado}</b>")
+                        elif text:
+                            _tg_reply(chat_id, "❓ Comando no reconocido. Usa /ayuda.")
+
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                pass
+
+            await asyncio.sleep(3)
+
+
 @app.on_event("startup")
 async def on_startup():
     _add_log_entry("SUCCESS", "Orchestrator started — ScanOps cycle manager ready", "orchestrator")
     _add_log_entry("INFO", "Weekly cycle schedule loaded — 5 phases, timezone: Europe/Madrid", "orchestrator")
+    asyncio.create_task(_telegram_poll_loop())
+    _add_log_entry("INFO", "Telegram polling iniciado", "orchestrator")
 
 
 @app.get("/health")
@@ -278,11 +515,16 @@ async def _gather_status_and_health():
 
 def _enrich_with_health(status: CycleStatus, module_health: dict[str, str]) -> None:
     """Override module status with 'offline' if health check reports offline."""
+    global _prev_module_health
     for phase in status.phases:
         for module in phase.modules:
-            health = module_health.get(module.id)
+            health = module_health.get(module.id, "unknown")
             if health == "offline" and module.status in ("pending", "completed"):
                 module.status = "offline"
+            prev = _prev_module_health.get(module.id, "unknown")
+            if prev != health:
+                _notify_module_state_change(module.id, prev, health)
+    _prev_module_health = {**_prev_module_health, **module_health}
 
 
 @app.get("/orchestrator/dashboard/metrics")
@@ -366,11 +608,117 @@ async def get_modules_health():
     }
 
 
+_TELEGRAM_ALLOWED_CHAT: str = os.getenv("TELEGRAM_CHAT_ID", "")
+_TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+_PLATFORM_URL: str = os.getenv("PLATFORM_URL", "")
+
+
+def _tg_reply(chat_id: int | str, text: str, reply_markup: dict | None = None) -> None:
+    """Envía respuesta al bot de Telegram."""
+    if not _TELEGRAM_TOKEN:
+        return
+    payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    try:
+        httpx.post(
+            f"https://api.telegram.org/bot{_TELEGRAM_TOKEN}/sendMessage",
+            json=payload, timeout=8,
+        )
+    except Exception:
+        pass
+
+
+@app.post("/orchestrator/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """
+    Webhook para recibir mensajes entrantes del bot de Telegram.
+    Comandos soportados: /estado, /parar, /reanudar, /ayuda
+    Solo acepta mensajes del chat configurado en TELEGRAM_CHAT_ID.
+    """
+    global _kill_switch_active, _paused
+
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+
+    message = body.get("message") or body.get("edited_message")
+    if not message:
+        return {"ok": True}
+
+    chat_id = str(message.get("chat", {}).get("id", ""))
+    text = (message.get("text") or "").strip().lower().split("@")[0]
+
+    # Solo responde al chat autorizado
+    if _TELEGRAM_ALLOWED_CHAT and chat_id != str(_TELEGRAM_ALLOWED_CHAT):
+        return {"ok": True}
+
+    platform_btn = (
+        [{"text": "📊 Dashboard", "url": f"{_PLATFORM_URL}/dashboard"}]
+        if _PLATFORM_URL and "localhost" not in _PLATFORM_URL else []
+    )
+
+    if text in ("/ayuda", "/help", "/start"):
+        _tg_reply(chat_id,
+            "🤖 <b>ScanOPS Bot — Comandos disponibles</b>\n\n"
+            "/estado — Estado del sistema y módulos\n"
+            "/parar — Activar Kill Switch (detener ciclo)\n"
+            "/reanudar — Desactivar Kill Switch\n"
+            "/pausar — Pausar/reanudar el ciclo\n"
+            "/ayuda — Mostrar este mensaje"
+        )
+
+    elif text == "/estado":
+        try:
+            module_health = await asyncio.wait_for(check_all_modules(), timeout=5.0)
+            lines = ["📊 <b>Estado de módulos</b>\n"]
+            for mod, state in module_health.items():
+                icon = "🟢" if state == "online" else "🔴"
+                lines.append(f"{icon} {mod.upper()} — {state}")
+            ks = "🔴 ACTIVO" if _kill_switch_active else "🟢 inactivo"
+            pause = "⏸️ PAUSADO" if _paused else "▶️ activo"
+            lines.append(f"\n🛑 Kill Switch: {ks}")
+            lines.append(f"🔄 Ciclo: {pause}")
+            _tg_reply(chat_id, "\n".join(lines),
+                reply_markup={"inline_keyboard": [platform_btn]} if platform_btn else None)
+        except Exception as e:
+            _tg_reply(chat_id, f"❌ Error obteniendo estado: {e}")
+
+    elif text == "/parar":
+        _kill_switch_active = True
+        _add_log_entry("WARN", "Kill switch activado vía Telegram bot", "orchestrator")
+        _tg_reply(chat_id,
+            "🛑 <b>Kill Switch activado</b>\n\nEl ciclo de explotación ha sido detenido.\nUsa /reanudar para volver a activarlo.",
+            reply_markup={"inline_keyboard": [platform_btn]} if platform_btn else None,
+        )
+
+    elif text == "/reanudar":
+        _kill_switch_active = False
+        _add_log_entry("INFO", "Kill switch desactivado vía Telegram bot", "orchestrator")
+        _tg_reply(chat_id,
+            "✅ <b>Kill Switch desactivado</b>\n\nEl sistema puede volver a ejecutar exploits en el próximo ciclo.",
+            reply_markup={"inline_keyboard": [platform_btn]} if platform_btn else None,
+        )
+
+    elif text == "/pausar":
+        _paused = not _paused
+        estado = "pausado ⏸️" if _paused else "activo ▶️"
+        _tg_reply(chat_id, f"🔄 Ciclo ahora: <b>{estado}</b>")
+
+    else:
+        _tg_reply(chat_id, "❓ Comando no reconocido. Usa /ayuda para ver los comandos disponibles.")
+
+    return {"ok": True}
+
+
 @app.post("/orchestrator/cycle/pause")
-async def pause_cycle():
-    """Toggles _paused state."""
+async def pause_cycle(request: Request):
+    """Toggles _paused state. ENS op.exp.3"""
     global _paused
     _paused = not _paused
+    action = "PAUSED" if _paused else "RESUMED"
+    _add_log_entry("INFO", f"Cycle {action} by {request.client.host if request.client else 'unknown'}", "orchestrator")
     return {"paused": _paused}
 
 
@@ -395,10 +743,11 @@ async def activate_kill_switch(totp_code: str = "000000"):
 
 
 @app.post("/orchestrator/cycle/kill-switch/deactivate")
-async def deactivate_kill_switch():
-    """Deactivates kill switch."""
+async def deactivate_kill_switch(request: Request):
+    """Deactivates kill switch. ENS op.exp.3 / op.acc.5"""
     global _kill_switch_active
     _kill_switch_active = False
+    _add_log_entry("INFO", f"Kill switch DEACTIVATED by {request.client.host if request.client else 'unknown'}", "orchestrator")
     return {"kill_switch_active": False}
 
 

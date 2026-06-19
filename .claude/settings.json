@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(docker cp services\\\\scanner_engine\\\\tasks\\\\vuln_tasks.py scanops-celery-worker:/app/services/scanner_engine/tasks/vuln_tasks.py)",
+      "PowerShell(docker exec scanops-celery-worker sh -c \"python3 -m py_compile /app/services/scanner_engine/services/nuclei_wrapper.py /app/services/scanner_engine/tasks/vuln_tasks.py && echo COMPILE_OK\")",
+      "PowerShell(docker compose build scanner-engine celery-worker 2>&1)",
+      "PowerShell(docker compose up -d --force-recreate scanner-engine celery-worker 2>&1)",
+      "Bash(python -c ' *)",
+      "Bash(Select-String -Context 2,0 \"siem|correlation\")",
+      "PowerShell(docker compose ps --format \"table {{.Name}}\\\\t{{.Status}}\" 2>&1)",
+      "PowerShell(docker compose up -d --force-recreate celery-worker 2>&1)",
+      "Read(//c/Users/borja/.claude/projects/c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS/memory/**)",
+      "PowerShell(docker compose build scanops-exploit-engine 2>&1)",
+      "PowerShell(docker compose build m4 2>&1)",
+      "PowerShell(docker exec scanops-m4 python3 -c \"import sys; sys.path.insert\\(0,'/app/services/exploit_engine'\\); from testssl_client import get_testssl_client; c = get_testssl_client\\(\\); print\\('OK', type\\(c\\)\\)\")",
+      "PowerShell(docker exec scanops-postgres psql -U scanops -c \"SELECT id, cve_id, target_ip, status FROM m4_approvals ORDER BY id DESC LIMIT 5;\")",
+      "PowerShell($token = \\(Invoke-WebRequest -Uri \"http://localhost:8009/auth/token\" -Method POST -ContentType \"application/x-www-form-urlencoded\" -Body \"username=admin&password=scanops_admin_2026\"\\).Content | ConvertFrom-Json | Select-Object -ExpandProperty access_token; Write-Host \"TOKEN OK: $\\($token.Substring\\(0,20\\)\\)...\")",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(curl -s -X POST http://localhost:8009/auth/token -H \"Content-Type: application/x-www-form-urlencoded\" -d \"username=admin&password=scanops_admin_2026\")",
+      "Bash(curl -s -X POST http://localhost:8009/auth/token -H 'Content-Type: application/x-www-form-urlencoded' -d 'username=admin&password=scanops_admin_2026')",
+      "Bash(xargs grep -l \"nikto\")",
+      "Read(//mnt/c/Users/borja/Documents/ProyectosUNUWARE/**)",
+      "Bash(curl -s -X POST \"http://localhost:8009/auth/token\" -H \"Content-Type: application/x-www-form-urlencoded\" -d \"username=admin&password=scanops_admin_2026\")",
+      "PowerShell($resp = Invoke-RestMethod -Uri \"http://localhost:8009/auth/token\" -Method POST -ContentType \"application/x-www-form-urlencoded\" -Body \"username=admin&password=scanops_admin_2026\" -UseBasicParsing; $token = $resp.access_token; $r = Invoke-RestMethod -Uri \"http://localhost:8004/api/m4/execute?approval_id=1\" -Method POST -Headers @{Authorization=\"Bearer $token\"} -UseBasicParsing; $r | ConvertTo-Json)",
+      "PowerShell(docker exec scanops-postgres psql -U scanops -c \"SELECT id, status, cve_id, target_ip FROM m4_approvals ORDER BY id DESC LIMIT 5;\")",
+      "PowerShell(docker exec scanops-postgres psql -U scanops -c \"SELECT id, status, cve_id, target_ip FROM m4_approvals WHERE id = 1;\")",
+      "PowerShell(docker exec scanops-postgres psql -U scanops -c \"UPDATE m4_approvals SET status = 'APPROVED' WHERE id = 1; SELECT id, status FROM m4_approvals WHERE id = 1;\")",
+      "PowerShell(docker logs scanops-m4 2>&1 | Where-Object { $_ -match \"FASE 1.1|FASE 1.2|No default|credenciales por defecto|Parando\" } | Select-Object -Last 5)",
+      "PowerShell(docker compose up -d --no-deps --force-recreate m4 2>&1)",
+      "PowerShell(docker exec scanops-m4 wc -l /usr/share/wordlists/default_passwords.txt)",
+      "PowerShell(docker exec scanops-m4 grep test123 /usr/share/wordlists/default_passwords.txt)",
+      "PowerShell(docker exec scanops-postgres psql -U scanops -c \"UPDATE m4_approvals SET status = 'APPROVED' WHERE id = 1;\")",
+      "PowerShell($resp = Invoke-RestMethod -Uri \"http://localhost:8009/auth/token\" -Method POST -ContentType \"application/x-www-form-urlencoded\" -Body \"username=admin&password=scanops_admin_2026\" -UseBasicParsing; $token = $resp.access_token; Invoke-RestMethod -Uri \"http://localhost:8004/api/m4/execute?approval_id=1\" -Method POST -Headers @{Authorization=\"Bearer $token\"} -UseBasicParsing | ConvertTo-Json)",
+      "PowerShell(docker exec scanops-postgres psql -U scanops -c \"SELECT id, service, port, username, password, success FROM hydra_results WHERE service LIKE 'DEFAULT-%' ORDER BY id DESC LIMIT 10;\")",
+      "PowerShell(docker exec scanops-m4 wc -l /usr/share/wordlists/default_users.txt /usr/share/wordlists/default_passwords.txt)",
+      "Bash(npm run *)",
+      "PowerShell(docker exec -i scanops-postgres psql -U scanops_user -d scanops)",
+      "PowerShell(docker exec scanops-postgres psql -U postgres -c \"\\\\du\" 2>&1)",
+      "PowerShell(docker exec scanops-postgres bash -c \"psql -U \\\\$\\(whoami\\) -c '\\\\du'\" 2>&1; docker exec scanops-postgres bash -c \"cat /etc/passwd | grep -E 'psql|postgres|scanops'\" 2>&1)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\borja\\.claude\\projects\\c--Users-borja-Documents-ProyectosUNUWARE-ScanOPS\\memory"
+    ]
+  }
+}

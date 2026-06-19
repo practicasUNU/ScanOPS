@@ -25,8 +25,8 @@ services:
       - ./config/suricata:/etc/suricata
       - scanops_suricata_logs:/var/log/suricata
       - scanops_suricata_rules:/var/lib/suricata/rules
-    # Fallback pcap en loopback: AF_PACKET no disponible en Docker Desktop Windows/WSL2
-    command: -i lo -c /etc/suricata/suricata.yaml
+    # eth0 = interfaz real WSL2 que recibe trafico externo (Kali, red LAN)
+    command: -i eth0 -c /etc/suricata/suricata.yaml
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "test -f /var/log/suricata/eve.json || exit 0"]
@@ -46,6 +46,7 @@ services:
       - "2223:2223"
     volumes:
       - ./config/cowrie/cowrie.cfg:/cowrie/etc/cowrie.cfg:ro
+      - ./config/cowrie/userdb.txt:/cowrie/etc/userdb.txt:ro
       - scanops_cowrie_logs:/cowrie/cowrie-git/var/log/cowrie
     restart: unless-stopped
     healthcheck:

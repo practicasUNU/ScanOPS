@@ -1,22 +1,47 @@
-id: ssh-weak-algorithms
+id: custom-default-credentials-page
 info:
-  name: SSH Weak Key Exchange Algorithms
-  description: SSH server supports weak key exchange algorithms
-  severity: high
-  tags: [ssh, crypto, weak, hardening]
+  name: Default Credentials Login Page Exposed
+  author: scanops
+  description: Detecta paneles de login conocidos que suelen venir con credenciales por defecto.
+  severity: medium
+  tags: [custom, auth, default, credentials, hardening]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/manager/html"
+      - "{{BaseURL}}/admin/login"
+      - "{{BaseURL}}/phpmyadmin/"
+    stop-at-first-match: true
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "login"
+          - "password"
+          - "Tomcat"
+          - "phpMyAdmin"
+        condition: or
+      - type: status
+        status: [200, 401]
 
 ---
-id: unencrypted-data-transmission
+id: custom-directory-listing
 info:
-  name: Unencrypted Data Transmission
-  description: Sensitive data transmitted without encryption
-  severity: high
-  tags: [encryption, data, hardening]
-
----
-id: default-credentials
-info:
-  name: Default Credentials Detection
-  description: Application uses default/hardcoded credentials
-  severity: critical
-  tags: [auth, default, credentials, hardening]
+  name: Directory Listing Enabled
+  author: scanops
+  description: Detecta listado de directorios habilitado, que expone la estructura de ficheros del servidor.
+  severity: medium
+  tags: [custom, exposure, hardening, misconfig]
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Index of /"
+          - "<title>Index of"
+          - "Directory Listing For"
+        condition: or
