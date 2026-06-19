@@ -376,199 +376,191 @@ export function DashboardPage() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#0A0C10]">
+    <div className="flex h-screen bg-gradient-to-br from-[#020617] via-[#0F172A] to-[#020617]">
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar role="System Manager" cycleLabel={cycle.label} dotColor={cycle.dotColor} />
 
-        {/* Connection error banner */}
-        {cycleError && (
-          <div className="flex items-center gap-2 px-6 py-2 bg-[#f59e0b]/10 border-b border-[#f59e0b]/30 text-xs text-[#f59e0b] font-mono">
-            <span>⚠ Orchestrator no disponible — mostrando datos locales · {cycleError}</span>
-            <button onClick={refetch} className="ml-auto underline">Reintentar</button>
-          </div>
-        )}
-
-        {/* Kill Switch persistent banner */}
+        {/* Critical status banners */}
         {killSwitchActive && (
-          <div className="flex items-center gap-3 px-6 py-3 bg-[#ff3b3b]/10 border-b border-[#ff3b3b]/30">
-            <span className="text-[#ff3b3b] text-lg">🔴</span>
-            <span className="text-sm text-[#ff3b3b] font-mono font-semibold flex-1">
-              Kill Switch activo · Ciclo detenido · Reactivación manual requerida
+          <div className="flex items-center gap-3 px-6 py-3 bg-[#EF4444]/15 border-b border-[#EF4444]/40 backdrop-blur-sm">
+            <span className="text-[#EF4444]">●</span>
+            <span className="text-sm text-[#EF4444] font-semibold flex-1">
+              Kill Switch activo — Ciclo detenido
             </span>
             <button
               onClick={async () => {
                 try { await cycleActions.deactivateKillSwitch(); refetch(); } catch {}
               }}
-              className="px-4 py-1.5 text-xs text-[#ff3b3b] border border-[#ff3b3b]/40 rounded-lg hover:bg-[#ff3b3b]/10 transition-colors font-semibold"
+              className="px-4 py-1.5 text-xs text-white bg-[#EF4444]/20 border border-[#EF4444]/40 rounded-lg hover:bg-[#EF4444]/30 transition-colors font-semibold"
             >
               Reactivar ciclo
             </button>
           </div>
         )}
 
-        {/* Manual pause banner */}
         {isPausedManually && !killSwitchActive && (
-          <div className="flex items-center gap-3 px-6 py-3 bg-[#f59e0b]/10 border-b border-[#f59e0b]/30">
-            <span className="text-[#f59e0b] text-base">⏸</span>
-            <span className="text-sm text-[#f59e0b] font-mono flex-1">
-              Ciclo pausado manualmente · Reanudación automática: Viernes 18:00
+          <div className="flex items-center gap-3 px-6 py-3 bg-[#F59E0B]/15 border-b border-[#F59E0B]/40 backdrop-blur-sm">
+            <span className="text-[#F59E0B]">⏸</span>
+            <span className="text-sm text-[#F59E0B] flex-1">
+              Ciclo pausado — Reanudación automática viernes 18:00
             </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  try { await cycleActions.pauseCycle(); refetch(); } catch {}
-                }}
-                className="px-4 py-1.5 text-xs bg-[#f59e0b] text-[#0A0C10] rounded-lg hover:bg-[#d97706] transition-colors font-semibold"
-              >
-                Reanudar ahora
-              </button>
-              <button className="px-4 py-1.5 text-xs text-[#f59e0b] border border-[#f59e0b]/40 rounded-lg hover:bg-[#f59e0b]/10 transition-colors">
-                Ver motivo
-              </button>
-            </div>
+            <button
+              onClick={async () => {
+                try { await cycleActions.pauseCycle(); refetch(); } catch {}
+              }}
+              className="px-3 py-1.5 text-xs bg-[#F59E0B] text-[#020617] rounded-lg hover:bg-[#D97706] transition-colors font-semibold"
+            >
+              Reanudar
+            </button>
           </div>
         )}
 
-        {/* First-load skeleton */}
+        {cycleError && (
+          <div className="flex items-center gap-2 px-6 py-3 bg-[#F59E0B]/15 border-b border-[#F59E0B]/40 text-sm text-[#F59E0B]">
+            <span>⚠ Orchestrator indisponible</span>
+            <button onClick={refetch} className="ml-auto text-xs underline hover:no-underline">Reintentar</button>
+          </div>
+        )}
+
         {cycleLoading && !cycleData && (
-          <div className="flex items-center justify-center h-32 text-[#64748B] text-sm font-mono">
+          <div className="flex items-center justify-center h-24 text-[#94A3B8] text-sm font-medium">
             Conectando con orchestrator...
           </div>
         )}
 
         <main className="flex-1 overflow-auto p-6 space-y-6">
-          {/* KPI Cards */}
-          <div className="grid grid-cols-4 gap-4">
+          {/* KPI Cards — Priority metrics */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             {/* Total Assets */}
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-0 overflow-hidden relative">
-              <div className="flex items-start justify-between mb-2">
-                <div className="w-9 h-9 bg-[#8B5CF6]/10 rounded-lg flex items-center justify-center">
-                  <Activity className="w-4.5 h-4.5 text-[#8B5CF6]" />
+            <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-6 flex flex-col gap-0 overflow-hidden relative hover:border-[#475569] transition-colors">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 bg-[#06B6D4]/15 rounded-lg flex items-center justify-center border border-[#06B6D4]/20">
+                  <Activity className="w-5 h-5 text-[#06B6D4]" />
                 </div>
                 {metrics && !metrics.m1_available && (
-                  <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M1 offline</span>
+                  <span className="text-[10px] text-[#F59E0B] font-semibold bg-[#F59E0B]/20 px-2 py-1 rounded-md border border-[#F59E0B]/30">M1 offline</span>
                 )}
               </div>
-              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Activos Registrados</div>
+              <div className="text-[12px] font-semibold text-[#94A3B8] uppercase tracking-widest mb-2">Activos</div>
               {metricsLoading ? (
                 <>
-                  <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
-                  <div className="h-3.5 w-20 bg-[#1C2030] rounded animate-pulse" />
+                  <div className="h-8 w-12 bg-[#1E293B] rounded animate-pulse mb-2" />
+                  <div className="h-3 w-24 bg-[#1E293B] rounded animate-pulse" />
                 </>
               ) : (
                 <>
-                  <div className="text-3xl font-semibold text-white leading-none mb-1">
+                  <div className="text-4xl font-bold text-[#F8FAFC] leading-none mb-2">
                     {metrics?.total_assets ?? '—'}
                   </div>
-                  <div className="text-xs text-[#64748B] mb-2">Total de activos inventariados</div>
+                  <div className="text-xs text-[#94A3B8] mb-3">Registrados en inventario</div>
                 </>
               )}
-              <div className="mt-auto -mx-5 -mb-5">
-                <ResponsiveContainer width="100%" height={44}>
-                  <AreaChart data={toSparkData(metricsHistory.assets)} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+              <div className="mt-auto -mx-6 -mb-6 pt-3">
+                <ResponsiveContainer width="100%" height={48}>
+                  <AreaChart data={toSparkData(metricsHistory.assets)} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                     <defs>
                       <linearGradient id="spark-assets" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#06B6D4" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <Area type="monotone" dataKey="v" stroke="#8B5CF6" strokeWidth={1.5} fill="url(#spark-assets)" dot={false} isAnimationActive={false} />
+                    <Area type="monotone" dataKey="v" stroke="#06B6D4" strokeWidth={2} fill="url(#spark-assets)" dot={false} isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
             {/* Open Vulnerabilities */}
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-0 overflow-hidden relative">
-              <div className="flex items-start justify-between mb-2">
-                <div className="w-9 h-9 bg-[#EF4444]/10 rounded-lg flex items-center justify-center">
-                  <AlertTriangle className="w-4.5 h-4.5 text-[#EF4444]" />
+            <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-6 flex flex-col gap-0 overflow-hidden relative hover:border-[#475569] transition-colors">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 bg-[#EF4444]/15 rounded-lg flex items-center justify-center border border-[#EF4444]/20">
+                  <AlertTriangle className="w-5 h-5 text-[#EF4444]" />
                 </div>
                 {metrics && !metrics.m3_available && (
-                  <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M3 offline</span>
+                  <span className="text-[10px] text-[#F59E0B] font-semibold bg-[#F59E0B]/20 px-2 py-1 rounded-md border border-[#F59E0B]/30">M3 offline</span>
                 )}
               </div>
-              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Vulnerabilidades Abiertas</div>
+              <div className="text-[12px] font-semibold text-[#94A3B8] uppercase tracking-widest mb-2">Vulnerabilidades</div>
               {metricsLoading ? (
                 <>
-                  <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
-                  <div className="h-3.5 w-24 bg-[#1C2030] rounded animate-pulse" />
+                  <div className="h-8 w-12 bg-[#1E293B] rounded animate-pulse mb-2" />
+                  <div className="h-3 w-28 bg-[#1E293B] rounded animate-pulse" />
                 </>
               ) : (
                 <>
-                  <div className="text-3xl font-semibold text-white leading-none mb-1">
+                  <div className="text-4xl font-bold text-[#F8FAFC] leading-none mb-2">
                     {metrics?.open_vulnerabilities ?? '—'}
                   </div>
-                  <div className="text-xs text-[#64748B] mb-2">Hallazgos sin resolver</div>
+                  <div className="text-xs text-[#94A3B8] mb-3">Hallazgos críticos abiertos</div>
                 </>
               )}
-              <div className="mt-auto -mx-5 -mb-5">
-                <ResponsiveContainer width="100%" height={44}>
-                  <AreaChart data={toSparkData(metricsHistory.vulns)} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+              <div className="mt-auto -mx-6 -mb-6 pt-3">
+                <ResponsiveContainer width="100%" height={48}>
+                  <AreaChart data={toSparkData(metricsHistory.vulns)} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                     <defs>
                       <linearGradient id="spark-vulns" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#EF4444" stopOpacity={0.25} />
+                        <stop offset="5%" stopColor="#EF4444" stopOpacity={0.3} />
                         <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <Area type="monotone" dataKey="v" stroke="#EF4444" strokeWidth={1.5} fill="url(#spark-vulns)" dot={false} isAnimationActive={false} />
+                    <Area type="monotone" dataKey="v" stroke="#EF4444" strokeWidth={2} fill="url(#spark-vulns)" dot={false} isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
             {/* ENS Compliance */}
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col gap-0 overflow-hidden relative">
-              <div className="flex items-start justify-between mb-2">
-                <div className="w-9 h-9 bg-[#22c55e]/10 rounded-lg flex items-center justify-center">
-                  <CheckCircle2 className="w-4.5 h-4.5 text-[#22c55e]" />
+            <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-6 flex flex-col gap-0 overflow-hidden relative hover:border-[#475569] transition-colors">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 bg-[#22C55E]/15 rounded-lg flex items-center justify-center border border-[#22C55E]/20">
+                  <CheckCircle2 className="w-5 h-5 text-[#22C55E]" />
                 </div>
                 {metrics && !metrics.m3_available && (
-                  <span className="text-[10px] text-[#f59e0b] font-mono bg-[#f59e0b]/10 px-1.5 py-0.5 rounded">M3 offline</span>
+                  <span className="text-[10px] text-[#F59E0B] font-semibold bg-[#F59E0B]/20 px-2 py-1 rounded-md border border-[#F59E0B]/30">M3 offline</span>
                 )}
               </div>
-              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Cumplimiento ENS</div>
+              <div className="text-[12px] font-semibold text-[#94A3B8] uppercase tracking-widest mb-2">Cumplimiento ENS</div>
               {metricsLoading ? (
                 <>
-                  <div className="h-8 w-14 bg-[#1C2030] rounded animate-pulse mb-1" />
-                  <div className="h-3.5 w-22 bg-[#1C2030] rounded animate-pulse" />
+                  <div className="h-8 w-12 bg-[#1E293B] rounded animate-pulse mb-2" />
+                  <div className="h-3 w-20 bg-[#1E293B] rounded animate-pulse" />
                 </>
               ) : (
                 <>
-                  <div className="text-3xl font-semibold text-white leading-none mb-1">
+                  <div className="text-4xl font-bold text-[#F8FAFC] leading-none mb-2">
                     {metrics?.ens_compliance_score != null ? `${metrics.ens_compliance_score}%` : '—'}
                   </div>
-                  <div className="text-xs text-[#64748B] mb-2">Nivel de conformidad ENS Alto</div>
+                  <div className="text-xs text-[#94A3B8] mb-3">Conformidad ENS Alto</div>
                 </>
               )}
-              <div className="mt-auto -mx-5 -mb-5">
-                <ResponsiveContainer width="100%" height={44}>
-                  <AreaChart data={toSparkData(metricsHistory.compliance)} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+              <div className="mt-auto -mx-6 -mb-6 pt-3">
+                <ResponsiveContainer width="100%" height={48}>
+                  <AreaChart data={toSparkData(metricsHistory.compliance)} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                     <defs>
                       <linearGradient id="spark-compliance" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22C55E" stopOpacity={0.25} />
+                        <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />
                         <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <Area type="monotone" dataKey="v" stroke="#22C55E" strokeWidth={1.5} fill="url(#spark-compliance)" dot={false} isAnimationActive={false} />
+                    <Area type="monotone" dataKey="v" stroke="#22C55E" strokeWidth={2} fill="url(#spark-compliance)" dot={false} isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            {/* Ciclo Semanal */}
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-5 flex flex-col overflow-hidden relative">
-              <div className="flex items-start justify-between mb-2">
-                <div className="w-9 h-9 bg-[#f59e0b]/10 rounded-lg flex items-center justify-center">
-                  <CalendarClock className="w-4.5 h-4.5 text-[#f59e0b]" />
+            {/* Weekly Cycle Status */}
+            <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-6 flex flex-col overflow-hidden relative hover:border-[#475569] transition-colors">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 bg-[#F59E0B]/15 rounded-lg flex items-center justify-center border border-[#F59E0B]/20">
+                  <CalendarClock className="w-5 h-5 text-[#F59E0B]" />
                 </div>
               </div>
-              <div className="text-[11px] font-medium text-[#94a3b8] uppercase tracking-wider mb-1">Ciclo Semanal</div>
-              <div className="text-[10px] text-[#64748B] mb-1 font-mono">{cycle.weekLabel}</div>
-              <div className="text-lg font-semibold text-white mb-1 leading-tight">{cycle.phase}</div>
-              <div className="text-sm text-[#f59e0b] font-mono">{cycle.timeRemaining}</div>
+              <div className="text-[12px] font-semibold text-[#94A3B8] uppercase tracking-widest mb-2">Ciclo Semanal</div>
+              <div className="text-[11px] text-[#94A3B8] mb-1 font-mono">{cycle.weekLabel}</div>
+              <div className="text-lg font-bold text-[#F8FAFC] mb-1 leading-tight">{cycle.phase}</div>
+              <div className="text-xs text-[#F59E0B] font-semibold">{cycle.timeRemaining}</div>
               <div className="mt-auto pt-4 flex items-end gap-1">
                 {[1,2,3,4,5,6,7].map(w => (
                   <div
@@ -577,8 +569,8 @@ export function DashboardPage() {
                     style={{
                       height: w <= (cycle.activeBlock ?? 0) + 1 ? `${12 + w * 3}px` : '8px',
                       background: w <= (cycle.activeBlock ?? 0) + 1
-                        ? `rgba(245,158,11,${0.3 + w * 0.05})`
-                        : '#1C2030',
+                        ? `rgba(245, 158, 11, ${0.3 + w * 0.05})`
+                        : '#1E293B',
                     }}
                   />
                 ))}
@@ -590,62 +582,62 @@ export function DashboardPage() {
 
           {/* ── Active Sessions (admin only) ──────────────────────── */}
           {userRole === 'system_manager' && (
-            <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1C2030]">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 bg-[#a78bfa]/10 rounded-lg flex items-center justify-center">
-                    <Users className="w-3.5 h-3.5 text-[#a78bfa]" />
+            <div className="bg-[#0F172A] border border-[#334155] rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155]">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-[#A78BFA]/20 rounded-lg flex items-center justify-center border border-[#A78BFA]/30">
+                    <Users className="w-4 h-4 text-[#A78BFA]" />
                   </div>
-                  <span className="text-sm font-semibold text-white">Usuarios conectados</span>
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-[#a78bfa]/20 text-[#a78bfa] border border-[#a78bfa]/30">
+                  <span className="text-sm font-bold text-[#F8FAFC] uppercase tracking-widest">Usuarios Activos</span>
+                  <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-[#A78BFA]/25 text-[#D8B4FE] border border-[#A78BFA]/40">
                     {activeSessions.length}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] text-[#334155] font-mono">
+                <div className="flex items-center gap-2 text-xs text-[#94A3B8] font-mono">
                   {sessionsLastUpdate && (
                     <span>actualizado {sessionsLastUpdate.toLocaleTimeString('es-ES')}</span>
                   )}
                   {sessionsLoading
-                    ? <Loader2 className="w-3 h-3 text-[#475569] animate-spin" />
-                    : <RefreshCw className="w-3 h-3 text-[#334155]" />
+                    ? <Loader2 className="w-4 h-4 text-[#64748B] animate-spin" />
+                    : <RefreshCw className="w-4 h-4 text-[#64748B]" />
                   }
                 </div>
               </div>
 
               {activeSessions.length === 0 ? (
-                <div className="px-5 py-6 text-center text-xs text-[#334155] font-mono">
-                  {sessionsLoading ? 'Cargando sesiones...' : 'Sin sesiones activas registradas'}
+                <div className="px-6 py-8 text-center text-sm text-[#475569] font-mono">
+                  {sessionsLoading ? 'Cargando sesiones...' : 'Sin sesiones activas'}
                 </div>
               ) : (
-                <div className="divide-y divide-[#1C2030]">
+                <div className="divide-y divide-[#334155]">
                   {activeSessions.map((s) => {
                     const ago = Math.round((Date.now() - new Date(s.last_seen).getTime()) / 60000);
-                    const agoLabel = ago < 1 ? 'ahora mismo' : ago < 60 ? `hace ${ago}m` : `hace ${Math.round(ago/60)}h`;
+                    const agoLabel = ago < 1 ? 'ahora' : ago < 60 ? `${ago}m` : `${Math.round(ago/60)}h`;
                     return (
-                      <div key={s.username} className="flex items-center gap-4 px-5 py-3 hover:bg-[#111318]/60 transition-colors">
+                      <div key={s.username} className="flex items-center gap-4 px-6 py-3 hover:bg-[#1A1E2F] transition-colors">
                         <div className="relative shrink-0">
-                          <div className="w-8 h-8 rounded-full bg-[#7c3aed]/20 flex items-center justify-center text-xs font-bold text-[#a78bfa]">
+                          <div className="w-9 h-9 rounded-full bg-[#A78BFA]/20 border border-[#A78BFA]/30 flex items-center justify-center text-xs font-bold text-[#D8B4FE]">
                             {s.username.charAt(0).toUpperCase()}
                           </div>
-                          <Circle className="absolute -bottom-0.5 -right-0.5 w-3 h-3 text-[#22c55e] fill-[#22c55e]" />
+                          <Circle className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 text-[#22C55E] fill-[#22C55E]" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-mono text-white">{s.username}</span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#7c3aed]/15 text-[#a78bfa] border border-[#7c3aed]/20 font-semibold">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-semibold text-[#F8FAFC]">{s.username}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#A78BFA]/20 text-[#D8B4FE] border border-[#A78BFA]/30 font-semibold">
                               {ROLE_LABELS[s.role] ?? s.role}
                             </span>
                           </div>
-                          <div className="text-[11px] text-[#475569] font-mono truncate mt-0.5">
+                          <div className="text-xs text-[#64748B] font-mono truncate">
                             {s.ip !== '—' ? s.ip : 'IP desconocida'}
                             {s.user_agent !== '—' && (
-                              <span className="ml-2 text-[#334155]">· {s.user_agent.split(' ')[0]}</span>
+                              <span className="ml-2 text-[#475569]">• {s.user_agent.split(' ')[0]}</span>
                             )}
                           </div>
                         </div>
                         <div className="text-right shrink-0">
-                          <div className="text-[11px] text-[#22c55e] font-mono">● activo</div>
-                          <div className="text-[10px] text-[#334155]">{agoLabel}</div>
+                          <div className="text-xs text-[#22C55E] font-semibold">● Activo</div>
+                          <div className="text-xs text-[#94A3B8] font-mono">{agoLabel}</div>
                         </div>
                       </div>
                     );
@@ -655,183 +647,183 @@ export function DashboardPage() {
             </div>
           )}
 
-          {/* Temporal pipeline */}
-          <div className="bg-[#111318] border border-[#1C2030] rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-white mb-5">Pipeline Semanal</h2>
+          {/* Pipeline Visualization */}
+          <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-6">
+            <h3 className="text-sm font-bold text-[#F8FAFC] uppercase tracking-widest mb-4">Fases de Ejecución Semanal</h3>
 
-            <div className="flex items-stretch gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               {pipelineBlocks.map((block, i) => {
                 const isActive = block.blockIndex === cycle.activeBlock;
                 return (
-                  <div key={i} className="flex items-center gap-3 flex-1">
+                  <div key={i} className="flex items-stretch gap-3">
                     <div
                       className={`flex-1 rounded-lg p-4 border transition-all ${
                         isActive
-                          ? 'border-[#8B5CF6]/40 shadow-[0_0_12px_rgba(139,92,246,0.15)] bg-[#0A0C10]'
-                          : 'border-[#1C2030] bg-[#0A0C10]'
+                          ? 'border-[#22C55E]/40 shadow-[0_0_12px_rgba(34,197,94,0.15)] bg-[#020617]'
+                          : 'border-[#334155] bg-[#0A0C10]'
                       }`}
                     >
-                      <div className="text-xs text-[#64748B] font-mono mb-1">{block.timeLabel}</div>
-                      <div className="text-sm text-white mb-3">{block.phaseLabel}</div>
+                      <div className="text-[11px] text-[#94A3B8] font-mono uppercase tracking-wider mb-2 font-semibold">{block.timeLabel}</div>
+                      <div className="text-sm font-semibold text-[#F8FAFC] mb-3">{block.phaseLabel}</div>
                       <div className="flex flex-wrap gap-2">
                         {block.modules.map((mod) => (
                           <span
                             key={mod.id}
-                            className={`px-2.5 py-1 rounded text-xs font-mono font-semibold border transition-all ${
+                            className={`px-2 py-1 rounded text-xs font-mono font-semibold border transition-all ${
                               mod.isHuman || mod.status === 'blocked'
-                                ? 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30'
+                                ? 'bg-[#F59E0B]/20 text-[#F59E0B] border-[#F59E0B]/40'
                                 : mod.status === 'offline'
-                                ? 'bg-[#ff3b3b]/10 text-[#ff3b3b] border-[#ff3b3b]/30'
+                                ? 'bg-[#EF4444]/20 text-[#EF4444] border-[#EF4444]/40'
                                 : mod.status === 'completed'
-                                ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/20'
+                                ? 'bg-[#22C55E]/20 text-[#22C55E] border-[#22C55E]/40'
                                 : mod.status === 'in_progress' || mod.status === 'in-progress'
-                                ? 'bg-[#8B5CF6]/10 text-[#8B5CF6] border-[#8B5CF6]/30 animate-pulse'
-                                : 'bg-[#374151] text-[#475569] border-[#334155]'
+                                ? 'bg-[#A78BFA]/20 text-[#D8B4FE] border-[#A78BFA]/40 animate-pulse'
+                                : 'bg-[#334155]/50 text-[#CBD5E1] border-[#475569]'
                             }`}
                           >
-                            {mod.id}{mod.label ? ` ${mod.label}` : ''}
+                            {mod.id}{mod.label ? ` (${mod.label})` : ''}
                           </span>
                         ))}
                       </div>
                     </div>
-                    {i < pipelineBlocks.length - 1 && (
-                      <span className="text-[#334155] text-xl select-none">→</span>
-                    )}
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* Live log */}
-          <div className="bg-[#111318] border border-[#1C2030] rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-[#1C2030]">
-              <h2 className="text-lg font-semibold text-white">Live Execution Log</h2>
-              <div className="flex items-center gap-1.5 text-xs font-mono">
-                <div className={`w-2 h-2 rounded-full ${logConnected ? 'bg-[#22c55e] animate-pulse' : 'bg-[#475569]'}`} />
-                <span className={logConnected ? 'text-[#22c55e]' : 'text-[#475569]'}>
-                  {logConnected ? 'LIVE' : 'OFFLINE'}
+          {/* Live Execution Log — Compact */}
+          <div className="bg-[#0F172A] border border-[#334155] rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155]">
+              <h3 className="text-sm font-bold text-[#F8FAFC] uppercase tracking-widest">Eventos en Tiempo Real</h3>
+              <div className="flex items-center gap-2 text-xs font-semibold font-mono">
+                <div className={`w-2 h-2 rounded-full ${logConnected ? 'bg-[#22C55E] animate-pulse' : 'bg-[#94A3B8]'}`} />
+                <span className={logConnected ? 'text-[#22C55E]' : 'text-[#94A3B8]'}>
+                  {logConnected ? '● LIVE' : '● OFFLINE'}
                 </span>
               </div>
             </div>
 
-            <div ref={logContainerRef} className="bg-[#0a0c12] p-3 h-32 overflow-y-auto font-mono text-xs space-y-0.5">
+            <div ref={logContainerRef} className="bg-[#020617] px-6 py-3 h-40 overflow-y-auto font-mono text-xs space-y-1">
               {logEntries.length === 0 ? (
-                <div className="text-[#334155]">Esperando eventos del ciclo...</div>
+                <div className="text-[#475569] italic">Esperando eventos...</div>
               ) : (
                 logEntries.map((entry, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="text-[#334155] shrink-0">
+                  <div key={i} className="flex gap-3 items-start">
+                    <span className="text-[#475569] shrink-0 min-w-fit">
                       {new Date(entry.timestamp).toLocaleTimeString('es-ES')}
                     </span>
-                    <span className={`shrink-0 ${
-                      entry.level === 'SUCCESS' ? 'text-[#22c55e]' :
-                      entry.level === 'WARN' ? 'text-[#f59e0b]' :
-                      entry.level === 'ERROR' ? 'text-[#ff3b3b]' :
-                      'text-[#8B5CF6]'
+                    <span className={`shrink-0 font-semibold min-w-fit ${
+                      entry.level === 'SUCCESS' ? 'text-[#22C55E]' :
+                      entry.level === 'WARN' ? 'text-[#F59E0B]' :
+                      entry.level === 'ERROR' ? 'text-[#EF4444]' :
+                      'text-[#A78BFA]'
                     }`}>{entry.level}</span>
-                    <span className="text-[#475569] shrink-0">[{entry.module}]</span>
-                    <span className="text-[#d1d5db]">{entry.message}</span>
+                    <span className="text-[#64748B] shrink-0">[{entry.module}]</span>
+                    <span className="text-[#CBD5E1] flex-1 break-words">{entry.message}</span>
                   </div>
                 ))
               )}
             </div>
           </div>
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-3">
-            <button className="px-6 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white font-semibold rounded-lg transition-colors flex items-center gap-2">
-              <Play className="w-4 h-4" />
-              Launch
-            </button>
+          {/* Action Control Panel */}
+          <div className="bg-[#0F172A] border border-[#334155] rounded-lg p-6">
+            <h3 className="text-sm font-bold text-[#F8FAFC] uppercase tracking-widest mb-4">Control de Ciclo</h3>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+              {/* Primary actions */}
+              <button className="px-4 py-3 bg-[#22C55E] hover:bg-[#16A34A] active:bg-[#15803D] text-white font-semibold rounded-lg transition-all flex items-center justify-center gap-2 text-sm">
+                <Play className="w-4 h-4" />
+                <span className="hidden sm:inline">Ejecutar</span>
+              </button>
 
-            <button
-              onClick={async () => {
-                try { await cycleActions.pauseCycle(); refetch(); } catch {}
-              }}
-              className={`px-6 py-2.5 font-semibold rounded-lg transition-colors flex items-center gap-2 ${
-                isPausedManually
-                  ? 'bg-[#f59e0b] text-[#0A0C10] hover:bg-[#d97706]'
-                  : 'bg-[#f59e0b] hover:bg-[#d97706] text-white'
-              }`}
-            >
-              <Pause className="w-4 h-4" />
-              {isPausedManually ? 'Pausado' : 'Pause'}
-            </button>
+              <button
+                onClick={async () => {
+                  try { await cycleActions.pauseCycle(); refetch(); } catch {}
+                }}
+                className={`px-4 py-3 font-semibold rounded-lg transition-all flex items-center justify-center gap-2 text-sm ${
+                  isPausedManually
+                    ? 'bg-[#F59E0B] hover:bg-[#D97706] active:bg-[#B45309] text-white'
+                    : 'bg-[#F59E0B] hover:bg-[#D97706] active:bg-[#B45309] text-white'
+                }`}
+              >
+                <Pause className="w-4 h-4" />
+                <span className="hidden sm:inline">{isPausedManually ? 'Reanud.' : 'Pausar'}</span>
+              </button>
 
-            <button className="px-6 py-2.5 bg-[#8B5CF6]/10 hover:bg-[#8B5CF6]/20 text-[#8B5CF6] border border-[#8B5CF6]/30 font-semibold rounded-lg transition-colors flex items-center gap-2">
-              <Zap className="w-4 h-4" />
-              Emergency Scan
-            </button>
+              <button className="px-4 py-3 bg-[#06B6D4]/20 hover:bg-[#06B6D4]/30 text-[#06B6D4] border border-[#06B6D4]/40 font-semibold rounded-lg transition-all flex items-center justify-center gap-2 text-sm">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="hidden sm:inline">Escaneo</span>
+              </button>
 
-            <button
-              onClick={() => { setImmOpen(true); if (!immRunning) handleImmediateCycle(); }}
-              disabled={immRunning}
-              className="flex items-center gap-2 px-4 py-2 bg-[#7c3aed]/10 border border-[#7c3aed]/30
-                         text-[#a78bfa] rounded-lg text-xs font-bold hover:bg-[#7c3aed]/20
-                         disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-              {immRunning
-                ? <><Loader2 className="w-3.5 h-3.5 animate-spin"/>Ciclo en curso...</>
-                : <><Zap className="w-3.5 h-3.5"/>Ejecutar Ciclo Inmediato</>}
-            </button>
+              {/* Immediate cycle button */}
+              <button
+                onClick={() => { setImmOpen(true); if (!immRunning) handleImmediateCycle(); }}
+                disabled={immRunning}
+                className="px-4 py-3 bg-[#A78BFA]/20 hover:bg-[#A78BFA]/30 disabled:opacity-40 disabled:cursor-not-allowed text-[#D8B4FE] border border-[#A78BFA]/40 font-semibold rounded-lg transition-all flex items-center justify-center gap-2 text-sm">
+                {immRunning
+                  ? <><Loader2 className="w-4 h-4 animate-spin"/></>
+                  : <><Zap className="w-4 h-4"/></>}
+                <span className="hidden sm:inline text-xs">{immRunning ? 'En curso' : 'Inmediato'}</span>
+              </button>
 
-            <div className="flex-1" />
-
-            <button
-              onClick={() => setShowKillSwitchModal(true)}
-              className="px-6 py-2.5 bg-[#ff3b3b] hover:bg-[#dc2626] text-white font-semibold rounded-lg transition-colors flex items-center gap-2 shadow-lg shadow-[#ff3b3b]/30"
-            >
-              <Power className="w-4 h-4" />
-              Kill Switch
-            </button>
+              {/* Critical action — Kill Switch */}
+              <button
+                onClick={() => setShowKillSwitchModal(true)}
+                className="px-4 py-3 bg-[#EF4444] hover:bg-[#DC2626] active:bg-[#B91C1C] text-white font-semibold rounded-lg transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-[#EF4444]/20"
+              >
+                <Power className="w-4 h-4" />
+                <span className="hidden sm:inline">Kill Switch</span>
+              </button>
+            </div>
           </div>
         </main>
       </div>
 
       {/* Immediate cycle modal */}
       {immOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-[#111318] border border-[#1C2030] rounded-2xl w-full max-w-2xl
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="bg-[#0F172A] border border-[#334155] rounded-xl w-full max-w-2xl
                           mx-4 shadow-2xl flex flex-col max-h-[80vh]">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1C2030]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155]">
               <div className="flex items-center gap-3">
-                <Zap className="w-5 h-5 text-[#a78bfa]"/>
+                <Zap className="w-5 h-5 text-[#A78BFA]"/>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Ciclo Inmediato — Todos los activos</h3>
-                  <p className="text-xs text-[#475569]">M1 → M2 → M3 → M8 → M4</p>
+                  <h3 className="text-sm font-bold text-[#F8FAFC]">Ciclo Inmediato — Todos los activos</h3>
+                  <p className="text-xs text-[#94A3B8] font-mono">M1 → M2 → M3 → M8 → M4</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 {(['m1','m2','m3','m8','m4'] as const).map(phase => (
-                  <span key={phase} className={`text-xs font-mono px-2 py-0.5 rounded border ${
+                  <span key={phase} className={`text-xs font-mono px-2 py-1 rounded border font-semibold ${
                     immPhase === phase
-                      ? 'bg-[#a78bfa]/20 border-[#a78bfa]/40 text-[#a78bfa] animate-pulse'
-                      : 'bg-[#1C2030] border-[#374151] text-[#334155]'
+                      ? 'bg-[#A78BFA]/25 border-[#A78BFA]/40 text-[#D8B4FE] animate-pulse'
+                      : 'bg-[#334155]/40 border-[#475569] text-[#64748B]'
                   }`}>
                     {phase.toUpperCase()}
                   </span>
                 ))}
                 {!immRunning && (
                   <button onClick={() => setImmOpen(false)}
-                    className="text-[#475569] hover:text-white text-lg">×</button>
+                    className="text-[#64748B] hover:text-[#F8FAFC] text-2xl ml-2">×</button>
                 )}
               </div>
             </div>
 
             {/* Error banner */}
             {immErrors.length > 0 && (
-              <div className="mx-4 mt-3 bg-[#ff3b3b]/10 border border-[#ff3b3b]/20 rounded-lg px-4 py-2.5">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <AlertTriangle className="w-4 h-4 text-[#ff3b3b] shrink-0"/>
-                  <span className="text-xs font-bold text-[#ff3b3b]">
+              <div className="mx-6 mt-4 bg-[#EF4444]/15 border border-[#EF4444]/40 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-4 h-4 text-[#EF4444] shrink-0"/>
+                  <span className="text-xs font-bold text-[#EF4444]">
                     {immErrors.length} error{immErrors.length > 1 ? 'es' : ''} detectado{immErrors.length > 1 ? 's' : ''}
                   </span>
                 </div>
-                <ul className="space-y-0.5">
+                <ul className="space-y-1">
                   {immErrors.map((e, i) => (
-                    <li key={i} className="text-[10px] text-[#ff3b3b] font-mono">• {e}</li>
+                    <li key={i} className="text-[11px] text-[#EF4444] font-mono">• {e}</li>
                   ))}
                 </ul>
               </div>
@@ -839,58 +831,58 @@ export function DashboardPage() {
 
             {/* Log */}
             <div ref={immLogRef}
-                 className="flex-1 overflow-y-auto bg-[#0A0C10] p-4 font-mono text-xs
-                            space-y-0.5 min-h-[300px]">
-              {immLogs.length === 0 && <p className="text-[#374151]">Iniciando ciclo...</p>}
+                 className="flex-1 overflow-y-auto bg-[#020617] px-6 py-4 font-mono text-xs
+                            space-y-1 min-h-[300px]">
+              {immLogs.length === 0 && <p className="text-[#475569] italic">Iniciando ciclo...</p>}
               {immLogs.map((l, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-[#374151] shrink-0">{l.ts}</span>
-                  <span className={
-                    l.level === 'success' ? 'text-[#22c55e]' :
-                    l.level === 'error'   ? 'text-[#ff3b3b]' :
-                    l.level === 'warn'    ? 'text-[#f59e0b]' :
-                    'text-[#64748B]'
-                  }>{l.msg}</span>
+                <div key={i} className="flex gap-3">
+                  <span className="text-[#475569] shrink-0 min-w-fit">{l.ts}</span>
+                  <span className={`shrink-0 font-semibold min-w-fit ${
+                    l.level === 'success' ? 'text-[#22C55E]' :
+                    l.level === 'error'   ? 'text-[#EF4444]' :
+                    l.level === 'warn'    ? 'text-[#F59E0B]' :
+                    'text-[#A78BFA]'
+                  }`}>{l.level.toUpperCase().charAt(0)}</span>
+                  <span className="text-[#CBD5E1] flex-1 break-words">{l.msg}</span>
                 </div>
               ))}
               {immRunning && (
-                <div className="flex items-center gap-2 text-[#a78bfa] mt-1">
+                <div className="flex items-center gap-2 text-[#A78BFA] mt-2">
                   <Loader2 className="w-3 h-3 animate-spin"/>
-                  <span>Procesando...</span>
+                  <span>Procesando ciclo...</span>
                 </div>
               )}
             </div>
 
             {/* Footer */}
             {immPhase === 'done' && (
-              <div className="px-5 py-4 border-t border-[#1C2030] space-y-3">
+              <div className="px-6 py-4 border-t border-[#334155] space-y-4 bg-[#1A1E2F]/40">
                 {immApprovals.length > 0 && (
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-start gap-4">
                     <div className="flex flex-col items-center gap-2">
                       <img src={`data:image/png;base64,${immApprovals[0].qr_code_base64}`}
-                           alt="QR TOTP" className="w-48 h-48 rounded-lg border border-[#1C2030]"/>
-                      <p className="text-[10px] text-[#475569]">Escanea con Google Authenticator</p>
+                           alt="QR TOTP" className="w-40 h-40 rounded-lg border border-[#334155]"/>
+                      <p className="text-xs text-[#64748B] font-semibold">Google Authenticator</p>
                     </div>
-                    <div>
-                      <p className="text-xs font-bold text-white">
-                        Aprobación maestra #{immApprovals[0].approval_id}
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-[#F8FAFC] uppercase tracking-wide">
+                        Aprobación #{immApprovals[0].approval_id}
                       </p>
-                      <p className="text-[10px] font-mono text-[#8B5CF6] mt-0.5">
+                      <p className="text-xs font-mono text-[#A78BFA] mt-1 mb-2">
                         {immApprovals[0].asset_ip}
                       </p>
-                      <p className="text-[10px] text-[#f59e0b] font-mono mt-0.5">PIN: 1234</p>
+                      <p className="text-xs text-[#F59E0B] font-semibold font-mono">PIN: 1234</p>
                     </div>
                   </div>
                 )}
-                <div className="flex items-center gap-3 pt-1">
-                  <CheckCircle2 className="w-4 h-4 text-[#22c55e]"/>
-                  <span className="text-xs text-[#22c55e] font-mono">
-                    Ciclo completado — Escanea el QR y autoriza en M4
+                <div className="flex items-center gap-2 p-3 bg-[#22C55E]/15 border border-[#22C55E]/40 rounded-lg">
+                  <CheckCircle2 className="w-4 h-4 text-[#22C55E] shrink-0"/>
+                  <span className="text-xs text-[#22C55E] font-semibold flex-1">
+                    Ciclo completado — Escanea QR y autoriza en M4
                   </span>
                   <button onClick={() => window.open('/exploitation', '_blank')}
-                    className="ml-auto px-4 py-1.5 bg-[#a78bfa]/10 border border-[#a78bfa]/30
-                               text-[#a78bfa] rounded text-xs font-semibold hover:bg-[#a78bfa]/20">
-                    Ir a M4 →
+                    className="px-3 py-1 bg-[#A78BFA]/20 border border-[#A78BFA]/40 text-[#D8B4FE] rounded text-xs font-semibold hover:bg-[#A78BFA]/30">
+                    Ir a M4
                   </button>
                 </div>
                 {!immAuthorized ? (
@@ -921,28 +913,24 @@ export function DashboardPage() {
                         } catch (e: any) { ilog(`[EXEC] Error: ${e.message}`, 'error'); }
                       }
                     }}
-                    className="w-full py-2.5 bg-[#22c55e]/10 border border-[#22c55e]/30 text-[#22c55e]
-                               rounded-lg text-xs font-semibold hover:bg-[#22c55e]/20 transition-colors
-                               flex items-center justify-center gap-2">
+                    className="w-full py-3 bg-[#22C55E] hover:bg-[#16A34A] active:bg-[#15803D] text-white font-bold rounded-lg text-sm transition-all flex items-center justify-center gap-2">
                     <CheckCircle2 className="w-4 h-4"/>
-                    He autorizado en M4 — Ejecutar ataque
+                    Autorizado en M4 — Ejecutar Explotación
                   </button>
                 ) : (
-                  <div className="w-full py-2.5 bg-[#22c55e]/20 border border-[#22c55e]/40 rounded-lg
-                                  flex items-center justify-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-[#22c55e]"/>
-                    <span className="text-xs font-bold text-[#22c55e]">Ciclo ENS completado al 100% ✓</span>
+                  <div className="w-full py-3 bg-[#22C55E]/20 border border-[#22C55E]/40 rounded-lg flex items-center justify-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-[#22C55E]"/>
+                    <span className="text-xs font-bold text-[#22C55E]">Ciclo ENS completado al 100% ✓</span>
                   </div>
                 )}
               </div>
             )}
             {immPhase === 'error' && (
-              <div className="px-5 py-3 border-t border-[#1C2030] flex items-center gap-3">
-                <AlertTriangle className="w-4 h-4 text-[#ff3b3b]"/>
-                <span className="text-xs text-[#ff3b3b]">Ciclo fallido — revisa los logs</span>
+              <div className="px-6 py-4 border-t border-[#334155] bg-[#EF4444]/10 flex items-center gap-3">
+                <AlertTriangle className="w-4 h-4 text-[#EF4444]"/>
+                <span className="text-xs text-[#EF4444] font-semibold flex-1">Ciclo fallido — Revisa logs</span>
                 <button onClick={() => { setImmLogs([]); setImmErrors([]); setImmPhase('idle'); handleImmediateCycle(); }}
-                  className="ml-auto px-3 py-1.5 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30
-                             text-[#ff3b3b] rounded text-xs hover:bg-[#ff3b3b]/20">
+                  className="px-3 py-1.5 bg-[#EF4444]/20 border border-[#EF4444]/40 text-[#EF4444] rounded text-xs font-semibold hover:bg-[#EF4444]/30">
                   Reintentar
                 </button>
               </div>
@@ -955,42 +943,42 @@ export function DashboardPage() {
       {/* Kill Switch confirmation modal */}
       <Dialog.Root open={showKillSwitchModal} onOpenChange={setShowKillSwitchModal}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#111318] border border-[#ff3b3b]/30 rounded-lg p-6 shadow-2xl shadow-[#ff3b3b]/10">
-            <Dialog.Title className="text-xl font-semibold text-[#ff3b3b] mb-3 flex items-center gap-2">
+          <Dialog.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-[#0F172A] border border-[#EF4444]/40 rounded-lg p-6 shadow-2xl shadow-[#EF4444]/10">
+            <Dialog.Title className="text-lg font-bold text-[#EF4444] mb-2 flex items-center gap-2">
               <Shield className="w-5 h-5" />
-              ⚠ Activar Kill Switch
+              Kill Switch — Acción Crítica
             </Dialog.Title>
-            <Dialog.Description className="text-sm text-[#64748B] mb-6 leading-relaxed">
-              Esta acción detiene completamente el ciclo semanal. No se reanudará automáticamente.
-              Requiere reactivación manual por el Responsable de Sistemas.
+            <Dialog.Description className="text-sm text-[#94A3B8] mb-6 leading-relaxed">
+              Detiene completamente el ciclo semanal. No se reanudará automáticamente. Requiere reactivación manual.
             </Dialog.Description>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[#e5e7eb] mb-2">
-                  Código TOTP (6 dígitos)
+                <label className="block text-sm font-semibold text-[#F8FAFC] mb-2">
+                  Código TOTP de 2FA (6 dígitos)
                 </label>
                 <input
                   type="text"
                   value={killSwitchTotp}
                   onChange={(e) => setKillSwitchTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="w-full bg-[#0A0C10] border border-[#1C2030] rounded-lg px-4 py-2.5 text-white placeholder:text-[#475569] focus:outline-none focus:border-[#ff3b3b] focus:ring-1 focus:ring-[#ff3b3b] transition-colors font-mono tracking-widest text-center text-lg"
+                  className="w-full bg-[#020617] border border-[#334155] rounded-lg px-4 py-3 text-[#F8FAFC] placeholder:text-[#64748B] focus:outline-none focus:border-[#EF4444] focus:ring-1 focus:ring-[#EF4444]/30 transition-colors font-mono tracking-widest text-center text-xl font-semibold"
                   placeholder="000000"
                   maxLength={6}
+                  autoFocus
                 />
               </div>
 
               <button
                 onClick={handleConfirmKillSwitch}
                 disabled={killSwitchTotp.length !== 6}
-                className="w-full bg-[#ff3b3b] hover:bg-[#dc2626] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-colors"
+                className="w-full bg-[#EF4444] hover:bg-[#DC2626] active:bg-[#B91C1C] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-all text-sm"
               >
-                Confirmar Kill Switch
+                {killSwitchTotp.length === 6 ? 'Confirmar Kill Switch' : 'Ingresa 6 dígitos'}
               </button>
 
               <Dialog.Close asChild>
-                <button className="w-full bg-transparent border border-[#1C2030] hover:bg-[#1C2030] text-[#64748B] hover:text-white font-semibold py-2.5 rounded-lg transition-colors">
+                <button className="w-full bg-transparent border border-[#334155] hover:border-[#475569] text-[#94A3B8] hover:text-[#F8FAFC] font-semibold py-2.5 rounded-lg transition-colors text-sm">
                   Cancelar
                 </button>
               </Dialog.Close>
