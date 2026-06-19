@@ -14,6 +14,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useAssets, type Asset, type VulnResult } from '../../hooks/useAssets';
 import { useShadowIT, type M2Snapshot } from '../../hooks/useShadowIT';
 import { getStoredToken } from '../../hooks/useAuth';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 
 type RowStatus = 'idle' | 'scanning' | 'done' | 'error';
 interface RowState { status: RowStatus; msg?: string }
@@ -1153,6 +1154,100 @@ export function AssetManagerPage() {
               </button>
             </div>
           </div>
+
+          {/* ── GRÁFICOS DE ANÁLISIS DE ACTIVOS ── */}
+          {assets.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Donut — Criticidad de activos */}
+              <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
+                <h3 className="text-sm font-bold text-white mb-4">Activos por Criticidad</h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={(() => {
+                          const criticality: Record<string, number> = { CRITICA: 0, ALTA: 0, MEDIA: 0, BAJA: 0 };
+                          assets.forEach(a => {
+                            const c = (a.criticidad ?? 'BAJA').toUpperCase();
+                            if (c in criticality) criticality[c]++;
+                          });
+                          return [
+                            { name: 'CRITICA', value: criticality.CRITICA, color: '#EF4444' },
+                            { name: 'ALTA', value: criticality.ALTA, color: '#F97316' },
+                            { name: 'MEDIA', value: criticality.MEDIA, color: '#A78BFA' },
+                            { name: 'BAJA', value: criticality.BAJA, color: '#22C55E' },
+                          ].filter(d => d.value > 0);
+                        })()}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        dataKey="value"
+                        startAngle={90}
+                        endAngle={-270}
+                      >
+                        {[
+                          { color: '#EF4444' },
+                          { color: '#F97316' },
+                          { color: '#A78BFA' },
+                          { color: '#22C55E' },
+                        ].map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#1C2030', border: '1px solid #334155', borderRadius: '8px', color: '#F8FAFC' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-2 mt-4 text-xs">
+                  {[
+                    { label: 'CRITICA', color: '#EF4444' },
+                    { label: 'ALTA', color: '#F97316' },
+                    { label: 'MEDIA', color: '#A78BFA' },
+                    { label: 'BAJA', color: '#22C55E' },
+                  ].map(c => {
+                    const count = assets.filter(a => (a.criticidad ?? 'BAJA').toUpperCase() === c.label).length;
+                    return count > 0 ? (
+                      <div key={c.label} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ background: c.color }} />
+                          <span className="text-[#64748B]">{c.label}</span>
+                        </div>
+                        <span className="font-semibold text-white">{count}</span>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+
+              {/* Bar — Activos por tipo */}
+              <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
+                <h3 className="text-sm font-bold text-white mb-4">Distribución de Activos</h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={(() => {
+                        const tipos: Record<string, number> = {};
+                        assets.forEach(a => {
+                          const t = a.tipo || 'Desconocido';
+                          tipos[t] = (tipos[t] ?? 0) + 1;
+                        });
+                        return Object.entries(tipos).map(([name, value]) => ({
+                          name: name.length > 12 ? name.substring(0, 12) + '...' : name,
+                          value,
+                        }));
+                      })()}
+                    >
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748B' }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1C2030', border: '1px solid #334155', borderRadius: '8px', color: '#F8FAFC' }} />
+                      <Bar dataKey="value" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="flex items-center gap-2 bg-[#ff3b3b]/10 border border-[#ff3b3b]/30 rounded-lg px-4 py-3 text-sm text-[#ff3b3b]">

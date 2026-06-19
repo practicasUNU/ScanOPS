@@ -19,6 +19,7 @@ import {
   Layers,
   Database
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart, Line, CartesianGrid } from 'recharts';
 
 const ORCHESTRATOR_BASE = '/api/orchestrator';
 const M5_BASE = '/api/m5';
@@ -669,6 +670,100 @@ export function AlertsPage() {
               </div>
             </div>
           </div>
+
+          {/* ── GRÁFICOS DE ANÁLISIS DE ALERTAS ── */}
+          {liveAlerts.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Donut — Distribución por severidad */}
+              <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
+                <h3 className="text-sm font-bold text-white mb-4">Alertas por Severidad</h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={(() => {
+                          const severity = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+                          liveAlerts.forEach(a => {
+                            const s = (a.severity ?? 'LOW').toUpperCase();
+                            if (s in severity) severity[s as keyof typeof severity]++;
+                          });
+                          return [
+                            { name: 'CRITICAL', value: severity.CRITICAL, color: '#EF4444' },
+                            { name: 'HIGH', value: severity.HIGH, color: '#F97316' },
+                            { name: 'MEDIUM', value: severity.MEDIUM, color: '#A78BFA' },
+                            { name: 'LOW', value: severity.LOW, color: '#22C55E' },
+                          ].filter(d => d.value > 0);
+                        })()}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        dataKey="value"
+                        startAngle={90}
+                        endAngle={-270}
+                      >
+                        {[
+                          { name: 'CRITICAL', color: '#EF4444' },
+                          { name: 'HIGH', color: '#F97316' },
+                          { name: 'MEDIUM', color: '#A78BFA' },
+                          { name: 'LOW', color: '#22C55E' },
+                        ].map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#1C2030', border: '1px solid #334155', borderRadius: '8px', color: '#F8FAFC' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-2 mt-4 text-xs">
+                  {[
+                    { label: 'CRITICAL', color: '#EF4444' },
+                    { label: 'HIGH', color: '#F97316' },
+                    { label: 'MEDIUM', color: '#A78BFA' },
+                    { label: 'LOW', color: '#22C55E' },
+                  ].map(s => {
+                    const count = liveAlerts.filter(a => (a.severity ?? 'LOW').toUpperCase() === s.label).length;
+                    return count > 0 ? (
+                      <div key={s.label} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                          <span className="text-[#64748B]">{s.label}</span>
+                        </div>
+                        <span className="font-semibold text-white">{count}</span>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+
+              {/* Bar — Alertas por fuente */}
+              <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
+                <h3 className="text-sm font-bold text-white mb-4">Alertas por Fuente</h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={(() => {
+                        const sources: Record<string, number> = {};
+                        liveAlerts.forEach(a => {
+                          const src = a.source || 'Desconocido';
+                          sources[src] = (sources[src] ?? 0) + 1;
+                        });
+                        return Object.entries(sources).map(([name, value]) => ({
+                          name: name.split(' ')[0],
+                          value,
+                        }));
+                      })()}
+                    >
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748B' }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1C2030', border: '1px solid #334155', borderRadius: '8px', color: '#F8FAFC' }} />
+                      <Bar dataKey="value" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Banner M5 offline — datos ficticios */}
           {isMock && !alertsLoading && (
