@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
 const M7_BASE = '/api/m7';
 
@@ -250,6 +251,32 @@ const nonCompliant   = ENS_MEASURES.filter(m => m.status === 'non-compliant').le
 const notApplicable  = ENS_MEASURES.filter(m => m.status === 'not-applicable').length;
 const applicable     = ENS_MEASURES.length - notApplicable;
 const compliancePct  = Math.round((compliantCount / applicable) * 100);
+
+// Calcular estadísticas por categoría para gráficos
+const categories = [...new Set(ENS_MEASURES.map(m => m.category))];
+const categoryStats = categories.map(cat => {
+  const measures = ENS_MEASURES.filter(m => m.category === cat);
+  const compliant = measures.filter(m => m.status === 'compliant').length;
+  const partial = measures.filter(m => m.status === 'partial').length;
+  const nonCompliant = measures.filter(m => m.status === 'non-compliant').length;
+  const notAppl = measures.filter(m => m.status === 'not-applicable').length;
+  const applicableCat = measures.length - notAppl;
+  return {
+    name: cat,
+    compliant,
+    partial,
+    nonCompliant,
+    notApplicable: notAppl,
+    percentage: applicableCat > 0 ? Math.round((compliant / applicableCat) * 100) : 0,
+    applicable: applicableCat,
+  };
+}).sort((a, b) => b.percentage - a.percentage);
+
+const statusDistribution = [
+  { name: 'Conforme', value: compliantCount, color: '#22c55e' },
+  { name: 'Parcial', value: partialCount, color: '#f59e0b' },
+  { name: 'No conforme', value: nonCompliant, color: '#ff3b3b' },
+];
 
 const MODULE_ROUTES: Record<string, string> = {
   M1: '/assets', M2: '/surface', M3: '/surface',
@@ -518,6 +545,124 @@ export function CompliancePage() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* ── GRÁFICOS DE ANÁLISIS ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Donut Chart — Distribución de estados */}
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
+              <h3 className="text-sm font-bold text-white mb-4">Distribución de Estados</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statusDistribution}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      dataKey="value"
+                      startAngle={90}
+                      endAngle={-270}
+                    >
+                      {statusDistribution.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => value} contentStyle={{ backgroundColor: '#1C2030', border: '1px solid #334155', borderRadius: '8px', color: '#F8FAFC' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-2 mt-4">
+                {statusDistribution.map(s => (
+                  <div key={s.name} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                      <span className="text-[#64748B]">{s.name}</span>
+                    </div>
+                    <span className="font-semibold text-white">{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Bar Chart — Top 8 categorías por cumplimiento */}
+            <div className="bg-[#111318] border border-[#1C2030] rounded-xl p-6">
+              <h3 className="text-sm font-bold text-white mb-4">Cumplimiento por Categoría</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={categoryStats.slice(0, 8)}>
+                    <XAxis
+                      dataKey="name"
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                      tick={{ fontSize: 11, fill: '#64748B' }}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      tick={{ fontSize: 11, fill: '#64748B' }}
+                      label={{ value: '%', angle: -90, position: 'insideLeft' }}
+                    />
+                    <Tooltip
+                      formatter={(value) => `${value}%`}
+                      contentStyle={{ backgroundColor: '#1C2030', border: '1px solid #334155', borderRadius: '8px', color: '#F8FAFC' }}
+                    />
+                    <Bar dataKey="percentage" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-3 text-xs text-[#64748B]">
+                {categoryStats.length > 8 && <span>Mostrando top 8 de {categoryStats.length} categorías</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Tabla de progreso por categoría ── */}
+          <div className="bg-[#111318] border border-[#1C2030] rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-[#1C2030]">
+              <h3 className="text-sm font-bold text-white">Progreso por Categoría</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-[10px] text-[#475569] border-b border-[#1C2030] bg-[#0A0C10]/50">
+                    <th className="px-4 py-3 font-medium">Categoría</th>
+                    <th className="px-4 py-3 font-medium text-center">Conformes</th>
+                    <th className="px-4 py-3 font-medium text-center">Parciales</th>
+                    <th className="px-4 py-3 font-medium text-center">No conformes</th>
+                    <th className="px-4 py-3 font-medium text-center">Progreso</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1C2030]">
+                  {categoryStats.map(cat => (
+                    <tr key={cat.name} className="hover:bg-[#1C2030]/30 transition-colors">
+                      <td className="px-4 py-3 text-white font-medium">{cat.name}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="px-2 py-1 bg-[#22c55e]/10 text-[#22c55e] rounded text-xs font-semibold">{cat.compliant}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="px-2 py-1 bg-[#f59e0b]/10 text-[#f59e0b] rounded text-xs font-semibold">{cat.partial}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="px-2 py-1 bg-[#ff3b3b]/10 text-[#ff3b3b] rounded text-xs font-semibold">{cat.nonCompliant}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-[#1C2030] rounded-full overflow-hidden min-w-20">
+                            <div
+                              className="h-full bg-gradient-to-r from-[#22c55e] to-[#84cc16] rounded-full transition-all"
+                              style={{ width: `${cat.percentage}%` }}
+                            />
+                          </div>
+                          <span className="text-[#64748B] font-mono text-xs min-w-8 text-right">{cat.percentage}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* ── Panel evidencias pipeline ── */}
