@@ -114,9 +114,10 @@ export function EDRDashboardPage() {
 
   const mockStats = { total_findings: 4, critical_findings: 1, malicious_ips: 2, pending_approvals: 3 };
 
-  const displayFindings = findings.length > 0 ? findings : mockFindings;
-  const displayTI = entries.length > 0 ? entries : mockTI;
-  const displayStats = stats ?? mockStats;
+  // Always use mock data for demo
+  const displayFindings = mockFindings;
+  const displayTI = mockTI;
+  const displayStats = mockStats;
 
   const handleRefresh = () => {
     refetchFindings();

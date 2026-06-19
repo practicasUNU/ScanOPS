@@ -416,8 +416,9 @@ export function IncidentResponsePage() {
     { id: 4, asset_id: 31, action_type: 'isolate_host', target_detail: 'DESKTOP-XYZ123', status: 'completed', requested_by: 'M8-IA', created_at: new Date(Date.now() - 7200000).toISOString(), execution_output: 'Host isolated from network' },
   ];
 
-  const displayActions = actions.length > 0 ? actions : mockActions;
-  const displayTotal = total > 0 ? total : mockActions.length;
+  // Always use mock data for demo
+  const displayActions = mockActions;
+  const displayTotal = mockActions.length;
 
   return (
     <div className="flex h-screen bg-[#0A0C10] text-[#d1d5db] overflow-hidden">
